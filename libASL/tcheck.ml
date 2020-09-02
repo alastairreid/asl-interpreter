@@ -2102,6 +2102,16 @@ let addSetterFunction (env: GlobalEnv.t) (loc: AST.l) (qid: AST.ident) (tvs: Ide
 (** {2 Typecheck instruction}                                   *)
 (****************************************************************)
 
+let tc_body_with_implicits env b loc =
+  Env.nest_with_bindings (fun env' ->
+      let b' = List.map (tc_stmt env') b in
+      let imps = Env.getAllImplicits env in
+      List.iter (fun (v, ty) -> Env.addLocalVar env' loc v ty) imps;
+      let decls = declare_implicits loc imps in
+      if verbose && decls <> [] then Printf.printf "Implicit decls: %s %s" (pp_loc loc) (Utils.to_string (PP.pp_indented_block decls));
+      List.append decls b'
+    ) env
+
 (** Typecheck instruction encoding *)
 let tc_encoding (env: Env.t) (x: encoding): (encoding * ((AST.ident * AST.ty) list)) =
     (match x with
@@ -2112,14 +2122,7 @@ let tc_encoding (env: Env.t) (x: encoding): (encoding * ((AST.ident * AST.ty) li
         ) fields;
         let guard' = check_expr env loc type_bool guard in
         (* let (b', bs) = Env.nest_with_bindings (fun env' -> List.map (tc_stmt env') b) env in *)
-        let (b', bs) = Env.nest_with_bindings (fun env' ->
-            let b' = List.map (tc_stmt env') b in
-            let imps = Env.getAllImplicits env in
-            List.iter (fun (v, ty) -> Env.addLocalVar env' loc v ty) imps;
-            let decls = declare_implicits loc imps in
-            if verbose && decls <> [] then Printf.printf "Implicit decls: %s %s" (pp_loc loc) (Utils.to_string (PP.pp_indented_block decls));
-            List.append decls b'
-        ) env in
+        let (b', bs) = tc_body_with_implicits env b loc in
         (Encoding_Block (nm, iset, fields, opcode, guard', unpreds, b', loc), bs)
     )
 
@@ -2371,7 +2374,7 @@ let tc_declaration (env: GlobalEnv.t) (d: AST.declaration): AST.declaration list
 
             let (opost', pvs) = (match opost with
                 | Some b ->
-                    let (b', vs) = Env.nest_with_bindings (fun env' -> List.map (tc_stmt env') b) locals in
+                    let (b', vs) = tc_body_with_implicits locals b loc in
                     (Some b', vs)
                 | None ->
                     (None, []))
