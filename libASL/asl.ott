@@ -165,21 +165,21 @@ l :: '' ::=            {{ phantom }}
                        {{ ocaml l }}
                        {{ com Source location }}
                        {{ pp     l = pp_loc l }}
-                       {{ pp-raw l = PPrintEngine.string (pp_loc l) }}
+                       {{ pp-raw l = PPrint.string (pp_loc l) }}
   |                    :: :: Unknown {{ ocaml Unknown }}
 
 ident :: '' ::=        {{ phantom }}
                        {{ ocaml ident }}
                        {{ com Identifier }}
-                       {{ pp     l = PPrintEngine.string (pprint_ident l) }}
-                       {{ pp-raw l = PPrintEngine.string (pprint_ident l) }}
+                       {{ pp     l = PPrint.string (pprint_ident l) }}
+                       {{ pp-raw l = PPrint.string (pprint_ident l) }}
   | id                 :: :: Ident {{ ocaml Ident [[id]] }}
 
 typeident :: '' ::=    {{ phantom }}
                        {{ ocaml ident }}
                        {{ com Type Identifier }}
-                       {{ pp     l = PPrintEngine.string (pprint_ident l) }}
-                       {{ pp-raw l = PPrintEngine.string (pprint_ident l) }}
+                       {{ pp     l = PPrint.string (pprint_ident l) }}
+                       {{ pp-raw l = PPrint.string (pprint_ident l) }}
   | typeid             :: :: TypeIdent {{ ocaml Ident [[typeid]] }}
 
 grammar

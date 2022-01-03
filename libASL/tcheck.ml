@@ -7,13 +7,13 @@
 
 (** Type inference and checker for ASL language *)
 
-module PE   = PPrintEngine
-module PC   = PPrintCombinators
 module PP   = Asl_parser_pp
 module AST  = Asl_ast
 module Visitor = Asl_visitor
 
-open PE
+let (^^), string, separate, brackets, parens =
+  PPrint.((^^), string, separate, brackets, parens)
+
 open AST
 open Utils
 open Asl_utils
@@ -141,25 +141,25 @@ type funtype = (AST.ident * bool * AST.ident list * AST.expr list * (AST.ty * AS
 
 let ft_id ((f, _, _, _, _, _): funtype): AST.ident = f
 
-let pp_funtype ((f, isArr, tvs, cs, atys, rty): funtype): document =
+let pp_funtype ((f, isArr, tvs, cs, atys, rty): funtype): PPrint.document =
     PP.pp_ident f
     ^^ string " :: " ^^
     (if tvs = [] then
         string ""
     else
-        (string "∀ " ^^ (PC.separate (string ", ") (List.map PP.pp_ident tvs))
+        (string "∀ " ^^ (separate (string ", ") (List.map PP.pp_ident tvs))
         ^^ string " . ")
     )
     ^^
     (if cs = [] then
         string ""
     else
-        ((PC.separate (string ", ") (List.map PP.pp_expr cs))
+        ((separate (string ", ") (List.map PP.pp_expr cs))
         ^^ string " => "
         )
     )
-    ^^ (if isArr then PC.brackets else PC.parens)
-       (PC.separate (string ", ") (List.map PP.pp_formal atys))
+    ^^ (if isArr then brackets else parens)
+       (separate (string ", ") (List.map PP.pp_formal atys))
     ^^ string " -> "
     ^^ PP.pp_ty rty
 
@@ -179,24 +179,24 @@ type sfuntype = (AST.ident * AST.ident list * AST.expr list * AST.sformal list *
 
 let sft_id ((f, _, _, _, _): sfuntype): AST.ident = f
 
-let pp_sfuntype ((f, tvs, cs, atys, vty): sfuntype): document =
+let pp_sfuntype ((f, tvs, cs, atys, vty): sfuntype): PPrint.document =
     PP.pp_ident f
     ^^ string " :: " ^^
     (if tvs = [] then
         string ""
     else
-        (string "∀ " ^^ (PC.separate (string ", ") (List.map PP.pp_ident tvs))
+        (string "∀ " ^^ (separate (string ", ") (List.map PP.pp_ident tvs))
         ^^ string " . ")
     )
     ^^
     (if cs = [] then
         string ""
     else
-        ((PC.separate (string ", ") (List.map PP.pp_expr cs))
+        ((separate (string ", ") (List.map PP.pp_expr cs))
         ^^ string " => "
         )
     )
-    ^^ PC.parens (PC.separate (string ", ") (List.map PP.pp_sformal atys))
+    ^^ parens (separate (string ", ") (List.map PP.pp_sformal atys))
     ^^ string " <- "
     ^^ PP.pp_ty vty
 
@@ -1127,7 +1127,7 @@ let reportChoices (loc: AST.l) (what: string) (nm: string) (tys: AST.ty list) (f
     List.iter (fun (f, _, _, _, atys, rty) ->
         Printf.printf "  Choice : %s : %s -> %s\n"
             (pprint_ident f)
-            (Utils.to_string (PPrintCombinators.separate (PPrintEngine.string " ")
+            (Utils.to_string (separate (string " ")
                 (List.map (fun (ty, _) -> PP.pp_ty ty) atys)))
             (pp_type rty)
     ) funs
@@ -1311,7 +1311,7 @@ and tc_slice (env: Env.t) (u: unifier) (loc: AST.l) (x: AST.slice): (AST.slice *
     )
 
 (** Typecheck pattern against type ty *)
-and tc_pattern (env: Env.t) (loc: AST.l) (ty: AST.ty) (x: AST.pattern): AST.pattern = 
+and tc_pattern (env: Env.t) (loc: AST.l) (ty: AST.ty) (x: AST.pattern): AST.pattern =
     ( match x with
     | Pat_LitInt(l) ->
             check_type_exact env loc ty type_integer;

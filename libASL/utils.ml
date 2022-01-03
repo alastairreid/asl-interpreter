@@ -11,9 +11,9 @@
  * Pretty-printer related
  ****************************************************************)
 
-let to_string (d: PPrintEngine.document): string =
+let to_string (d: PPrint.document): string =
     let buf = Buffer.create 100 in
-    PPrintEngine.ToBuffer.compact buf d;
+    PPrint.ToBuffer.compact buf d;
     Buffer.contents buf
 
 
