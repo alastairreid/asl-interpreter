@@ -1310,6 +1310,40 @@ let mk_ffi_conversion (loc : Loc.t) (indirect : bool) (c_name : Ident.t) (asl_na
   let module Runtime = (val (!runtime) : RuntimeLib) in
   let pp_asl_name (fmt : PP.formatter) : unit = ident fmt asl_name in
   let pp_c_name (fmt : PP.formatter) : unit = ptr fmt (); ident fmt c_name in
+  let mk_ffi_convert_small_bits (n : int) =
+    { asl_name = asl_name;
+      asl_type = asl_type;
+      c_name = c_name;
+      pp_c_type = Some (fun fmt -> PP.fprintf fmt "uint%d_t" n);
+      pp_c_decl = (fun fmt ->
+        PP.fprintf fmt "uint%d_t %a%a" n ptr () ident c_name);
+      pp_asl_to_c = (fun fmt ->
+        PP.fprintf fmt "%a%a = %a;"
+          ptr ()
+          ident c_name
+          (Runtime.ffi_asl2c_bits_small n) pp_asl_name);
+      pp_c_to_asl = (fun fmt ->
+        varty loc fmt asl_name asl_type;
+        PP.fprintf fmt " = %a;"
+          (Runtime.ffi_c2asl_bits_small n) pp_c_name);
+    }
+  in
+  let mk_ffi_convert_large_bits (n : int) =
+    let chunks = (n+63) / 64 in
+    { asl_name = asl_name;
+      asl_type = asl_type;
+      c_name = c_name;
+      pp_c_type = None;
+      pp_c_decl = (fun fmt ->
+        PP.fprintf fmt "uint64_t %a[%d]"
+          ident c_name
+          chunks);
+      pp_asl_to_c = (fun fmt ->
+        Runtime.ffi_asl2c_bits_large fmt n pp_c_name pp_asl_name);
+      pp_c_to_asl = (fun fmt ->
+        Runtime.ffi_c2asl_bits_large fmt n pp_asl_name pp_c_name);
+    }
+  in
   ( match asl_type with
   | Type_Constructor (tc, []) when Ident.equal tc boolean_ident ->
       (* No conversion needed for boolean type since we use stdbool.h's bool already *)
@@ -1380,40 +1414,17 @@ let mk_ffi_conversion (loc : Loc.t) (indirect : bool) (c_name : Ident.t) (asl_na
           PP.fprintf fmt " = %a;"
             Runtime.ffi_c2asl_sintN_small pp_c_name);
       }
-  | Type_Bits(Expr_Lit (VInt n), _) when List.mem (Z.to_int n) [8; 16; 32; 64] ->
-      let n' = Z.to_int n in
-      { asl_name = asl_name;
-        asl_type = asl_type;
-        c_name = c_name;
-        pp_c_type = Some (fun fmt -> PP.fprintf fmt "uint%d_t" n');
-        pp_c_decl = (fun fmt ->
-          PP.fprintf fmt "uint%d_t %a%a" n' ptr () ident c_name);
-        pp_asl_to_c = (fun fmt ->
-          PP.fprintf fmt "%a%a = %a;"
-            ptr ()
-            ident c_name
-            (Runtime.ffi_asl2c_bits_small n') pp_asl_name);
-        pp_c_to_asl = (fun fmt ->
-          varty loc fmt asl_name asl_type;
-          PP.fprintf fmt " = %a;"
-            (Runtime.ffi_c2asl_bits_small n') pp_c_name);
-      }
-  | Type_Bits(Expr_Lit (VInt n), _) ->
-      let n' = Z.to_int n in
-      let chunks = (n'+63) / 64 in
-      { asl_name = asl_name;
-        asl_type = asl_type;
-        c_name = c_name;
-        pp_c_type = None;
-        pp_c_decl = (fun fmt ->
-          PP.fprintf fmt "uint64_t %a[%d]"
-            ident c_name
-            chunks);
-        pp_asl_to_c = (fun fmt ->
-          Runtime.ffi_asl2c_bits_large fmt (Z.to_int n) pp_c_name pp_asl_name);
-        pp_c_to_asl = (fun fmt ->
-          Runtime.ffi_c2asl_bits_large fmt (Z.to_int n) pp_asl_name pp_c_name);
-      }
+  | Type_Bits(Expr_Lit (VInt n), _)
+    when List.mem (Z.to_int n) [8; 16; 32; 64]
+    -> mk_ffi_convert_small_bits (Z.to_int n)
+  | Type_Bits(Expr_TApply (f, _, [Expr_Lit (VIntN n)], _), _)
+    when Ident.equal f cvt_sintN_int && List.mem (Z.to_int n.v) [8; 16; 32; 64]
+    -> mk_ffi_convert_small_bits (Z.to_int n.v)
+  | Type_Bits(Expr_Lit (VInt n), _)
+    -> mk_ffi_convert_large_bits (Z.to_int n)
+  | Type_Bits(Expr_TApply (f, _, [Expr_Lit (VIntN n)], _), _)
+    when Ident.equal f cvt_sintN_int
+    -> mk_ffi_convert_large_bits (Z.to_int n.v)
   | _ ->
       let msg = PP.asprintf "Type '%a' cannot be used in functions that are imported or exported between ASL and C"
         FMT.ty asl_type

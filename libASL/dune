@@ -62,6 +62,7 @@
    check_monomorphization
    xform_bitslices
    xform_bittuples
+   xform_bounded
    xform_case
    xform_constprop
    xform_desugar
