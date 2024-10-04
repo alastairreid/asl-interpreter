@@ -159,17 +159,6 @@ base_script = """
 // functions.
 :filter_unlisted_functions imports
 
-// Remove global variables corresponding to thread-local variables
-// (Thread local variables are listed in a configuration file like this
-//
-//     {{
-//         "thread_local_state": [
-//             "GPR",
-//             "RFLAGS"
-//         ]
-//     }}
-:filter_listed_variables thread_local_state
-
 // Deleting the ASL definitions of any functions on the import list may
 // result in additional dead code (i.e., functions that are only used by
 // those functions) so delete any unreachable functions
@@ -197,10 +186,10 @@ base_script = """
 // etc. know what file/line in the ASL file produced each line of C code.
 // Use --line-info or --no-line-info to control this.
 //
-// Optionally, references to thread-local processor state such as registers
-// can be accessed via a pointer.
-// (This can be useful when modelling multi-processor systems.)
-:{generate_c} --output-dir={output_dir} --basename={basename} --num-c-files={num_c_files} {line_info} {thread_local}
+// Optionally, global state can be split across multiple structs.
+// (This can be useful when modelling multi-processor systems to separate
+// thread-local state from global state.)
+:{generate_c} --output-dir={output_dir} --basename={basename} --num-c-files={num_c_files} {line_info} {split_state}
 
 :quit
 """.strip()
@@ -304,11 +293,13 @@ def mk_script(args, output_directory):
         'line_info':   "",
         'num_c_files': args.num_c_files,
         'output_dir':  output_directory,
+        'split_state': "",
         'track_valid': "",
         'wrap_variables': "",
     }
     if args.instrument_unknown: substitutions['track_valid'] = ":xform_valid track-valid"
     if args.wrap_variables: substitutions['wrap_variables'] = ":xform_wrap"
+    if args.split_state: substitutions['split_state'] = "--split-state"
     if not args.auto_case_split:
         substitutions['auto_case_split'] = '--no-auto-case-split'
     else:
@@ -317,12 +308,6 @@ def mk_script(args, output_directory):
         substitutions['line_info'] = '--no-line-info'
     else:
         substitutions['line_info'] = '--line-info'
-    if args.thread_local_pointer:
-        thread_local = f"--thread-local-pointer={args.thread_local_pointer}"
-        thread_local += f" --thread-local=thread_local_state"
-    else:
-        thread_local = ''
-    substitutions['thread_local'] = thread_local
 
     script = base_script.format(**substitutions)
 
@@ -446,7 +431,7 @@ def main() -> int:
     parser.add_argument("--num-c-files", help="write functions to N files (default: 1)", metavar="N", type=int, default=1)
     parser.add_argument("--auto-case-split", help="generate case split code automatically", action=argparse.BooleanOptionalAction)
     parser.add_argument("--line-info", help="insert line directives into C code", action=argparse.BooleanOptionalAction)
-    parser.add_argument("--thread-local-pointer", help="name of pointer to thread-local processor state", metavar="varname", default=None)
+    parser.add_argument("--split-state", help="split state into multiple structs", action=argparse.BooleanOptionalAction)
     parser.add_argument("--instrument-unknown", help="instrument assignments of UNKNOWN", action=argparse.BooleanOptionalAction)
     parser.add_argument("--wrap-variables", help="wrap global variables into functions", action=argparse.BooleanOptionalAction)
     parser.add_argument("-O0", help="perform minimal set of transformations", action=argparse.BooleanOptionalAction)
