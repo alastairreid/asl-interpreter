@@ -73,7 +73,7 @@
    xform_tuples
    xform_valid
    xform_wrap)
- (libraries menhirLib ocolor yojson zarith z3))
+ (libraries menhirLib ocolor str yojson zarith z3))
 
 
 (env (_ (odoc (warnings fatal))))

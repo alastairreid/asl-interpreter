@@ -198,20 +198,26 @@ let ident (fmt : PP.formatter) (x : Ident.t) : unit =
 
 let semicolon (fmt : PP.formatter) : unit = PP.pp_print_string fmt ";"
 
-(* Support for packing thread-local state (e.g., registers) into a struct that is then
- * accessed via the named pointer.
- *
- * todo: at present, all global variable are treated as thread-local.
- * In the future shared state such as memory should be stored separately.
+(* Support for distributing state (e.g., registers and memory) into struct that
+ * are then accessed via a named pointer.
+ * Typically used to separate state into thread-local, processor-local,
+ * cluster-local, package-local, etc. structs
  *)
-let opt_thread_local_pointer : string option ref = ref None
-let thread_local_variables : Ident.t list ref = ref []
+let var_ptrs : (string * string) Bindings.t ref = ref Bindings.empty
 
 let pointer (fmt : PP.formatter) (x : Ident.t) : unit =
-  ( match !opt_thread_local_pointer with
-  | Some ptr when List.mem x !thread_local_variables -> PP.fprintf fmt "%s->" ptr
+  ( match Bindings.find_opt x !var_ptrs with
+  | Some (_, ptr) -> PP.fprintf fmt "%s->" ptr
   | _ -> ()
   )
+
+(* Any global state can register an initializer to be run on a global variable.
+ * This is currently only used for RAM blocks.
+ *)
+let initializers : (string * string) list ref = ref []
+
+let add_initializer (struct_name : string) (i : string) : unit =
+  initializers := !initializers @ [(struct_name, i)]
 
 (* list of all exception tycons - used to decide whether to insert a tag in
  * Expr_RecordInit
@@ -1028,12 +1034,21 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
           | Type_Constructor (i, [ _ ])
             when Ident.equal i Builtin_idents.ram && not is_extern_val ->
               let ram fmt v = PP.fprintf fmt "ASL_%a" ident v in
-              PP.fprintf fmt "struct ASL_ram %a = (struct ASL_ram){ 0 };@," ram v;
-              varty loc fmt v ty;
-              PP.fprintf fmt " = &%a;@,@," ram v
+              ( match Bindings.find_opt v !var_ptrs with
+              | Some (s, ptr) -> (* if RAM is in a struct, initializer function needs to set pointer to the RAM object *)
+                PP.fprintf fmt "struct ASL_ram %a;@," ram v;
+                varty loc fmt v ty;
+                PP.fprintf fmt ";@,";
+                add_initializer s (PP.asprintf "p->%a = (struct ASL_ram){ 0 };" ram v);
+                add_initializer s (PP.asprintf "p->%a = &p->%a;" ident v ram v)
+              | None -> (* if RAM is not in a struct, it can be initialized directly *)
+                PP.fprintf fmt "struct ASL_ram %a = (struct ASL_ram){ 0 };@," ram v;
+                varty loc fmt v ty;
+                PP.fprintf fmt " = &%a;@,@," ram v;
+              )
           | _ ->
               varty loc fmt v ty;
-              PP.fprintf fmt ";@,@,"
+              PP.fprintf fmt ";@,"
           );
       | Decl_BuiltinFunction (f, fty, loc) ->
           ()
@@ -1128,30 +1143,6 @@ let type_decls (xs : AST.declaration list) : AST.declaration list =
     )
   in
   List.filter_map mk_type_decl xs
-
-let var_decls (xs : AST.declaration list) : AST.declaration list =
-  let is_var_decl (x : AST.declaration) : bool =
-    ( match x with
-    | Decl_Const _
-    | Decl_Config _
-    | Decl_Var _
-      -> true
-
-    | Decl_Enum _
-    | Decl_Record _
-    | Decl_Exception _
-    | Decl_Typedef _
-    | Decl_FunType _
-    | Decl_FunDefn _
-    | Decl_BuiltinType _
-    | Decl_Forward _
-    | Decl_BuiltinFunction _
-    | Decl_Operator1 _
-    | Decl_Operator2 _
-      -> false
-    )
-  in
-  List.filter is_var_decl xs
 
 let fun_decls (xs : AST.declaration list) : AST.declaration list =
   let is_fun_decl (x : AST.declaration) : bool =
@@ -1307,6 +1298,14 @@ let get_rt_header (_ : unit) : string list =
   let module Runtime = (val (!runtime) : RuntimeLib) in
   Runtime.file_header
 
+(* the name of the pointer to a given struct *)
+let struct_ptr (s : string) : string = s ^ "_ptr"
+
+let state_struct (fmt : PP.formatter) (name : string) (vs : AST.declaration list) : unit =
+  PP.fprintf fmt "struct %s {@." name;
+  indented fmt (fun _ -> declarations fmt vs);
+  PP.fprintf fmt "@.};@.@."
+
 let emit_c_header (dirname : string) (basename : string) (f : PP.formatter -> unit) : unit =
   let header_suffix = if !is_cxx then ".hpp" else ".h" in
   let basename = basename ^ header_suffix in
@@ -1350,10 +1349,44 @@ let emit_c_source (filename : string) ?(index : int option) (includes : string l
       f fmt
   )
 
+let regexps_match (res : Str.regexp list) (s : string) : bool =
+  List.exists (fun re -> Str.string_match re s 0) res
+
 let generate_files (num_c_files : int) (dirname : string) (basename : string)
     (ffi_prototypes : PP.formatter -> unit)
     (ffi_definitions : PP.formatter -> unit)
+    (structs : (Str.regexp list * string) list)
     (ds : AST.declaration list) : unit =
+
+  (* Construct
+   * - the global map 'var_ptrs' from global variables to the pointer to be used
+   *   to access the variable
+   * - the association list 'structs' from struct names to variable declarations
+   * - a list of all declarations of mutable and immutable variables not associated with a struct
+   *)
+  let struct_vars = ref (List.map (fun (_, s) -> (s, ref [])) structs) in
+  let global_vars : AST.declaration list ref = ref [] in
+  List.iter (fun d ->
+      ( match d with
+      | AST.Decl_Var (v, _, _) ->
+          let name = Ident.name v in
+          let entry = List.find_opt (fun (res, _) -> regexps_match res name) structs in
+          ( match entry with
+          | Some (_, s) ->
+              var_ptrs := Bindings.add v (s, struct_ptr s) !var_ptrs;
+              let ds = List.assoc s !struct_vars in
+              ds := d :: !ds
+          | None ->
+              global_vars := d :: !global_vars
+          )
+      | Decl_Const _
+      | Decl_Config _
+        ->
+          global_vars := d :: !global_vars
+      | _ -> ()
+      ))
+    ds;
+
   let basename_t = basename ^ "_types" in
   emit_c_header dirname basename_t (fun fmt ->
       type_decls ds |> Asl_utils.topological_sort |> List.rev |> declarations fmt;
@@ -1367,7 +1400,11 @@ let generate_files (num_c_files : int) (dirname : string) (basename : string)
   );
   let basename_v = basename ^ "_vars" in
   emit_c_header dirname basename_v (fun fmt ->
-      extern_declarations fmt (var_decls ds)
+      extern_declarations fmt !global_vars;
+      List.iter (fun (s, ds) -> state_struct fmt s !ds) !struct_vars;
+      List.iter
+        (fun (s, _) -> Format.fprintf fmt "extern struct %s *%s;@," s (struct_ptr s))
+        !struct_vars;
   );
 
   let header_suffix = if !is_cxx then ".hpp" else ".h" in
@@ -1379,7 +1416,21 @@ let generate_files (num_c_files : int) (dirname : string) (basename : string)
   emit_c_source filename_e gen_h_filenames exceptions_init;
 
   let filename_v = Filename.concat dirname basename_v in
-  emit_c_source filename_v gen_h_filenames (fun fmt -> declarations fmt (var_decls ds));
+  emit_c_source filename_v gen_h_filenames (fun fmt ->
+      declarations fmt !global_vars;
+      List.iter
+        (fun (s, _) -> Format.fprintf fmt "struct %s *%s;@," s (struct_ptr s))
+        !struct_vars;
+      List.iter
+        (fun (s, _) ->
+            Format.fprintf fmt "void ASL_initialize_%s(struct %s *p) {@," s s;
+            List.iter
+              (fun (s', i) -> if s = s' then Format.fprintf fmt "  %s\n" i;)
+              !initializers;
+            Format.fprintf fmt "}@,"
+        )
+        !struct_vars;
+  );
 
   let ds = fun_decls ds in
   let filename_f = Filename.concat dirname (basename ^ "_funs") in
@@ -1420,11 +1471,7 @@ let _ =
   let opt_dirname = ref "" in
   let opt_num_c_files = ref 1 in
   let opt_basename = ref "asl2c" in
-
-  let add_thread_local_variables (group : string) : unit =
-    let names = Configuration.get_strings group in
-    thread_local_variables := !thread_local_variables @ (Ident.mk_idents names)
-  in
+  let opt_split_state = ref false in
 
   let cmd (tcenv : Tcheck.Env.t) (cpu : Cpu.cpu) : bool =
     let decls = !Commands.declarations in
@@ -1435,8 +1482,32 @@ let _ =
         (* the new FFI doesn't change code if it thinks there are no exports *)
         []
     in
+
+    (* When splitting global state across structs is enabled,
+     * the struct map is a file contains entries like
+     *   "global": [ "RAM" ],
+     *   "thread_local": [ ".*" ]
+     * That is, a list of regular expressions associated with struct names.
+     *
+     * This is used to generate structs that contain entries for global
+     * mutable variables that match the regular expressions.
+     * And all references to those variables are indirected through a
+     * global variable that points to structs of that type.
+     * For example:
+     *   global_ptr->RAM
+     *   thread_local_ptr->RIP
+     *   thread_local_ptr->GPR[i]
+     * Note that immutable variables are not put in structs
+     *)
+    let structs = if !opt_split_state then
+        let map = Configuration.get_record_entries "split_state" in
+        List.map (fun (s, res) -> (List.map Str.regexp res), s) map
+      else
+        []
+    in
+
     let (ffi_protos, ffi_defns) = mk_ffi_exports decls exports in
-    generate_files !opt_num_c_files !opt_dirname !opt_basename ffi_protos ffi_defns decls;
+    generate_files !opt_num_c_files !opt_dirname !opt_basename ffi_protos ffi_defns structs decls;
     true
   in
 
@@ -1449,8 +1520,7 @@ let _ =
         ("--no-new-ffi",   Arg.Clear new_ffi,                  " Do not use new FFI");
         ("--line-info",    Arg.Set include_line_info,          " Insert line number information");
         ("--no-line-info", Arg.Clear include_line_info,        " Do not insert line number information");
-        ("--thread-local-pointer", Arg.String (fun s -> opt_thread_local_pointer := Some s), "<varname> Access all thread-local variables through named pointer");
-        ("--thread-local", Arg.String add_thread_local_variables, "<config name> Configuration file group of thread local variable names");
+        ("--split-state",  Arg.Set opt_split_state,            " Split global variables into structs");
       ]
   in
   Commands.registerCommand "generate_c_new" flags [] [] "Generate C (new)" cmd
