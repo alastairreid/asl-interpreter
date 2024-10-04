@@ -55,6 +55,19 @@ let read_configuration_file (filename : string) : unit =
 let get_strings (key : string) : string list =
   get_list_by_key key !configurations
 
+(** Read list of strings from all previously read configuration files *)
+let get_record_entries (key : string) : (string * string list) list =
+  let trees = List.filter_map (get_entry key) !configurations in
+  let keys = List.filter_map (fun tree ->
+      ( match tree with
+      | `Assoc kvs -> Some (List.map fst kvs)
+      | _ -> None
+      ))
+      trees
+      |> List.concat
+  in
+  List.map (fun key -> (key, get_list_by_key key trees)) keys
+
 (****************************************************************
  * End
  ****************************************************************)
