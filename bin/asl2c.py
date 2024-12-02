@@ -198,7 +198,7 @@ base_script = """
 // Optionally, global state can be split across multiple structs.
 // (This can be useful when modelling multi-processor systems to separate
 // thread-local state from global state.)
-:{generate_c} --output-dir={output_dir} --basename={basename} --num-c-files={num_c_files} {line_info} {split_state}
+:{generate_c} --output-dir={output_dir} --basename={basename} --num-c-files={num_c_files}
 
 :quit
 """.strip()
@@ -290,36 +290,38 @@ def mk_script(args, output_directory):
         'fallback':    f'generate_c_new {ffi} --runtime=fallback',
         'orig':        'generate_c',
     }
+    generate_c = backend_generator[args.backend]
+
+    if args.const_ref: generate_c += f" --const-ref={args.const_ref}"
+    if args.generate_cxx: generate_c += " --generate-cxx"
+    if args.split_state: generate_c += " --split-state"
+    if args.line_info:
+        generate_c += " --line-info"
+    else:
+        generate_c += " --no-line-info"
 
     if args.O0:
         filter1 = ":filter_unlisted_functions imports"
         filter2 = ":filter_reachable_from exports"
-        generate = f":{backend_generator[args.backend]} --output-dir={output_directory} --basename={args.basename} --num-c-files=1"
+        generate = f":{generate_c} --output-dir={output_directory} --basename={args.basename} --num-c-files=1"
         script = [filter1, filter2, generate]
         return "\n".join(script)
 
     substitutions = {
         'command':     " ".join(sys.argv),
         'basename':    args.basename,
-        'generate_c':  backend_generator[args.backend],
-        'line_info':   "",
+        'generate_c':  generate_c,
         'num_c_files': args.num_c_files,
         'output_dir':  output_directory,
-        'split_state': "",
         'track_valid': "",
         'wrap_variables': "",
     }
     if args.instrument_unknown: substitutions['track_valid'] = ":xform_valid track-valid"
     if args.wrap_variables: substitutions['wrap_variables'] = ":xform_wrap"
-    if args.split_state: substitutions['split_state'] = "--split-state"
     if not args.auto_case_split:
         substitutions['auto_case_split'] = '--no-auto-case-split'
     else:
         substitutions['auto_case_split'] = '--auto-case-split'
-    if not args.line_info:
-        substitutions['line_info'] = '--no-line-info'
-    else:
-        substitutions['line_info'] = '--line-info'
 
     script = base_script.format(**substitutions)
 
@@ -342,10 +344,10 @@ def mk_script(args, output_directory):
 # Building support functions
 ################################################################
 
-def mk_filenames(backend, working_directory, basename):
+def mk_filenames(backend, working_directory, basename, use_cxx):
     project_file = f"{working_directory}/asl2c.prj"
     config_file = f"{working_directory}/config.json"
-    suffix = "cpp" if backend in ["ac"] else "c"
+    suffix = "cpp" if use_cxx else "c"
     c_files = [
         f"{working_directory}/{basename}_exceptions.{suffix}",
         f"{working_directory}/{basename}_vars.{suffix}",
@@ -428,14 +430,13 @@ def compile_and_link(use_cxx, c_files, extra_c, exe_file, working_directory, c_f
     ] + c_flags + c_files + extra_objs + ld_flags
     run(cc_cmd)
 
-def build(script, asl_files, asli, configurations, imports, exports, extra_c, backend, working_directory, basename):
-    (project_file, config_file, c_files, exe_file) = mk_filenames(backend, working_directory, basename)
+def build(script, asl_files, asli, configurations, imports, exports, extra_c, use_cxx, backend, working_directory, basename):
+    (project_file, config_file, c_files, exe_file) = mk_filenames(backend, working_directory, basename, use_cxx)
     c_flags = get_c_flags(asli, backend)
     ld_flags = get_ld_flags(asli, backend)
     generate_project(project_file, script)
     generate_config_file(config_file, ["main"] + exports, imports)
     generate_c(asli, asl_files, project_file, [config_file]+configurations)
-    use_cxx = backend in ['ac']
     compile_and_link(use_cxx, c_files, extra_c, exe_file, working_directory, c_flags, ld_flags)
     return exe_file
 
@@ -465,8 +466,10 @@ def main() -> int:
     parser.add_argument("--num-c-files", help="write functions to N files (default: 1)", metavar="N", type=int, default=1)
     parser.add_argument("--configuration", help="compilation configuration files (only use with --build or --run)", metavar="json", action='append', default=[])
     parser.add_argument("--auto-case-split", help="generate case split code automatically", action=argparse.BooleanOptionalAction)
+    parser.add_argument("--const-ref", help="use const & for function arguments larger than N", metavar="N", type=int, default=0)
     parser.add_argument("--extra-c", help="extra C file to be compiled/linked with ASL code (C generation only)", action='append', default=[])
     parser.add_argument("--export", dest="exports", help="export this symbol (C generation only)", action='append', default=[])
+    parser.add_argument("--generate-cxx", help="generate C++ code", action="store_true", default=False)
     parser.add_argument("--import", dest="imports", help="import this symbol (C generation only)", action='append', default=[])
     parser.add_argument("--line-info", help="insert line directives into C code", action=argparse.BooleanOptionalAction)
     parser.add_argument("--new-ffi", help="use the new FFI", action="store_true", default=False)
@@ -502,6 +505,10 @@ def main() -> int:
     if args.backend == "interpreter" and not args.run:
         print("Error: must specify --run with asli backend")
         exit(1)
+    if args.backend in ['ac']: args.generate_cxx = True
+    if args.const_ref and not args.generate_cxx:
+        print("Error: must specify --generate-cxx with --const-ref")
+        exit(1)
 
     # when running tests, we need to be able to use ASLi without having installed it
     asli = pathlib.Path(__file__).parent / "asli"
@@ -528,7 +535,7 @@ def main() -> int:
         working_directory = make_working_dir(args.working_dir, prefix="asltest.")
         report(f"# In temporary directory {working_directory}")
         script = mk_script(args, working_directory)
-        exe_file = build(script, args.asl_files, asli, args.configuration, args.imports, args.exports, args.extra_c, args.backend, working_directory, args.basename)
+        exe_file = build(script, args.asl_files, asli, args.configuration, args.imports, args.exports, args.extra_c, args.generate_cxx, args.backend, working_directory, args.basename)
         if args.run:
             run([exe_file])
         if not args.save_temps: shutil.rmtree(working_directory)

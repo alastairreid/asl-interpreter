@@ -28,8 +28,7 @@ let is_cxx = ref false
 let set_runtime (rt : string) : unit =
   runtime := if rt = "ac" then (module Runtime_ac.Runtime : RuntimeLib)
              else if rt = "c23" then (module Runtime_c23.Runtime : RuntimeLib)
-             else (module Runtime_fallback.Runtime : RuntimeLib);
-  is_cxx := (rt = "ac")
+             else (module Runtime_fallback.Runtime : RuntimeLib)
 
 let include_line_info : bool ref = ref false
 let new_ffi : bool ref = ref false
@@ -47,6 +46,36 @@ let wrap_extern (add_wrapper : bool) (fmt : PP.formatter) (f : PP.formatter -> '
   ) else (
     f fmt
   )
+
+(* Pass arguments bigger than this using const & (C++ syntax)
+ * Also, structs and arrays are also passed by reference no matter
+ * how large they are.
+ *
+ * Don't use 'const &' for any arguments if set to 0.
+ *)
+let const_ref_limit : int ref = ref 0
+
+let use_const_ref (loc : Loc.t) (x : AST.ty) : bool =
+  if !const_ref_limit = 0 then
+    false
+  else
+    ( match x with
+    | Type_Integer _ -> true
+    | Type_Bits (Expr_Lit (VInt n), _) ->
+        let n' = Z.to_int n in
+        n' > !const_ref_limit
+    | Type_Constructor (tc, _) ->
+        not (
+            Ident.equal tc boolean_ident
+            || Ident.equal tc string_ident
+        )
+    | Type_Array (ix_ty, ty) -> true
+    | Type_Tuple tys -> true
+    | _ ->
+        let msg = Format.asprintf "use_const_ref: unexpected type" in
+        let pp fmt = FMT.ty fmt x in
+        raise (Error.Unimplemented (loc, msg, pp))
+    )
 
 let commasep (pp : PP.formatter -> 'a -> unit) (fmt : PP.formatter) (xs : 'a list) : unit =
   PP.pp_print_list
@@ -644,12 +673,14 @@ and index_expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
   let module Runtime = (val (!runtime) : RuntimeLib) in
   Runtime.ffi_asl2c_integer_small fmt (mk_expr loc x)
 
-and varty (loc : Loc.t) (fmt : PP.formatter) (v : Ident.t) (x : AST.ty) : unit =
+and varty ?(const_ref = false) (loc : Loc.t) (fmt : PP.formatter) (v : Ident.t) (x : AST.ty) : unit =
   let module Runtime = (val (!runtime) : RuntimeLib) in
   ( match x with
   | Type_Bits (n, _) ->
+    if const_ref then PP.fprintf fmt "const ";
     Runtime.ty_bits fmt (const_int_expr loc n);
     nbsp fmt;
+    if const_ref then PP.fprintf fmt "&";
     ident fmt v
   | Type_Constructor (tc, []) ->
       ( match tc with
@@ -660,9 +691,14 @@ and varty (loc : Loc.t) (fmt : PP.formatter) (v : Ident.t) (x : AST.ty) : unit =
         PP.fprintf fmt "const char *%a"
           ident v
       | _ ->
-        PP.fprintf fmt "%a %a"
-          ident tc
-          ident v
+        if const_ref then
+          PP.fprintf fmt "const %a &%a"
+            ident tc
+            ident v
+        else
+          PP.fprintf fmt "%a %a"
+            ident tc
+            ident v
       )
   | Type_Constructor (i, [n]) when Ident.equal i Builtin_idents.sintN ->
     Runtime.ty_sintN fmt (const_int_expr loc n);
@@ -677,10 +713,10 @@ and varty (loc : Loc.t) (fmt : PP.formatter) (v : Ident.t) (x : AST.ty) : unit =
     nbsp fmt;
     ident fmt v
   | Type_Array (Index_Enum tc, ety) ->
-    varty loc fmt v ety;
+    varty ~const_ref:const_ref loc fmt v ety;
     PP.fprintf fmt "[%a]" ident tc
   | Type_Array (Index_Int (Expr_Lit (VInt sz)), ety) ->
-    varty loc fmt v ety;
+    varty ~const_ref:const_ref loc fmt v ety;
     PP.fprintf fmt "[%s]" (Z.format "%d" sz)
   | Type_Constructor (_, _)
   | Type_OfExpr _
@@ -975,8 +1011,8 @@ and indented_block (fmt : PP.formatter) (xs : AST.stmt list) : unit =
   end
 
 let formal (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t * AST.ty) : unit =
-  let v, t = x in
-  varty loc fmt v t
+  let (v, t) = x in
+  varty ~const_ref:(use_const_ref loc t) loc fmt v t
 
 let function_header (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (fty : AST.function_type) : unit =
   PP.pp_print_option
@@ -2044,6 +2080,8 @@ let _ =
         ("--basename",     Arg.Set_string opt_basename,        "<basename>   Basename of output files");
         ("--num-c-files",  Arg.Set_int opt_num_c_files,        "<num>        Number of .c files created (default: 1)");
         ("--runtime",      Arg.Symbol (runtimes, set_runtime), "fallback|c23 Select runtime system");
+        ("--const-ref",    Arg.Set_int const_ref_limit,        " Use 'const &' for arguments bigger than this");
+        ("--generate-cxx", Arg.Set is_cxx,                     " Generate C++ code");
         ("--new-ffi",      Arg.Set   new_ffi,                  " Use new FFI");
         ("--no-new-ffi",   Arg.Clear new_ffi,                  " Do not use new FFI");
         ("--line-info",    Arg.Set include_line_info,          " Insert line number information");
