@@ -584,14 +584,56 @@ module Runtime : RT.RuntimeLib = struct
     PP.fprintf fmt "fputs(%a, stdout)" RT.pp_expr x
 
   (* Foreign Function Interface (FFI) *)
-  let ffi_integer_to_c_int (fmt : PP.formatter) (x : RT.rt_expr) : unit =
-    PP.fprintf fmt "%a.to_int()" RT.pp_expr x
+  let ffi_c2asl_integer_small (fmt : PP.formatter) (x : RT.rt_expr) : unit =
+    PP.fprintf fmt "((%a)%a)" ty_sint int_width RT.pp_expr x
 
-  let ffi_integer_to_c_sint64 (fmt : PP.formatter) (x : RT.rt_expr) : unit =
+  let ffi_asl2c_integer_small (fmt : PP.formatter) (x : RT.rt_expr) : unit =
     PP.fprintf fmt "%a.to_int64()" RT.pp_expr x
 
-  let ffi_bits_to_c_uint64 (fmt : PP.formatter) (n : int) (x : RT.rt_expr) : unit =
-    PP.fprintf fmt "%a.to_uint64()" RT.pp_expr x
+  let ffi_c2asl_bits_small (n : int) (fmt : PP.formatter) (x : RT.rt_expr) : unit =
+    assert (List.mem n [8; 16; 32; 64]);
+    PP.fprintf fmt "((%a) %a)"
+      ty_bits n
+      RT.pp_expr x
+
+  let ffi_asl2c_bits_small (n : int) (fmt : PP.formatter) (x : RT.rt_expr) : unit =
+    assert (List.mem n [8; 16; 32; 64]);
+    PP.fprintf fmt "((uint%d_t)(%a.to_uint64()))"
+      n
+      RT.pp_expr x
+
+  let ffi_c2asl_bits_large (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit =
+    let num_limbs = (n + 31) / 32 in
+    PP.fprintf fmt "%a %a;@,"
+      ty_bits n
+      RT.pp_expr x;
+    PP.fprintf fmt "%a = ac::bit_fill<%a>((const int [%d]){"
+      RT.pp_expr x
+      ty_uint n
+      num_limbs;
+    for limb = num_limbs - 1 downto 0 do
+      (* generate either "(int)(x[limb] >> 0)" or "(int)(x[limb] >> 32)" *)
+      let shift_distance = 32 * (limb mod 2) in
+      PP.fprintf fmt "(int)(%a[%d] >> %d)"
+        RT.pp_expr y
+        (limb / 2)
+        shift_distance;
+      if limb != 0 then PP.fprintf fmt ", "
+    done;
+    PP.fprintf fmt "});"
+
+  let ffi_asl2c_bits_large (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit =
+    let array_size = (n + 63) / 64 in
+    for limb = 0 to array_size - 1 do
+      let slice_size = min 64 (n - limb * 64) in (* handle final slice *)
+      PP.fprintf fmt "%a[%d] = %a.slc<%d>(%d).to_uint64();@,"
+        RT.pp_expr x
+        limb
+        RT.pp_expr y
+        slice_size
+        (limb * 64)
+    done
+
 end
 
 (****************************************************************

@@ -34,6 +34,20 @@ let set_runtime (rt : string) : unit =
 let include_line_info : bool ref = ref false
 let new_ffi : bool ref = ref false
 
+let wrap_extern (add_wrapper : bool) (fmt : PP.formatter) (f : PP.formatter -> 'a) : 'a =
+  if add_wrapper then (
+    PP.fprintf fmt "@.#ifdef __cplusplus@.";
+    PP.fprintf fmt "extern \"C\" {@.";
+    PP.fprintf fmt "#endif@,@.";
+    let r = f fmt in
+    PP.fprintf fmt "@.#ifdef __cplusplus@.";
+    PP.fprintf fmt "}@.";
+    PP.fprintf fmt "#endif@,@.";
+    r
+  ) else (
+    f fmt
+  )
+
 let commasep (pp : PP.formatter -> 'a -> unit) (fmt : PP.formatter) (xs : 'a list) : unit =
   PP.pp_print_list
     ~pp_sep:(fun fmt' _ -> PP.pp_print_string fmt' ", ")
@@ -197,6 +211,30 @@ let ident (fmt : PP.formatter) (x : Ident.t) : unit =
 (* C delimiters *)
 
 let semicolon (fmt : PP.formatter) : unit = PP.pp_print_string fmt ";"
+
+(* Support for handling enumerations in the Foreign Function Interface *)
+
+let enumerated_types : (Ident.t list) Bindings.t ref = ref Bindings.empty
+
+let add_enumerated_type (tc : Ident.t) (es : Ident.t list) : unit =
+  enumerated_types := Bindings.add tc es !enumerated_types
+
+let is_enumerated_type (x : Ident.t) : bool =
+  Bindings.mem x !enumerated_types
+
+
+(* Support for handling return types in the Foreign Function Interface *)
+
+let return_types : ((Ident.t * AST.ty) list) Bindings.t ref = ref Bindings.empty
+
+let add_return_type (tc : Ident.t) (es : (Ident.t * AST.ty) list) : unit =
+  return_types := Bindings.add tc es !return_types
+
+let fields_of_return_type (x : AST.ty) : (Ident.t * AST.ty) list option =
+  ( match x with
+  | Type_Constructor (tc, []) -> Bindings.find_opt tc !return_types
+  | _ -> None
+  )
 
 (* Support for distributing state (e.g., registers and memory) into struct that
  * are then accessed via a named pointer.
@@ -592,7 +630,7 @@ and exprs (loc : Loc.t) (fmt : PP.formatter) (es : AST.expr list) : unit =
  *)
 and index_expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
   let module Runtime = (val (!runtime) : RuntimeLib) in
-  Runtime.ffi_integer_to_c_sint64 fmt (mk_expr loc x)
+  Runtime.ffi_asl2c_integer_small fmt (mk_expr loc x)
 
 and varty (loc : Loc.t) (fmt : PP.formatter) (v : Ident.t) (x : AST.ty) : unit =
   let module Runtime = (val (!runtime) : RuntimeLib) in
@@ -787,9 +825,9 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
           PP.fprintf fmt "switch (";
           ( match ty with
           | Type_Integer _
-          -> Runtime.ffi_integer_to_c_sint64 fmt (mk_expr loc e)
+          -> Runtime.ffi_asl2c_integer_small fmt (mk_expr loc e)
           | Type_Bits (n,_)
-          -> Runtime.ffi_bits_to_c_uint64 fmt (const_int_expr loc n) (mk_expr loc e)
+          -> Runtime.ffi_asl2c_bits_small 64 fmt (mk_expr loc e)
           | _
           -> expr loc fmt e
           );
@@ -1009,7 +1047,8 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
           if Ident.equal tc boolean_ident then (
               (* is in C99 stdbool.h *)
           ) else (
-            PP.fprintf fmt "typedef enum {%a} %a;@,@,"
+            PP.fprintf fmt "typedef enum %a {%a} %a;@,@,"
+              ident tc
               (commasep ident) es
               ident tc;
           )
@@ -1170,125 +1209,591 @@ let fun_decls (xs : AST.declaration list) : AST.declaration list =
 
 (****************************************************************
  * Foreign Function Interface (FFI)
+ *
+ * This code is responsible for generating wrapper functions that
+ * deal with differences between the runtime representations of
+ * data values and checking that exported functions do not
+ * throw exceptions.
+ *
+ * Note that this is only intended to support a subset of ASL types
+ * - boolean
+ * - bits(N)
+ *   Either uint{8,16,32,64}_t (when the bitsize matches _exactly_)
+ *   Or an array of uint64_t (for all other sizes)
+ * - integer (limited to 64-bit ints)
+ * - string
+ * - enumeration types
+ *
+ * Omissions include records, etc.
+ * This may increase slowly over time but the key to keeping this
+ * manageable is to focus on doing the hard, runtime-dependent
+ * parts in this tool but to leave some of the work for users to
+ * do.
  ****************************************************************)
 
-let ffi_ty (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : unit =
-    ( match x with
-    | Type_Bits(Expr_Lit (VInt n), _) when List.mem (Z.to_int n) [8; 16; 32; 64] ->
-        Format.fprintf fmt "uint%d_t" (Z.to_int n)
-    | Type_Integer _ ->
-        Format.fprintf fmt "int"
-    | Type_Constructor (tc, _) ->
-        ident fmt tc
-    | _ ->
-        let msg = Format.asprintf "Type '%a' cannot be used in functions that are imported or exported between ASL and C"
-          FMT.ty x
-        in
-        raise (Error.TypeError (loc, msg))
-    )
+(****************************************************************
+ * The core of this process is data conversion for which we
+ * generate the following from the ASL variable name and type
+ * - A C variable name
+ * - The corresponding C type
+ * - Code to convert the ASL type to the C type
+ * - Code to convert the C type to the ASL type
+ * The type and conversion code are Format functions.
+ * Optionally, the C variable can be a pointer to a value.
+ * For convenience, the ASL variable and type are also part of the
+ * structure.
+ ****************************************************************)
 
-let ffi_rty (loc : Loc.t) (fmt : PP.formatter) (ox : AST.ty option) : unit =
-    ( match ox with
-    | Some x -> ffi_ty loc fmt x
-    | None -> Format.fprintf fmt "void"
-    )
+type ffi_conversion = {
+    asl_name : Ident.t;
+    asl_type : AST.ty;
+    c_name : Ident.t;
+    pp_c_type : (PP.formatter -> unit) option;
+    pp_c_decl : PP.formatter -> unit;
+    pp_asl_to_c : PP.formatter -> unit;
+    pp_c_to_asl : PP.formatter -> unit;
+}
 
-let ffi_fun_header (loc : Loc.t) (fmt : PP.formatter) (function_name : string) (x : AST.function_type) : unit =
-    if not (Utils.is_empty x.parameters)
-      || Option.is_some x.setter_arg
-      || x.use_array_syntax
-      || x.is_getter_setter
-      || x.throws != NoThrow
-    then begin
-        let msg = Format.asprintf "Type '%a' cannot be used in functions that are imported or exported between ASL and C"
-          FMT.function_type x
-        in
-        raise (Error.TypeError (loc, msg))
-    end;
-    Format.fprintf fmt "%a %s("
-      (ffi_rty loc) x.rty
-      function_name;
-    commasep (fun fmt (arg, ty) ->
-      Format.fprintf fmt "%a %a"
-        (ffi_ty loc) ty
-        ident arg)
-      fmt
-      x.args;
-    Format.fprintf fmt ")"
+let mk_ffi_conversion (loc : Loc.t) (indirect : bool) (c_name : Ident.t) (asl_name : Ident.t) (asl_type : AST.ty) : ffi_conversion =
+  let ptr fmt _ = if indirect then PP.fprintf fmt "*" else () in
+  let module Runtime = (val (!runtime) : RuntimeLib) in
+  let pp_asl_name (fmt : PP.formatter) : unit = ident fmt asl_name in
+  let pp_c_name (fmt : PP.formatter) : unit = ptr fmt (); ident fmt c_name in
+  ( match asl_type with
+  | Type_Constructor (tc, []) when Ident.equal tc boolean_ident ->
+      (* No conversion needed for boolean type since we use stdbool.h's bool already *)
+      { asl_name = asl_name;
+        asl_type = asl_type;
+        c_name = c_name;
+        pp_c_type = Some (fun fmt -> PP.fprintf fmt "bool%a" ptr ());
+        pp_c_decl = (fun fmt -> PP.fprintf fmt "bool %a%a" ptr () ident c_name);
+        pp_asl_to_c = (fun fmt -> PP.fprintf fmt "%a%a = %a;" ptr () ident c_name ident asl_name);
+        pp_c_to_asl = (fun fmt -> PP.fprintf fmt "bool %a = %a%a;" ident asl_name ptr () ident c_name);
+      }
+  | Type_Constructor (tc, []) when Ident.equal tc string_ident ->
+      (* No conversion needed for string type since we use 'const char*' already.
+       * Note that any strings generated by ASL code are constants (and should not
+       * be freed) and that freeing of any strings passed to ASL from C code need to be
+       * managed by the C world.
+       *)
+      { asl_name = asl_name;
+        asl_type = asl_type;
+        c_name = c_name;
+        pp_c_type = Some (fun fmt -> PP.fprintf fmt "const char*%a" ptr ());
+        pp_c_decl = (fun fmt -> PP.fprintf fmt "const char *%a%a" ptr () ident c_name);
+        pp_asl_to_c = (fun fmt -> PP.fprintf fmt "%a%a = %a;" ptr () ident c_name ident asl_name);
+        pp_c_to_asl = (fun fmt -> PP.fprintf fmt "const char *%a = %a%a;" ident asl_name ptr () ident c_name);
+      }
+  | Type_Constructor (tc, []) when is_enumerated_type tc ->
+      (* No conversion needed for enumerated type since we use an identical enumeration *)
+      { asl_name = asl_name;
+        asl_type = asl_type;
+        c_name = c_name;
+        pp_c_type = Some (fun fmt -> PP.fprintf fmt "enum %a%a" ident tc ptr ());
+        pp_c_decl = (fun fmt -> PP.fprintf fmt "enum %a %a%a" ident tc ptr () ident c_name);
+        pp_asl_to_c = (fun fmt -> PP.fprintf fmt "%a%a = %a;" ptr () ident c_name ident asl_name);
+        pp_c_to_asl = (fun fmt -> PP.fprintf fmt "%a %a = %a%a;" ident tc ident asl_name ptr () ident c_name);
+      }
+  | Type_Integer _ ->
+      { asl_name = asl_name;
+        asl_type = asl_type;
+        c_name = c_name;
+        pp_c_type = Some (fun fmt -> PP.fprintf fmt "int%a" ptr ());
+        pp_c_decl = (fun fmt -> PP.fprintf fmt "int %a%a" ptr () ident c_name);
+        pp_asl_to_c = (fun fmt ->
+          PP.fprintf fmt "%a%a = %a;"
+            ptr ()
+            ident c_name
+            Runtime.ffi_asl2c_integer_small pp_asl_name);
+        pp_c_to_asl = (fun fmt ->
+          varty loc fmt asl_name asl_type;
+          PP.fprintf fmt " = %a;"
+            Runtime.ffi_c2asl_integer_small pp_c_name);
+      }
+  | Type_Bits(Expr_Lit (VInt n), _) when List.mem (Z.to_int n) [8; 16; 32; 64] ->
+      let n' = Z.to_int n in
+      { asl_name = asl_name;
+        asl_type = asl_type;
+        c_name = c_name;
+        pp_c_type = Some (fun fmt -> PP.fprintf fmt "uint%d_t" n');
+        pp_c_decl = (fun fmt ->
+          PP.fprintf fmt "uint%d_t %a%a" n' ptr () ident c_name);
+        pp_asl_to_c = (fun fmt ->
+          PP.fprintf fmt "%a%a = %a;"
+            ptr ()
+            ident c_name
+            (Runtime.ffi_asl2c_bits_small n') pp_asl_name);
+        pp_c_to_asl = (fun fmt ->
+          varty loc fmt asl_name asl_type;
+          PP.fprintf fmt " = %a;"
+            (Runtime.ffi_c2asl_bits_small n') pp_c_name);
+      }
+  | Type_Bits(Expr_Lit (VInt n), _) ->
+      let n' = Z.to_int n in
+      let chunks = (n'+63) / 64 in
+      { asl_name = asl_name;
+        asl_type = asl_type;
+        c_name = c_name;
+        pp_c_type = None;
+        pp_c_decl = (fun fmt ->
+          PP.fprintf fmt "uint64_t %a[%d]"
+            ident c_name
+            chunks);
+        pp_asl_to_c = (fun fmt ->
+          Runtime.ffi_asl2c_bits_large fmt (Z.to_int n) pp_c_name pp_asl_name);
+        pp_c_to_asl = (fun fmt ->
+          Runtime.ffi_c2asl_bits_large fmt (Z.to_int n) pp_asl_name pp_c_name);
+      }
+  | _ ->
+      let msg = PP.asprintf "Type '%a' cannot be used in functions that are imported or exported between ASL and C"
+        FMT.ty asl_type
+      in
+      raise (Error.TypeError (loc, msg))
+  )
 
-(* convert runtime value to corresponding C value based on type *)
-let mk_ffi_to_C (loc : Loc.t) (fmt : PP.formatter) (t : AST.ty) (x : rt_expr) : unit =
-    let module Runtime = (val (!runtime) : RuntimeLib) in
-    ( match t with
-    | Type_Integer _ -> Runtime.ffi_integer_to_c_int fmt x
-    | _ ->
-        let msg = Format.asprintf "Type '%a' cannot be used in functions that are imported or exported between ASL and C"
-          FMT.ty t
-        in
-        raise (Error.TypeError (loc, msg))
-    )
+(****************************************************************
+ * The main ingredients of import and export wrappers for a
+ * function are what you would expect:
+ *
+ * On import (allowing ASL to call a C function):
+ * - convert the arguments from ASL to C
+ * - convert the results from C to ASL
+ *
+ * On export (allowing C to call an ASL function):
+ * - convert the arguments from C to ASL
+ * - convert the results from ASL to C
+ *
+ * The only awkward details are:
+ * - functions that return ()/void - don't convert the result
+ * - functions that return bits(N) where N is not in {8, 16, 32, 64}
+ *   - add them all as out-arguments
+ * - functions that return multiple results in a tuple.
+ *   By the time they reach this code generator, these have
+ *   been transformed into functions that return an ASL record
+ *   but, since this is just an artifact of the current code generator,
+ *   we do not expose the struct in the interface.
+ *   Instead, the function takes some number of additional arguments
+ *   which are pointers to write each part of the result to.
+ *   (Supporting this is quite awkward because it breaks the pattern
+ *   that there is a 1:1 relationship between ASL values and C values.)
+ ****************************************************************)
 
-let mk_ffi_proto (fmt : PP.formatter) ((function_name, fty, loc) : (string * AST.function_type * Loc.t)) : unit =
-    ffi_fun_header loc fmt function_name fty;
-    Format.fprintf fmt ";@,"
+(** FFI function checks *)
+let ffi_function_checks (loc : Loc.t) (is_import : bool) (asl_name : Ident.t) (fty : AST.function_type) : unit =
+  let direction = if is_import then "Import" else "Export" in
+  if not (Utils.is_empty fty.parameters)
+    || Option.is_some fty.setter_arg
+    || fty.use_array_syntax
+    || fty.is_getter_setter
+  then begin
+      let msg = PP.asprintf "Function '%a' with type '%a' cannot be used in %sed functions"
+        ident asl_name
+        FMT.function_type fty
+        direction
+      in
+      raise (Error.TypeError (loc, msg))
+  end;
 
-let mk_ffi_defn (fmt : PP.formatter) ((function_name, fty, loc) : (string * AST.function_type * Loc.t)) : unit =
-    ffi_fun_header loc fmt function_name fty;
-    Format.fprintf fmt "{@,";
+  if fty.throws != NoThrow then begin
+    if is_import then begin
+      PP.printf "Warning: imported function '%a' can throw an exception. These will be ignored.@,"
+        ident asl_name
+    end else begin
+      PP.printf "Warning: exported function '%a' can throw an exception. Exceptions will be treated as errors.@,"
+        ident asl_name
+    end
+  end
+
+(** Generate an ffi wrapper function that converts inputs, calls the function,
+ *  and converts outputs.
+ *
+ * There are five main parts to exporting an ASL function to C
+ * - the C function header
+ * - convert all argument values from their C representation to their ASL representation
+ * - call the ASL function with the ASL arguments
+ * - convert all ASL result values from their ASL representation to their C representation
+ * - the return statement
+ *)
+let mk_ffi_export_wrapper
+    (loc : Loc.t)
+    (asl_name : Ident.t)
+    (c_name : Ident.t)
+    (fty : AST.function_type)
+    : (PP.formatter -> unit) * (PP.formatter -> unit)
+    =
+  ffi_function_checks loc false asl_name fty;
+
+  let (pp_input_decls, pp_input_cvts, input_args) =
+      fty.args
+      |> List.map (fun (asl_arg_name, asl_arg_ty) ->
+           let c_name = Ident.add_prefix asl_arg_name ~prefix:"_" in
+           let input = mk_ffi_conversion loc false c_name asl_arg_name asl_arg_ty in
+           ( input.pp_c_decl
+           , input.pp_c_to_asl
+           , input.asl_name
+           )
+         )
+      |> Utils.split3
+  in
+
+  let pp_funlist fs fmt = List.iter (fun f -> f fmt; PP.fprintf fmt "@,") fs in
+  let pp_stmtlist fs fmt = List.iter (fun f -> f fmt; PP.fprintf fmt ";@,") fs in
+
+  (* Most of the complexity is in dealing with tuple returns *)
+  let asl_ret_name = Ident.mk_ident "ret" in
+  let (pp_c_ret_type, pp_c_ret_value, pp_output_arg_decls, pp_output_cvts) =
+      let pp_void_type fmt = PP.fprintf fmt "void" in
+      ( match fty.rty with
+      | None -> (pp_void_type, (fun fmt -> ()), [], [])
+      | Some ty ->
+          let c_name = Ident.add_prefix asl_ret_name ~prefix:"c_" in
+          ( match fields_of_return_type ty with
+          | Some fs ->
+              let (pp_extracts, pp_c_decls, pp_c_names, pp_cvts) =
+                fs
+                |> List.map (fun (asl_field_name, ty) ->
+                     let asl_name = Ident.add_prefix asl_field_name ~prefix:"asl_" in
+                     let c_name = Ident.add_prefix asl_field_name ~prefix:"c_" in
+                     let field = mk_ffi_conversion loc true c_name asl_name ty in
+                     let pp_extract fmt =
+                         varty loc fmt asl_name field.asl_type;
+                         PP.fprintf fmt " = %a.%a;"
+                           Ident.pp asl_ret_name
+                           Ident.pp asl_field_name
+                     in
+                     (pp_extract, field.pp_c_decl, (fun fmt -> Ident.pp fmt field.c_name), field.pp_asl_to_c)
+                   )
+                |> Utils.split4
+              in
+              ( pp_void_type
+              , (fun fmt -> ())
+              , pp_c_decls
+              , pp_extracts @ pp_cvts
+              )
+          | None ->
+            let output = mk_ffi_conversion loc false c_name asl_ret_name ty in
+            ( match output.pp_c_type with
+            | Some pp ->
+                ( pp
+                , (fun fmt -> Ident.pp fmt output.c_name)
+                , []
+                , [pp_stmtlist [output.pp_c_decl]; output.pp_asl_to_c]
+                )
+            | None ->
+                (* Functions can't directly return arrays, so add to C arg list *)
+                ( pp_void_type
+                , (fun fmt -> ())
+                , [output.pp_c_decl]
+                , [output.pp_asl_to_c]
+                )
+            )
+          )
+      )
+  in
+
+  let pp_c_function_header fmt _ =
+    pp_c_ret_type fmt;
+    PP.fprintf fmt " %a(%a)"
+      ident c_name
+      (commasep (fun fmt pp -> pp fmt)) (pp_input_decls @ pp_output_arg_decls)
+  in
+
+  (* generate body of export wrapper *)
+  let pp_export_body fmt =
+    pp_funlist pp_input_cvts fmt;
     PP.fprintf fmt "ASL_exception._exc.ASL_tag = ASL_no_exception;@,";
-    Format.fprintf fmt "    ";
-    let ret : Ident.t = Ident.mk_ident "__r" in
-    let pp_ret (fmt : PP.formatter) : unit = ident fmt ret in
-    let call (fmt : PP.formatter) : unit =
-      Format.fprintf fmt "%a(%a)"
-        ident (Ident.mk_fident function_name)
-        (commasep (fun fmt (arg, ty) -> ident fmt arg)) fty.args
-    in
     ( match fty.rty with
+    | None -> ()
     | Some rty ->
-        varty loc fmt ret rty;
-        Format.fprintf fmt " = ";
-        call fmt
-    | None ->
-        call fmt
+        varty loc fmt asl_ret_name rty;
+        PP.fprintf fmt " = "
     );
-    Format.fprintf fmt ";@,";
-    PP.fprintf fmt "if (ASL_exception._exc.ASL_tag != ASL_no_exception) ASL_error(\"%s\", \"uncaught exception\");@,"
-      (String.escaped (Loc.to_string loc));
-    ( match fty.rty with
-    | Some rty ->
-        Format.fprintf fmt "return ";
-        mk_ffi_to_C loc fmt rty pp_ret;
-        Format.fprintf fmt ";@,"
-    | None ->
-        ()
-    );
-    Format.fprintf fmt "}@,"
+    PP.fprintf fmt "%a(%a);@,"
+      ident asl_name
+      (commasep Ident.pp) input_args;
+    PP.fprintf fmt "if (ASL_exception._exc.ASL_tag != ASL_no_exception) ASL_error(\"%a\", \"uncaught exception\");@,"
+      ident asl_name;
+    pp_funlist pp_output_cvts fmt;
+    PP.fprintf fmt "return %a;" (fun fmt _ -> pp_c_ret_value fmt) ()
+  in
 
-let mk_ffi_exports (decls : AST.declaration list) (function_names : string list) :
+  let pp_proto fmt = PP.fprintf fmt "%a;@." pp_c_function_header ()
+  in
+
+  let pp_wrapper fmt =
+    PP.fprintf fmt "// Export wrapper for %a@.@." ident c_name;
+    wrap_extern true fmt (fun fmt ->
+      PP.fprintf fmt "%a {" pp_c_function_header ();
+      indented fmt (fun _ -> pp_export_body fmt);
+      PP.fprintf fmt "@,}@."
+    )
+  in
+
+  (pp_proto, pp_wrapper)
+
+(** Generate an ffi wrapper function that converts inputs, calls the function,
+ *  and converts outputs.
+ *
+ * There are five main parts to importing a C function to ASL
+ * - the ASL function header
+ * - convert all argument values from their ASL representation to their C representation
+ * - call the C function with the C arguments
+ * - convert all C result values from their C representation to their ASL representation
+ * - the return statement
+ *)
+let mk_ffi_import_wrapper
+    (loc : Loc.t)
+    (asl_name : Ident.t)
+    (c_name : Ident.t)
+    (fty : AST.function_type)
+    : (PP.formatter -> unit) * (PP.formatter -> unit)
+    =
+
+  ffi_function_checks loc true asl_name fty;
+
+  let (pp_input_decls, pp_input_cvts, pp_input_args) =
+      fty.args
+      |> List.map (fun (asl_arg_name, asl_arg_ty) ->
+           let c_name = Ident.add_prefix asl_arg_name ~prefix:"_" in
+           let input = mk_ffi_conversion loc false c_name asl_arg_name asl_arg_ty in
+           let pp_cvt fmt =
+                 input.pp_c_decl fmt;
+                 PP.fprintf fmt ";@,";
+                 input.pp_asl_to_c fmt
+           in
+           ( input.pp_c_decl
+           , pp_cvt
+           , (fun fmt -> Ident.pp fmt input.c_name)
+           )
+         )
+      |> Utils.split3
+  in
+
+  let pp_funlist fs fmt = List.iter (fun f -> f fmt; PP.fprintf fmt "@,") fs in
+  let pp_stmtlist fs fmt = List.iter (fun f -> f fmt; PP.fprintf fmt ";@,") fs in
+
+  (* Most of the complexity is in dealing with tuple returns *)
+  let asl_ret_name = Ident.mk_ident "ret" in
+  let (pp_c_ret_type, pp_c_ret_decl, pp_asl_ret_value, pp_output_args, pp_output_arg_decls, pp_output_var_decls, pp_output_cvts) =
+      let pp_void_type fmt = PP.fprintf fmt "void" in
+      ( match fty.rty with
+      | None -> (pp_void_type, None, (fun fmt -> ()), [], [], [], [])
+      | Some ty ->
+          let c_name = Ident.add_prefix asl_ret_name ~prefix:"c_" in
+          ( match fields_of_return_type ty with
+          | Some fs ->
+              let (pp_inserts, pp_c_arg_decls, pp_c_var_decls, pp_c_args, pp_cvts) =
+                fs
+                |> List.map (fun (asl_field_name, ty) ->
+                     let asl_name = Ident.add_prefix asl_field_name ~prefix:"asl_" in
+                     let c_name = Ident.add_prefix asl_field_name ~prefix:"c_" in
+                     let field = mk_ffi_conversion loc false c_name asl_name ty in
+                     let field_indirect = mk_ffi_conversion loc true c_name asl_name ty in
+                     let pp_insert fmt =
+                         PP.fprintf fmt "%a.%a = %a;"
+                           Ident.pp asl_ret_name
+                           Ident.pp asl_field_name
+                           Ident.pp asl_name
+                     in
+                     let pp_c_arg fmt = PP.fprintf fmt "&%a" Ident.pp field.c_name in
+                     (pp_insert, field_indirect.pp_c_decl, field.pp_c_decl, pp_c_arg, field.pp_c_to_asl)
+                   )
+                |> Utils.split5
+              in
+              let pp_decl_ret_var fmt =
+                  varty loc fmt asl_ret_name ty;
+                  PP.fprintf fmt ";"
+              in
+              ( pp_void_type
+              , None
+              , (fun fmt -> Ident.pp fmt asl_ret_name)
+              , pp_c_args
+              , pp_c_arg_decls
+              , pp_c_var_decls
+              , pp_cvts @ [pp_decl_ret_var] @ pp_inserts
+              )
+          | None ->
+            let output = mk_ffi_conversion loc false c_name asl_ret_name ty in
+            ( match output.pp_c_type with
+            | Some pp ->
+                ( pp
+                , Some output.pp_c_decl
+                , (fun fmt -> Ident.pp fmt output.asl_name)
+                , []
+                , []
+                , []
+                , [output.pp_c_to_asl]
+                )
+            | None ->
+                (* Functions can't directly return arrays, so add to C arg list *)
+                ( pp_void_type
+                , None
+                , (fun fmt -> Ident.pp fmt output.asl_name)
+                , [(fun fmt -> Ident.pp fmt output.c_name)]
+                , [output.pp_c_decl]
+                , [output.pp_c_decl]
+                , [output.pp_c_to_asl]
+                )
+            )
+          )
+      )
+  in
+
+  let pp_c_function_header fmt _ =
+    pp_c_ret_type fmt;
+    PP.fprintf fmt " %a(%a)"
+      ident c_name
+      (commasep (fun fmt pp -> pp fmt)) (pp_input_decls @ pp_output_arg_decls)
+  in
+
+  (* generate body of import wrapper *)
+  let pp_import_body fmt =
+    pp_funlist pp_input_cvts fmt;
+    pp_stmtlist pp_output_var_decls fmt;
+    ( match pp_c_ret_decl with
+    | None -> ()
+    | Some pp ->
+        pp fmt;
+        PP.fprintf fmt " = "
+    );
+    PP.fprintf fmt "%a(%a);@,"
+      ident c_name
+      (commasep (fun fmt f -> f fmt)) (pp_input_args @ pp_output_args);
+    pp_funlist pp_output_cvts fmt;
+    PP.fprintf fmt "return %a;" (fun fmt _ -> pp_asl_ret_value fmt) ()
+  in
+
+  let pp_proto fmt = PP.fprintf fmt "%a;@." pp_c_function_header ()
+  in
+
+  let pp_wrapper fmt =
+    PP.fprintf fmt "// Import wrapper for %a@.@." ident c_name;
+    wrap_extern true fmt pp_proto;
+    function_header loc fmt asl_name fty;
+    PP.fprintf fmt "@,{@,";
+    indented fmt (fun _ -> pp_import_body fmt);
+    PP.fprintf fmt "@,}@."
+  in
+
+  (pp_proto, pp_wrapper)
+
+(* Build ffi wrapper functions *)
+let mk_ffi_wrappers (is_import : bool) (decl_map : (AST.declaration list) Bindings.t) (c_names : string list) :
     (PP.formatter -> unit) * (PP.formatter -> unit) =
-  let map = Asl_utils.decls_map_of decls in
-
+  let direction = if is_import then "Import" else "Export" in
   let missing : string list ref = ref [] in
-  let infos = List.filter_map (fun function_name ->
-      let fn_name = Ident.mk_fident function_name in
-      ( match Bindings.find_opt fn_name map with
-      | Some (Decl_FunType (_, fty, loc) :: _) -> Some (function_name, fty, loc)
-      | Some (Decl_FunDefn (_, fty, _, loc) :: _) -> Some (function_name, fty, loc)
+  let infos = List.filter_map (fun c_name ->
+      let asl_ident = Ident.mk_fident c_name in
+      let c_ident = Ident.mk_ident c_name in
+      ( match Bindings.find_opt asl_ident decl_map with
+      | Some (Decl_FunType (_, fty, loc) :: _) -> Some (c_ident, asl_ident, fty, loc)
+      | Some (Decl_FunDefn (_, fty, _, loc) :: _) -> Some (c_ident, asl_ident, fty, loc)
+      | _ when is_enumerated_type c_ident ->
+          None
       | _ ->
-          missing := function_name :: !missing;
+          missing := c_name :: !missing;
           None
       )
-    ) function_names
+    ) c_names
   in
   if not (Utils.is_empty !missing) then begin
-      Format.eprintf "Error: unable to find exported functions\n";
-      List.iter (Format.eprintf "  '%s'\n") !missing;
-      exit 1
+    List.iter (PP.eprintf "Error: %sed function '%s' is not defined\n" direction) !missing;
+    exit 1
   end;
-  let mk_protos fmt = cutsep mk_ffi_proto fmt infos in
-  let mk_defns fmt = cutsep mk_ffi_defn fmt infos in
-  (mk_protos, mk_defns)
+  let (mk_protos, mk_defns) =
+    infos
+    |> List.map (fun (c_name, asl_name, fty, loc) ->
+         PP.printf "%sing function '%a'\n" direction ident c_name;
+         if is_import then
+           mk_ffi_import_wrapper loc asl_name c_name fty
+         else
+           mk_ffi_export_wrapper loc asl_name c_name fty
+       )
+    |> List.split
+  in
+  let pp_protos fmt : unit = List.iter (fun f -> f fmt) mk_protos in
+  let pp_defns fmt : unit = List.iter (fun f -> f fmt) mk_defns in
+  (pp_protos, pp_defns)
+
+let ffi_track_enums (decl_map : (AST.declaration list) Bindings.t) (exports : string list) : unit =
+  List.iter (fun c_name ->
+    let c_ident = Ident.mk_ident c_name in
+    ( match Bindings.find_opt c_ident decl_map with
+    | Some (Decl_Enum (tc, es, loc) :: _) ->
+      PP.printf "Exporting type %a\n" ident tc;
+      add_enumerated_type tc es
+    | _ ->
+      ()
+    ))
+    exports
+
+let ffi_track_return_types (decls : AST.declaration list) : unit =
+  List.iter (fun x ->
+    ( match x with
+    | AST.Decl_Record (tc, [], fs, loc) when Xform_tuples.isReturnTypeName tc ->
+      add_return_type tc fs
+    | _ ->
+      ()
+    ))
+    decls
+
+(* Generate C enumeration declarations for FFI file *)
+let mk_ffi_enums (fmt : PP.formatter) : unit =
+  Bindings.bindings !enumerated_types
+  |> List.iter (fun (tc, es) -> PP.fprintf fmt "enum %a { %a };@," ident tc (commasep ident) es)
+
+let config_setter_prefix = "ASL_set_config_"
+let config_getter_prefix = "ASL_get_config_"
+
+(* Generate ASL functions for reading/writing configuration variables.
+ * These will then be exported so that C code can read/write the variables.
+ *)
+let mk_ffi_config (decls : AST.declaration list) : (string list * AST.declaration list) =
+  let configs = List.filter_map (fun x ->
+      ( match x with
+      | AST.Decl_Config (v, ty, i, loc) -> Some (v, ty, loc)
+      | _ -> None
+      ))
+    decls
+  in
+
+  let mk_functions ((v, ty, loc) : (Ident.t * AST.ty * Loc.t)) : (string list * AST.declaration list) =
+    let getter_name = config_getter_prefix ^ Ident.name v in
+    let getter_id = Ident.mk_fident getter_name in
+    let getter_fty : AST.function_type = {
+        parameters = [];
+        args = [];
+        setter_arg = None;
+        rty = Some ty;
+        use_array_syntax = false;
+        is_getter_setter = false;
+        throws = NoThrow;
+      }
+    in
+    let getter_body = [ AST.Stmt_FunReturn (Expr_Var v, loc) ] in
+    let getter = AST.Decl_FunDefn (getter_id, getter_fty, getter_body, loc) in
+
+    let setter_name = config_setter_prefix ^ Ident.name v in
+    let setter_id = Ident.mk_fident setter_name in
+    let setter_arg = Ident.mk_ident "value" in
+    let setter_fty : AST.function_type = {
+        parameters = [];
+        args = [(setter_arg, ty)];
+        setter_arg = None;
+        rty = None;
+        use_array_syntax = false;
+        is_getter_setter = false;
+        throws = NoThrow;
+      }
+    in
+    let setter_body = [ AST.Stmt_Assign (LExpr_Var v, Expr_Var setter_arg, loc) ] in
+    let setter = AST.Decl_FunDefn (setter_id, setter_fty, setter_body, loc) in
+
+    ([getter_name; setter_name], [getter; setter])
+  in
+
+  let (names, decls) = List.map mk_functions configs |> List.split in
+  (List.concat names, List.concat decls)
 
 (****************************************************************
  * File writing support
@@ -1306,35 +1811,23 @@ let state_struct (fmt : PP.formatter) (name : string) (vs : AST.declaration list
   indented fmt (fun _ -> declarations fmt vs);
   PP.fprintf fmt "@.};@.@."
 
-let emit_c_header (dirname : string) (basename : string) (f : PP.formatter -> unit) : unit =
-  let header_suffix = if !is_cxx then ".hpp" else ".h" in
-  let basename = basename ^ header_suffix in
-  let filename = Filename.concat dirname basename in
+let wrap_multi_include_protection (basename : string) (fmt : PP.formatter) (f : PP.formatter -> 'a) : 'a =
   let macro =
     String.uppercase_ascii basename
     |> String.map (fun c -> if List.mem c [ '.'; '/'; '-' ] then '_' else c)
   in
+  PP.fprintf fmt "#ifndef %s@." macro;
+  PP.fprintf fmt "#define %s@,@." macro;
+  let r = f fmt in
+  PP.fprintf fmt "#endif  // %s@." macro;
+  r
+
+let emit_c_header (is_cxx : bool) (dirname : string) (basename : string) (f : PP.formatter -> unit) : unit =
+  let header_suffix = if is_cxx then ".hpp" else ".h" in
+  let basename = basename ^ header_suffix in
+  let filename = Filename.concat dirname basename in
   Utils.to_file filename (fun fmt ->
-      PP.fprintf fmt "#ifndef %s@." macro;
-      PP.fprintf fmt "#define %s@,@." macro;
-
-      List.iter (PP.fprintf fmt "%s\n") (get_rt_header ());
-
-      if not !is_cxx then begin
-        PP.fprintf fmt "#ifdef __cplusplus@.";
-        PP.fprintf fmt "extern \"C\" {@.";
-        PP.fprintf fmt "#endif@,@.";
-      end;
-
-      f fmt;
-
-      if not !is_cxx then begin
-        PP.fprintf fmt "#ifdef __cplusplus@.";
-        PP.fprintf fmt "}@.";
-        PP.fprintf fmt "#endif@,@.";
-      end;
-
-      PP.fprintf fmt "#endif  // %s@." macro
+    wrap_multi_include_protection basename fmt f
   )
 
 let emit_c_source (filename : string) ?(index : int option) (includes : string list)
@@ -1388,23 +1881,38 @@ let generate_files (num_c_files : int) (dirname : string) (basename : string)
     ds;
 
   let basename_t = basename ^ "_types" in
-  emit_c_header dirname basename_t (fun fmt ->
-      type_decls ds |> Asl_utils.topological_sort |> List.rev |> declarations fmt;
-      Format.fprintf fmt "@,";
-      ffi_prototypes fmt;
-      Format.fprintf fmt "@,"
+  emit_c_header !is_cxx dirname basename_t (fun fmt ->
+      List.iter (PP.fprintf fmt "%s\n") (get_rt_header ());
+      wrap_extern (not !is_cxx) fmt (fun fmt ->
+          type_decls ds |> Asl_utils.topological_sort |> List.rev |> declarations fmt;
+          Format.fprintf fmt "@,"
+      )
   );
+
+  if !new_ffi then begin
+      (* Emit *_ffi.h file even if generating C++ for other files *)
+      let basename_ffi = basename ^ "_ffi" in
+      emit_c_header false dirname basename_ffi (fun fmt ->
+          Format.fprintf fmt "#include <stdint.h>@.";
+          Format.fprintf fmt "#include <stdbool.h>@.";
+          wrap_extern !is_cxx fmt ffi_prototypes;
+          Format.fprintf fmt "@."
+      )
+  end;
+
   let basename_e = basename ^ "_exceptions" in
-  emit_c_header dirname basename_e (fun fmt ->
-      exceptions fmt ds
+  emit_c_header !is_cxx dirname basename_e (fun fmt ->
+      List.iter (PP.fprintf fmt "%s\n") (get_rt_header ());
+      wrap_extern (not !is_cxx) fmt (fun fmt -> exceptions fmt ds)
   );
   let basename_v = basename ^ "_vars" in
-  emit_c_header dirname basename_v (fun fmt ->
+  emit_c_header !is_cxx dirname basename_v (fun fmt ->
+      List.iter (PP.fprintf fmt "%s\n") (get_rt_header ());
       extern_declarations fmt !global_vars;
       List.iter (fun (s, ds) -> state_struct fmt s !ds) !struct_vars;
       List.iter
         (fun (s, _) -> Format.fprintf fmt "extern struct %s *%s;@," s (struct_ptr s))
-        !struct_vars;
+        !struct_vars
   );
 
   let header_suffix = if !is_cxx then ".hpp" else ".h" in
@@ -1475,12 +1983,27 @@ let _ =
 
   let cmd (tcenv : Tcheck.Env.t) (cpu : Cpu.cpu) : bool =
     let decls = !Commands.declarations in
-    let exports =
-      if !new_ffi then
-        Configuration.get_strings "exports"
-      else
-        (* the new FFI doesn't change code if it thinks there are no exports *)
-        []
+    let (cfg_exports, cfg_funs) = mk_ffi_config decls in
+    let decls' = decls @ cfg_funs in
+    let decl_map = Asl_utils.decls_map_of decls' in
+    let imports = if !new_ffi then Configuration.get_strings "imports" else [] in
+    let exports = if !new_ffi then Configuration.get_strings "exports" else [] in
+
+    ffi_track_enums decl_map exports;
+    ffi_track_return_types decls';
+    let (ffi_import_protos, ffi_import_defns) = mk_ffi_wrappers true decl_map imports in
+    let (ffi_export_protos, ffi_export_defns) = mk_ffi_wrappers false decl_map (cfg_exports @ exports) in
+    let ffi_protos (fmt : PP.formatter) : unit =
+        wrap_extern true fmt (fun fmt ->
+          mk_ffi_enums fmt;
+          ffi_import_protos fmt;
+          ffi_export_protos fmt
+        )
+    in
+
+    let ffi_defns (fmt: PP.formatter) : unit =
+        ffi_import_defns fmt;
+        ffi_export_defns fmt
     in
 
     (* When splitting global state across structs is enabled,
@@ -1506,8 +2029,7 @@ let _ =
         []
     in
 
-    let (ffi_protos, ffi_defns) = mk_ffi_exports decls exports in
-    generate_files !opt_num_c_files !opt_dirname !opt_basename ffi_protos ffi_defns structs decls;
+    generate_files !opt_num_c_files !opt_dirname !opt_basename ffi_protos ffi_defns structs decls';
     true
   in
 
