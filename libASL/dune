@@ -1,23 +1,79 @@
+; Copyright Arm Limited (c) 2017-2019
+; Copyright (C) 2022-2024 Intel Corporation
+; SPDX-Licence-Identifier: BSD-3-Clause
+
 (ocamllex lexer)
 
 (menhir
- (modules asl_parser))
+ (modules asl_parser)
+ (flags --explain --table))
 
 (rule
- (targets asl_parser_pp.ml asl_parser.mly asl_lexer.mll asl_ast.ml)
- (deps   asl.ott)
- (action
-   (progn
-     (run ott -aux_style_rules false -tex_wrap true -quotient_rules false -i asl.ott -o asl_parser_head.mly -o asl_lexer.mll -o asl_ast.ml)
-     (run mv asl_parser_head_pp.ml asl_parser_pp.ml)
-     (with-stdout-to asl_parser_tail.mly (bash "grep -v '^%%' `opam config var ott:share`/menhir_library_extra.mly"))
-     (with-stdout-to asl_parser.mly (run cat asl_parser_head.mly asl_parser_tail.mly)))))
+ (targets asl_parser_messages.ml)
+ (deps asl_parser.messages asl_parser.mly)
+ (action (with-stdout-to %{targets} (run menhir --compile-errors %{deps}))))
 
 (library
  (name libASL)
  (public_name asli.libASL)
  (flags
   (:standard -w -27 -cclib -lstdc++))
- (modules asl_ast asl_parser asl_parser_pp asl_utils asl_visitor cpu elf eval
-   lexer lexersupport loadASL primops tcheck utils value visitor)
- (libraries pprint zarith z3))
+ (modules
+   asl_ast
+   asl_fmt
+   asl_parser
+   asl_parser_messages
+   asl_utils
+   asl_visitor
+   backend_c
+   backend_c_new
+   backend_cpp
+   bin_file
+   builtin_idents
+   commands
+   configuration
+   cpu
+   elf
+   error
+   eval
+   flags
+   format_utils
+   global_checks
+   ident
+   identset
+   lattice
+   lexer
+   lexersupport
+   loadASL
+   loc
+   metadata
+   primops
+   runtime
+   runtime_c23
+   runtime_ac
+   runtime_fallback
+   scope
+   scopeStack
+   tcheck
+   utils
+   value
+   visitor
+   check_monomorphization
+   xform_bitslices
+   xform_bittuples
+   xform_case
+   xform_constprop
+   xform_desugar
+   xform_getset
+   xform_int_bitslices
+   xform_lower
+   xform_mono
+   xform_named_type
+   xform_simplify_expr
+   xform_tuples
+   xform_valid
+   xform_wrap)
+ (libraries menhirLib ocolor yojson zarith z3))
+
+
+(env (_ (odoc (warnings fatal))))

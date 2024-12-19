@@ -1,0 +1,20 @@
+// Copyright (C) 2023-2024 Intel Corporation
+
+:elf test.elf
+// CHECK: Loading ELF file test.elf.
+// CHECK: Entry point =
+
+PrintState();
+// CHECK: RUNNING PC=64'x{{[0-9a-fA-F]+}} R=[ 64'x0 64'x0 64'x0 64'x0 ]
+:step
+PrintState();
+// CHECK: RUNNING PC=64'x{{[0-9a-fA-F]+}} R=[ 64'x0 64'x1 64'x0 64'x0 ]
+:step
+PrintState();
+// CHECK: RUNNING PC=64'x{{[0-9a-fA-F]+}} R=[ 64'x0 64'x1 64'x0 64'x1 ]
+:step
+PrintState();
+// CHECK: HALTED PC=64'x{{[0-9a-fA-F]+}} R=[ 64'x0 64'x1 64'x0 64'x1 ]
+
+print("End of demo\n");
+:quit

@@ -1,15 +1,37 @@
+; Copyright Arm Limited (c) 2017-2019
+; Copyright (C) 2022-2024 Intel Corporation
+; SPDX-Licence-Identifier: BSD-3-Clause
+
 (executable
  (name asli)
  (public_name asli)
  (modes exe)
- (modules asli)
- (flags (-cclib -lstdc++))
- (libraries libASL linenoise pprint))
+ (modules asli sites)
+ (flags
+  (-cclib -lstdc++))
+ (libraries libASL linenoise dune-site dune-site.plugins))
+
+(generate_sites_module
+  (module sites)
+  (sites asli)
+  (plugins (asli plugins)))
 
 (executable
  (name testlexer)
  (modes exe)
  ; (public_name test_asl_lexer)
  (modules testlexer)
- (flags (-cclib -lstdc++))
+ (flags
+  (-cclib -lstdc++))
  (libraries libASL))
+
+(install
+ (section (site (asli stdlib)))
+ (files
+  (../prelude.asl as prelude.asl)))
+
+(install
+ (section bin)
+ (files
+  (asl2c.py as asl2c)
+  (asl2cpp.py as asl2cpp)))

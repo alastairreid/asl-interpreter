@@ -1,0 +1,52 @@
+name: pull-request
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions: read-all
+
+env:
+  OPAMROOT: ${{ github.workspace }}/.opam
+
+jobs:
+  test:
+    runs-on: [intellabs-generic-runners, linux]
+    container:
+      image: amr-registry.caas.intel.com/owr/idf2/abi/lnx/tools/ubuntu22.04.03:latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          apt update
+          apt install -y libgmp-dev opam verilator pkg-config
+
+          # install clang-16
+          apt install -y lsb-release wget software-properties-common gnupg
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          ./llvm.sh 16
+
+          python3 -m pip install --no-deps --require-hashes --requirement requirements.txt
+          opam init --no-setup --disable-sandboxing --compiler=4.14.2
+          opam install . --deps-only --with-test --with-doc --yes
+
+      - name: Build
+        run: |
+          eval $(opam env)
+          make build
+
+      - name: Test
+        run: |
+          eval $(opam env)
+          make test
+
+      - name: Build documentation
+        run: |
+          eval $(opam env)
+          make doc

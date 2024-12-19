@@ -1,4 +1,33 @@
-(test (name test_asl)
+; Copyright Arm Limited (c) 2017-2019
+; Copyright (C) 2022-2024 Intel Corporation
+; SPDX-Licence-Identifier: BSD-3-Clause
+
+(tests
+ (names
+  asl_test
+  asl_utils_test
+  backend_c_orig_test
+  backend_c_c23_test
+  backend_c_fallback_test
+  loadasl_test
+  xform_bitslices_test
+  xform_bittuples_test
+  xform_case_test
+  xform_constprop_test
+  xform_getset_test
+  xform_int_bitslices_test
+  xform_lower_test
+  xform_mono_test
+  xform_named_type_test
+  xform_simplify_expr_test
+  xform_tuples_test
+  xform_valid_test
+  xform_wrap_test)
  (modes exe)
- (flags (-cclib -lstdc++))
- (libraries alcotest libASL))
+ (flags
+  (-cclib -lstdc++))
+ (libraries alcotest libASL)
+ (deps
+  ../bin/asli.exe
+  ../prelude.asl
+  (glob_files ../runtime/include/asl/*)))

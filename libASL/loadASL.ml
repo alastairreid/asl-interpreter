@@ -2,166 +2,260 @@
  * Functions for processing ASL files
  *
  * Copyright Arm Limited (c) 2017-2019
+ * Copyright (C) 2022-2024 Intel Corporation
  * SPDX-Licence-Identifier: BSD-3-Clause
  ****************************************************************)
 
 open Asl_ast
-
-module Lexer  = Lexer
+module Lexer = Lexer
 module Parser = Asl_parser
-module TC     = Tcheck
-module PP     = Asl_parser_pp
-module AST    = Asl_ast
-
-open Lexersupport
+module ParserMessages = Asl_parser_messages
+module LexerUtils = MenhirLib.LexerUtil
+module ErrorReports = MenhirLib.ErrorReports
+module Interp = Parser.MenhirInterpreter
+module TC = Tcheck
+module FMT = Asl_fmt
+module AST = Asl_ast
 open Lexing
+open Asl_utils
 
-let report_parse_error (on_error: unit -> 'a) (f: unit -> 'a): 'a =
-    (try
-        f ()
-    with
-    | Parse_error_locn(l, s) ->
-        Printf.printf "  Syntax error %s at %s\n" s (pp_loc l);
-        on_error ()
-    | PrecedenceError(loc, op1, op2) ->
-        Printf.printf "  Syntax error: operators %s and %s require parentheses to disambiguate expression at location %s\n"
-            (Utils.to_string (PP.pp_binop op1))
-            (Utils.to_string (PP.pp_binop op2))
-            (pp_loc loc);
-        on_error ()
-    | Parser.Error ->
-        Printf.printf "  Parser error\n";
-        on_error ()
-    )
+let find_file (search_path : string list) (filename : string) : string =
+  if Filename.is_relative filename then (
+    let rec find (paths : string list) : string =
+      ( match paths with
+      | [] -> failwith ("Can't find file '" ^ filename ^ "' on path '" ^ String.concat ":" search_path)
+      | path :: paths' ->
+          let fname = Filename.concat path filename in
+          if Sys.file_exists fname then fname else find paths'
+      )
+    in find search_path
+  ) else (
+    if Sys.file_exists filename then
+      filename
+    else
+      failwith ("Can't find file '" ^ filename ^ "'")
+  )
 
-let report_type_error (on_error: unit -> 'a) (f: unit -> 'a): 'a =
-    (try
-        f ()
-    with
-    | TC.UnknownObject (loc, what, x) ->
-        Printf.printf "  %s: Type error: Unknown %s %s\n" (pp_loc loc) what x;
-        on_error ()
-    | TC.DoesNotMatch (loc, what, x, y) ->
-        Printf.printf "  %s: Type error: %s %s does not match %s\n" (pp_loc loc) what x y;
-        on_error ()
-    | TC.IsNotA (loc, what, x) ->
-        Printf.printf "  %s: Type error: %s is not a %s\n" (pp_loc loc) x what;
-        on_error ()
-    | TC.Ambiguous (loc, what, x) ->
-        Printf.printf "  %s: Type error: %s %s is ambiguous\n" (pp_loc loc) what x;
-        on_error ()
-    | TC.TypeError (loc, what) ->
-        Printf.printf "  %s: Type error: %s\n" (pp_loc loc) what;
-        on_error ()
-    )
+(* [env checkpoint] extracts a parser environment out of a checkpoint,
+   which must be of the form [HandlingError env].
 
-let report_eval_error (on_error: unit -> 'a) (f: unit -> 'a): 'a =
-    (try
-        f ()
-    with
-    | Value.EvalError (loc, msg) ->
-        Printf.printf "  %s: Evaluation error: %s\n" (pp_loc loc) msg;
-        on_error ()
-    )
+   (This function is based on an example in the Menhir documentation.)
+*)
 
-(* Official ASL does not have specific syntax for declaring variable getter
-   functions, so if we encounter a variable declaration and a variable getter
-   function definition of the same name, we assume that the former is meant
-   to be a declaration of the latter and update the AST accordingly.
-   Otherwise, the variable would shadow the getter function, which would
-   remain unused. *)
-let declare_var_getters (decls: declaration list) =
-  let open Asl_utils in
-  let getter_def_id = function
-    | Decl_VarGetterDefn (_, id, _, _) -> [id]
-    | _ -> []
+let env (checkpoint : 'a Interp.checkpoint) : 'a Interp.env =
+  ( match checkpoint with
+  | Interp.HandlingError env ->
+      env
+  | _ ->
+      assert false
+  )
+
+(* [state checkpoint] extracts the number of the current state out of a
+   checkpoint.
+
+   (This function is based on an example in the Menhir documentation.)
+*)
+
+let state (checkpoint : _ Interp.checkpoint) : int option =
+  ( match Interp.top (env checkpoint) with
+  | Some (Interp.Element (s, _, _, _)) ->
+      Some (Interp.number s)
+  | None ->
+      None
+  )
+
+(* [show text (pos1, pos2)] displays a range of the input text [text]
+   delimited by the positions [pos1] and [pos2].
+
+   (This function is based on an example in the Menhir documentation.)
+*)
+
+let show (text : string) (positions : Loc.pos * Loc.pos) : string =
+  ErrorReports.extract text positions
+  |> ErrorReports.sanitize
+  |> ErrorReports.compress
+  |> ErrorReports.shorten 20 (* max width 43 *)
+
+
+(* [get text checkpoint i] extracts and shows the range of the input text that
+   corresponds to the [i]-th stack cell. The top stack cell is numbered zero.
+
+   (This function is based on an example in the Menhir documentation.)
+*)
+
+let get (text : string) (checkpoint : _ Interp.checkpoint) (i : int) : string =
+  match Interp.get i (env checkpoint) with
+  | Some (Interp.Element (_, _, pos1, pos2)) ->
+      show text (pos1, pos2)
+  | None ->
+      (* The index is out of range. This should not happen if [$i]
+         keywords are correctly inside the syntax error message
+         database. The integer [i] should always be a valid offset
+         into the known suffix of the stack. *)
+      "???"
+
+(* [fail text buffer checkpoint] is invoked when parser has encountered a
+   syntax error.
+
+   (This function is based on an example in the Menhir documentation.)
+*)
+
+let fail (text : string) (buffer : (Loc.pos * Loc.pos) ErrorReports.buffer) (checkpoint : 'a Interp.checkpoint) : 'a =
+  (* Indicate where in the input file the error occurred. *)
+  let location = LexerUtils.range (ErrorReports.last buffer) in
+  (* Show the tokens just before and just after the error. *)
+  let indication = Printf.sprintf "Syntax error %s.\n" (ErrorReports.show (show text) buffer) in
+  (* Fetch an error message from the database. *)
+  let message = ( match state checkpoint with
+                | Some msgid -> ParserMessages.message msgid
+                | None -> ""
+                )
   in
-  let getters = IdentSet.of_list (List.concat (List.map getter_def_id decls)) in
-  let declare = function
-    | Decl_Var (ty, id, l) when IdentSet.mem id getters ->
-       Decl_VarGetterType (ty, id, l)
-    | decl -> decl
+  (* Expand away the $i keywords that might appear in the message. *)
+  let message = ErrorReports.expand (get text checkpoint) message in
+  (* Show these three components. *)
+  Printf.eprintf "%s%s%s%!" location indication message;
+  exit 1
+
+
+(* [parse_file paths filename verbose]
+   searches for [filename] in the search path list [paths]
+   and attempts to parse the file as a list of ASL declarations.
+   *)
+let parse_file (paths : string list) (filename : string) (verbose : bool) : AST.declaration list =
+  let fname = find_file paths filename in
+  if verbose then Printf.printf "Processing %s\n" fname;
+
+  let (text, lexbuf) = LexerUtils.read fname in
+
+  (* Allocate and initialize a lexing buffer. *)
+  let lexbuf = LexerUtils.init fname (Lexing.from_string text) in
+  (* Wrap the lexer and lexbuf together into a supplier, that is, a
+     function of type [unit -> token * position * position]. *)
+  let supplier = Interp.lexer_lexbuf_to_supplier Lexer.token lexbuf in
+  (* Equip the supplier with a two-place buffer that records the positions
+     of the last two tokens. This is useful when a syntax error occurs, as
+     these are the token just before and just after the error. *)
+  let (buffer, supplier) = ErrorReports.wrap_supplier supplier in
+  let start_pos = { lexbuf.lex_curr_p with pos_fname = fname } in
+
+  try
+    let chkpt = Parser.Incremental.declarations_start start_pos in
+    Interp.loop_handle Fun.id (fail text buffer) supplier chkpt
+  with
+  | Parser.Error ->
+    let loc = Loc.Range (lexbuf.lex_start_p, lexbuf.lex_curr_p) in
+    raise (Error.ParseError loc)
+
+let read_file (paths : string list) (filename : string) (isPrelude : bool)
+    (verbose : bool) : AST.declaration list =
+  let t = parse_file paths filename verbose in
+
+  if false then (
+    FMT.comment_list := Lexer.get_comments ();
+    FMT.declarations Format.std_formatter t;
+    Format.pp_print_flush Format.std_formatter ()
+  );
+  if verbose then (
+    Printf.printf "  - Got %d declarations from %s\n%!" (List.length t) filename;
+    Printf.printf "- Typechecking %s\n%!" filename;
+  );
+
+  let sort_decls = not isPrelude in (* sort everything but the Prelude *)
+  let t' =
+    ( match TC.tc_declarations TC.env0 ~isPrelude ~sort_decls t with 
+    | None -> exit 1
+    | Some t' -> t'
+    )
   in
-  List.map declare decls
 
-let parse_file (filename : string) (isPrelude: bool) (verbose: bool): AST.declaration list =
-    let inchan = open_in filename in
-    let lexbuf = Lexing.from_channel inchan in
-    lexbuf.lex_curr_p <- { lexbuf.lex_curr_p with pos_fname = filename };
-    let t =
-        report_parse_error
-          (fun _ -> print_endline (pp_loc (Range (lexbuf.lex_start_p, lexbuf.lex_curr_p))); exit 1)
-          (fun _ ->
-            (* Apply offside rule to raw token stream *)
-            let lexer = offside_token Lexer.token in
+  if false then FMT.declarations Format.std_formatter t';
+  if verbose then (
+    Printf.printf "  - Got %d typechecked declarations from %s\n%!"
+      (List.length t') filename;
+    Printf.printf "Finished %s\n%!" filename;
+  );
+  flush stdout;
+  t'
 
-            (* Run the parser on this line of input. *)
-            if verbose then Printf.printf "- Parsing %s\n" filename;
-            Parser.declarations_start lexer lexbuf)
-    in
-    close_in inchan;
-    declare_var_getters t
+let parse_spec (paths : string list) (filename : string) (verbose : bool) :
+    AST.declaration list =
+  let r : AST.declaration list list ref = ref [] in
+  let fname = find_file paths filename in
+  let inchan = open_in fname in
+  (try
+     while true do
+       let t = parse_file paths (input_line inchan) verbose in
+       r := t :: !r
+     done
+   with End_of_file -> close_in inchan);
+  List.concat (List.rev !r)
 
-let read_file (filename : string) (isPrelude: bool) (verbose: bool): AST.declaration list =
-    if verbose then Printf.printf "Processing %s\n" filename;
-    let t = parse_file filename isPrelude verbose in
+let read_config (tcenv : TC.Env.t) (loc : Loc.t) (s : string) : Ident.t * AST.expr * AST.ty =
+  let lexbuf = Lexing.from_string s in
+  let (CLI_Config (v, e)) = Parser.config_command_start Lexer.token lexbuf in
+  let (e', ty) = TC.tc_expr tcenv loc e in
+  (v, e', ty)
 
-    if false then PPrint.ToChannel.pretty 1.0 60 stdout (PP.pp_declarations t);
-    if verbose then Printf.printf "  - Got %d declarations from %s\n" (List.length t) filename;
+let read_expr (tcenv : TC.Env.t) (loc : Loc.t) (s : string) : AST.expr =
+  let lexbuf = Lexing.from_string s in
+  let e = Parser.expr_command_start Lexer.token lexbuf in
+  let e', _ = TC.tc_expr tcenv loc e in
+  e'
 
-    let t' =
-        report_type_error (fun _ -> exit 1) (fun _ ->
-            if verbose then Printf.printf "- Typechecking %s\n" filename;
-            TC.tc_declarations isPrelude t
-        )
-    in
+let read_stmt (tcenv : TC.Env.t) (s : string) : AST.stmt =
+  let lexbuf = Lexing.from_string s in
+  let s = Parser.stmt_command_start Lexer.token lexbuf in
+  TC.tc_stmt tcenv s
 
-    if false then PPrint.ToChannel.pretty 1.0 60 stdout (PP.pp_declarations t');
-    if verbose then Printf.printf "  - Got %d typechecked declarations from %s\n" (List.length t') filename;
+let read_stmts (tcenv : TC.Env.t) (s : string) : AST.stmt list =
+  let lexbuf = Lexing.from_string s in
+  let s = Parser.stmts_command_start Lexer.token lexbuf in
+  TC.tc_stmts tcenv Loc.Unknown s
 
-    if verbose then Printf.printf "Finished %s\n" filename;
-    flush stdout;
-    t'
+(* This entrypoint is used for testing so it does not sort its inputs to make
+ * the output easier to predict/control
+ *)
+let read_declarations_unsorted (tcenv : TC.GlobalEnv.t) (s : string) :
+    AST.declaration list =
+  let lexbuf = Lexing.from_string s in
+  let s = Parser.declarations_start Lexer.token lexbuf in
+  ( match TC.tc_declarations tcenv ~isPrelude:false ~sort_decls:false s with
+  | None -> exit 1
+  | Some s' -> s'
+  )
 
-let read_spec (filename : string) (verbose: bool): AST.declaration list =
-    let r: AST.declaration list list ref = ref [] in
-    let inchan = open_in filename in
-    (try
-        while true do
-            let t = read_file (input_line inchan) false verbose in
-            r := t :: !r
-        done
-    with
-    | End_of_file ->
-        close_in inchan
-    );
-    List.concat (List.rev !r)
+let read_files (paths : string list) (filenames : string list) (verbose : bool)
+    : AST.declaration list =
+  let parse fname =
+    if String.ends_with fname ~suffix:".spec" then
+      parse_spec paths fname verbose
+    else if String.ends_with fname ~suffix:".asl" then
+      parse_file paths fname verbose
+    else
+      failwith ("Unrecognized file suffix on " ^ fname)
+  in
 
-let read_impdef (tcenv: TC.Env.t) (loc: AST.l) (s: string): (string * AST.expr) =
-    let lexbuf = Lexing.from_string s in
-    let lexer  = offside_token Lexer.token in
-    let CLI_Impdef (x, e) = Parser.impdef_command_start lexer lexbuf in
-    let (s, e') = TC.with_unify tcenv loc (fun u ->
-        let (e', _) = TC.tc_expr tcenv u loc e in
-        e'
-    ) in
-    (x, TC.unify_subst_e s e')
+  let ds = List.map parse filenames |> List.concat in
+  if verbose then (
+    Printf.printf "- Got %d declarations\n%!" (List.length ds);
+    Printf.printf "- Typechecking\n%!"
+  );
 
-let read_expr (tcenv: TC.Env.t) (loc: AST.l) (s: string): AST.expr =
-    let lexbuf = Lexing.from_string s in
-    let lexer  = offside_token Lexer.token in
-    let e = Parser.expr_command_start lexer lexbuf in
-    let (s, e') = TC.with_unify tcenv loc (fun u ->
-        let (e', _) = TC.tc_expr tcenv u loc e in
-        e'
-    ) in
-    TC.unify_subst_e s e'
+  let ds' =
+    ( match TC.tc_declarations TC.env0 ~isPrelude:false ~sort_decls:true ds with
+    | None -> exit 1
+    | Some ds' -> ds'
+    )
+  in
 
-let read_stmt (tcenv: TC.Env.t) (s: string): AST.stmt =
-    let lexbuf = Lexing.from_string s in
-    let lexer  = offside_token Lexer.token in
-    let s = Parser.stmt_command_start lexer lexbuf in
-    TC.tc_stmt tcenv s
+  if verbose then (
+    Printf.printf "  - Got %d typechecked declarations\n" (List.length ds');
+    Printf.printf "Finished typechecking specification\n"
+  );
+  flush stdout;
+
+  ds'
 
 (****************************************************************
  * End

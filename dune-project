@@ -1,28 +1,44 @@
-(lang dune 2.5)
+(lang dune 3.11)
+(using dune_site 0.1)
+
 (name asli)
-(version 0.2.0)
+(version 1.0.0)
+
+; Copyright Arm Limited (c) 2017-2019
+; Copyright (C) 2022-2024 Intel Corporation
+; SPDX-Licence-Identifier: BSD-3-Clause
 
 (using menhir 2.0)
 
 (package
   (name asli)
-  (synopsis "Interpreter for Arm's Architecture Specification Language (ASL)")
-  (description "\| Interpreter for the language ASL that Arm uses to write their ISA specifications.
+  (synopsis "Interpreter for Architecture Specification Language (ASL)")
+  (description "\| Interpreter for the language ASL that Arm and Intel use to write their ISA specifications.
                "\|
                "\| Currently supports reading/typechecking the specification,
                "\| interactive execution of ASL statements and expressions,
                "\| executing opcodes one at a time,
-               "\| loading ELF files and executing Arm binaries.
+               "\| loading ELF files and executing binaries.
+               "\|
+               "\| Experimentally includes support for generating C code
+               "\| that can be used to execute binaries faster and can be
+               "\| linked with other C/C++ libraries.
   )
+  (sites (lib plugins)
+         (lib runtime)
+         (lib runtime_include)
+         (share stdlib))
   (depends
-    ("ocaml"     (>= "4.09"))
-    ("menhir"    :build)
-    ("ott"       :build)
-    "linenoise"
-    "pprint"
-    "zarith"
-    ("z3"        (>= "4.8.7"))
     ("alcotest"  :with-test)
+    "dune-site"
+    "linenoise"
+    ("menhir"    :build)
+    ("ocaml"     (>= "4.14"))
+    ("ocolor"    (>= "1.2.2"))
+    "odoc"
+    "yojson"
+    ("z3"        (>= "4.8.7"))
+    "zarith"
   )
 )
 

@@ -2,417 +2,334 @@
  * ASL typechecker
  *
  * Copyright Arm Limited (c) 2017-2019
+ * Copyright (C) 2022-2024 Intel Corporation
  * SPDX-Licence-Identifier: BSD-3-Clause
  ****************************************************************)
 
 (** Type inference and checker for ASL language *)
 
-module PE   = PPrintEngine
-module PC   = PPrintCombinators
-module PP   = Asl_parser_pp
-module AST  = Asl_ast
+module AST = Asl_ast
 module Visitor = Asl_visitor
-
-open PE
+module FMT = Asl_fmt
+module FMTUtils = Format_utils
+open Builtin_idents
 open AST
 open Utils
 open Asl_utils
-open Printf
+open Identset
+open Error
+open Format
 
 let verbose = false
-
-
-(****************************************************************)
-(** {3 Exceptions thrown by typechecker}                        *)
-(****************************************************************)
-
-exception UnknownObject of (l * string * string)
-exception DoesNotMatch  of (l * string * string * string)
-exception IsNotA        of (l * string * string)
-exception Ambiguous     of (l * string * string)
-exception TypeError     of (l * string)
-exception InternalError of (string) (* internal invariants have been broken *)
-
+let fmt = std_formatter
+let enable_constraint_checks = ref false
+let max_errors = ref 0
 
 (****************************************************************)
 (** {3 AST construction utilities}                              *)
 (****************************************************************)
 
-(* todo: given the function/procedure distinction, it is not clear
- * that we need type_unit
- *)
-let type_unit    = Type_Tuple([])
-let type_integer = Type_Constructor(Ident "integer")
-let type_bool    = Type_Constructor(Ident "boolean")
-let type_real    = Type_Constructor(Ident "real")
-let type_string  = Type_Constructor(Ident "string")
-let type_bits (n: expr) = Type_Bits(n)
-let type_exn     = Type_Constructor(Ident "__Exception")
+let slice_width (x : AST.slice) : AST.expr =
+  match x with
+  | Slice_Single e -> one
+  | Slice_HiLo (hi, lo) -> Xform_simplify_expr.mk_add_int (mk_sub_int hi lo) one
+  | Slice_LoWd (lo, wd) -> wd
+  | Slice_Element (_, wd) -> wd
 
-let type_bitsK (k: intLit): AST.ty = type_bits(Expr_LitInt(k))
+let slices_width (xs : AST.slice list) : AST.expr =
+  mk_add_ints (List.map slice_width xs)
 
-(** Construct expression "eq_int(x, y)" *)
-let mk_eq_int (x: AST.expr) (y: AST.expr): AST.expr =
-    Expr_TApply (FIdent ("eq_int",0), [], [x; y])
-
-(** Construct expression "add_int(x, y)" *)
-let mk_add_int (x: AST.expr) (y: AST.expr): AST.expr =
-    Expr_TApply (FIdent ("add_int",0), [], [x; y])
-
-(** Construct expression "sub_int(x, y)" *)
-let mk_sub_int (x: AST.expr) (y: AST.expr): AST.expr =
-    Expr_TApply (FIdent ("sub_int",0), [], [x; y])
-
-(** Construct expression "(0 + x1) + ... + xn" *)
-let mk_add_ints (xs: AST.expr list): AST.expr =
-    List.fold_left mk_add_int (Expr_LitInt "0") xs
-
-let mk_concat_ty (x: AST.ty) (y: AST.ty): AST.ty =
-    (match (x, y) with
-    | (Type_Bits(e1), Type_Bits(e2)) ->
-            type_bits (mk_add_int e1 e2)
-    | _ ->
-            Printf.printf "Can't concatenate types %s and %s\n" (pp_type x) (pp_type y);
-            raise (InternalError "mk_concat_ty")
-    )
-
-let mk_concat_tys (xs: AST.ty list): AST.ty =
-    List.fold_left mk_concat_ty (type_bitsK "0") xs
-
-let slice_width (x: AST.slice): AST.expr =
-    (match x with
-    | Slice_Single(e) -> Expr_LitInt "1"
-    | Slice_HiLo(hi, lo) -> mk_add_int (mk_sub_int hi lo) (Expr_LitInt "1")
-    | Slice_LoWd(lo, wd) -> wd
-    )
-
-let slices_width (xs: AST.slice list): AST.expr =
-    mk_add_ints (List.map slice_width xs)
-
-let ixtype_basetype (ty: AST.ixtype): AST.ty =
-    (match ty with
-    | Index_Enum tc -> Type_Constructor tc
-    | Index_Range _ -> type_integer
-    )
-
-
-(****************************************************************)
-(** {3 Prettyprinting support}                                  *)
-(****************************************************************)
-
-(** Table of binary operators used for resugaring expressions when printing
-    error messages.
- *)
-let binop_table : AST.binop Bindings.t ref = ref Bindings.empty
-
-let add_binop (op: binop) (x: ident): unit =
-    binop_table := Bindings.add x op !binop_table
-
-(** Very pretty print expression (resugaring expressions) *)
-let ppp_expr (x: expr): string =
-    pp_expr (resugar_expr !binop_table x)
-
-(** Very pretty print type (resugaring expressions) *)
-let ppp_type (x: AST.ty): string =
-    pp_type (resugar_type !binop_table x)
-
+let ixtype_basetype (ty : AST.ixtype) : AST.ty =
+  match ty with
+  | Index_Enum tc -> Type_Constructor (tc, [])
+  | Index_Int sz -> type_integer
 
 (****************************************************************)
 (** {2 Environment representing global and local objects}       *)
 (****************************************************************)
 
-type typedef
-    = Type_Builtin of ident
-    | Type_Forward
-    | Type_Record of (ty * ident) list
-    | Type_Enumeration of ident list
-    | Type_Abbreviation of ty
+type typedef =
+  | Type_Builtin of Ident.t
+  | Type_Forward
+  | Type_Record of (Ident.t list * (Ident.t * ty) list)
+  | Type_Exception of (Ident.t * ty) list
+  | Type_Enumeration of Ident.t list
+  | Type_Abbreviation of (Ident.t list * ty)
 
-let pp_typedef (x: typedef): string =
-    (match x with
-    | Type_Builtin t -> "builtin " ^ pprint_ident t
-    | Type_Forward   -> "forward"
-    | Type_Record fs -> "record { " ^ String.concat "; " (List.map (fun (ty, f) -> pp_type ty ^" "^ pprint_ident f) fs) ^ "}"
-    | Type_Enumeration es -> "enumeration {" ^ String.concat ", " (List.map pprint_ident es) ^ "}"
-    | Type_Abbreviation ty -> pp_type ty
-    )
+let pp_typedef (x : typedef) (fmt : formatter) : unit =
+  match x with
+  | Type_Builtin t ->
+      FMT.kw_underscore_builtin fmt;
+      FMTUtils.nbsp fmt;
+      FMT.tycon fmt t
+  | Type_Forward -> pp_print_string fmt "forward"
+  | Type_Record (ps, fs) ->
+      FMT.kw_record fmt;
+      FMTUtils.nbsp fmt;
+      FMTUtils.parens fmt (fun _ -> FMTUtils.commasep fmt (FMT.varname fmt) ps);
+      FMTUtils.nbsp fmt;
+      FMTUtils.braces fmt (fun _ ->
+          FMTUtils.vbox fmt (fun _ ->
+              FMTUtils.cutsep fmt
+                (fun (f, ty) ->
+                  FMT.fieldname fmt f;
+                  FMTUtils.nbsp fmt;
+                  FMT.colon fmt;
+                  FMTUtils.nbsp fmt;
+                  FMT.ty fmt ty;
+                  FMT.semicolon fmt)
+                fs))
+  | Type_Exception fs ->
+      Format.fprintf fmt "exception {";
+      FMTUtils.vbox fmt (fun _ ->
+        FMTUtils.cutsep fmt
+          (fun (f, ty) ->
+             Format.fprintf fmt "%a : %a;"
+               FMT.fieldname f
+               FMT.ty ty)
+          fs);
+      Format.fprintf fmt "}"
+  | Type_Enumeration es ->
+      FMT.kw_enumeration fmt;
+      FMTUtils.nbsp fmt;
+      FMTUtils.braces fmt (fun _ ->
+          FMTUtils.vbox fmt (fun _ ->
+              FMTUtils.commasep fmt (FMT.varname fmt) es))
+  | Type_Abbreviation (ps, ty) ->
+      FMT.keyword fmt "type";
+      FMTUtils.nbsp fmt;
+      FMTUtils.parens fmt (fun _ -> FMTUtils.commasep fmt (FMT.varname fmt) ps);
+      FMTUtils.nbsp fmt;
+      FMT.eq_gt fmt;
+      FMTUtils.nbsp fmt;
+      FMT.ty fmt ty
 
-type funtype = (AST.ident * bool * AST.ident list * AST.expr list * (AST.ty * AST.ident) list * AST.ty)
 
-let ft_id ((f, _, _, _, _, _): funtype): AST.ident = f
+(* Information about variables *)
+type var_info =
+  { name        : Ident.t;
+    loc         : Loc.t;
+    ty          : AST.ty;
+    is_local    : bool;
+    is_constant : bool;
+  }
 
-let pp_funtype ((f, isArr, tvs, cs, atys, rty): funtype): document =
-    PP.pp_ident f
-    ^^ string " :: " ^^
-    (if tvs = [] then
-        string ""
-    else
-        (string "∀ " ^^ (PC.separate (string ", ") (List.map PP.pp_ident tvs))
-        ^^ string " . ")
-    )
-    ^^
-    (if cs = [] then
-        string ""
-    else
-        ((PC.separate (string ", ") (List.map PP.pp_expr cs))
-        ^^ string " => "
-        )
-    )
-    ^^ (if isArr then PC.brackets else PC.parens)
-       (PC.separate (string ", ") (List.map PP.pp_formal atys))
-    ^^ string " -> "
-    ^^ PP.pp_ty rty
+let pp_var_info (fmt : Format.formatter) (x : var_info) : unit =
+  Format.fprintf fmt "Var{%a, %a, %a, %s, %s}"
+    FMT.varname x.name
+    FMT.loc x.loc
+    FMT.ty x.ty
+    (if x.is_local then "local" else "global")
+    (if x.is_constant then "constant" else "variable")
 
-let fv_funtype ((_, _, tvs, _, atys, rty): funtype): IdentSet.t =
-    (* todo: should final tvs list we generate exclude any variable names mentioned in atys?
-     * This would let us think of the tvs as being implicit parameters that are
-     * added by the type inference process and would mean that there would be no
-     * possible way that the value parameter "N" and a type parameter "N" could
-     * be different from each other.
-     * This would be different from archex and would break down a bit the distinction
-     * between type variables and value variables.
-     *)
-    IdentSet.union (IdentSet.of_list tvs) (IdentSet.union (fv_args atys) (fv_type rty))
+(* Information about functions *)
+type funtype =
+  { funname : Ident.t;
+    loc     : Loc.t;
+    isArray : bool;
+    params  : (Ident.t * AST.ty option) list;
+    atys    : (Ident.t * AST.ty) list;
+    ovty    : AST.ty option; (* type of rhs in setter functions *)
+    rty     : AST.ty;
+  }
 
-(* type of setter function *)
-type sfuntype = (AST.ident * AST.ident list * AST.expr list * AST.sformal list * AST.ty)
-
-let sft_id ((f, _, _, _, _): sfuntype): AST.ident = f
-
-let pp_sfuntype ((f, tvs, cs, atys, vty): sfuntype): document =
-    PP.pp_ident f
-    ^^ string " :: " ^^
-    (if tvs = [] then
-        string ""
-    else
-        (string "∀ " ^^ (PC.separate (string ", ") (List.map PP.pp_ident tvs))
-        ^^ string " . ")
-    )
-    ^^
-    (if cs = [] then
-        string ""
-    else
-        ((PC.separate (string ", ") (List.map PP.pp_expr cs))
-        ^^ string " => "
-        )
-    )
-    ^^ PC.parens (PC.separate (string ", ") (List.map PP.pp_sformal atys))
-    ^^ string " <- "
-    ^^ PP.pp_ty vty
-
-let sformal_var (x: sformal): AST.ident =
-    ( match x with
-    | Formal_In    (_, v) -> v
-    | Formal_InOut (_, v) -> v
-    )
-
-let sformal_type (x: sformal): AST.ty =
-    ( match x with
-    | Formal_In    (ty, _) -> ty
-    | Formal_InOut (ty, _) -> ty
-    )
-
-let formal_of_sformal (x: AST.sformal): (AST.ty * AST.ident) =
-    ( match x with
-    | Formal_In    (ty, v) -> (ty, v)
-    | Formal_InOut (ty, v) -> (ty, v)
-    )
-
-let funtype_of_sfuntype ((f, tvs, cs, atys, vty): sfuntype): funtype =
-    (f, true, tvs, cs, List.map formal_of_sformal atys, vty)
+let pp_funtype (fmt : formatter) (fty : funtype) : unit =
+  Format.fprintf fmt "@[<v>%a%s : {%a}(%a)%a => %a@,  at %a@,@]"
+    FMT.varname fty.funname
+    (if fty.isArray then "[]" else "")
+    FMT.parameters fty.params
+    FMT.formals fty.atys
+    (Format.pp_print_option (fun fmt -> Format.fprintf fmt " = %a" FMT.ty)) fty.ovty
+    FMT.ty fty.rty
+    FMT.loc fty.loc
 
 module Operator1 = struct
-    type t = AST.unop
-    let compare x y = Stdlib.compare x y
+  type t = AST.unop
+
+  let compare x y = Stdlib.compare x y
 end
 
-module Operators1 = Map.Make(Operator1)
+module Operators1 = Map.Make (Operator1)
 
 module Operator2 = struct
-    type t = AST.binop
-    let compare x y = Stdlib.compare x y
+  type t = AST.binop
+
+  let compare x y = Stdlib.compare x y
 end
 
-module Operators2 = Map.Make(Operator2)
-
+module Operators2 = Map.Make (Operator2)
 
 (****************************************************************)
 (** {3 Global Environment (aka the Global Symbol Table)}        *)
 (****************************************************************)
 
 module GlobalEnv : sig
-    type t
-    val mkempty             : unit -> t
-    val addType             : t -> AST.l -> AST.ident -> typedef -> unit
-    val getType             : t -> AST.ident -> typedef option
-    val isType              : t -> AST.ident -> bool
-    val isTycon             : t -> AST.ident -> bool
-    val isEnum              : t -> AST.ident -> bool
-    val addFuns             : t -> AST.l -> AST.ident -> funtype list -> unit
-    val getFuns             : t -> AST.ident -> funtype list
-    val addSetterFuns       : t -> AST.ident -> sfuntype list -> unit
-    val getSetterFun        : t -> AST.ident -> sfuntype list
-    val addOperators1       : t -> AST.l -> AST.unop  -> funtype list -> unit
-    val getOperators1       : t -> AST.l -> AST.unop  -> funtype list
-    val addOperators2       : t -> AST.l -> AST.binop -> funtype list -> unit
-    val getOperators2       : t -> AST.l -> AST.binop -> funtype list
-    val addEncoding         : t -> AST.ident -> unit
-    val isEncoding          : t -> AST.ident -> bool
-    val addGlobalVar        : t -> AST.l -> AST.ident -> AST.ty -> bool -> unit
-    val getGlobalVar        : t -> AST.ident -> AST.ty option
-    val addConstant         : t -> AST.ident -> AST.expr -> unit
-    val getConstant         : t -> AST.ident -> AST.expr option
+  type t
+
+  val mkempty : unit -> t
+  val clone : t -> t
+  val addType : t -> Loc.t -> Ident.t -> typedef -> unit
+  val getType : t -> Ident.t -> typedef option
+  val isType : t -> Ident.t -> bool
+  val isTycon : t -> Ident.t -> bool
+  val isEnum : t -> Ident.t -> bool
+  val addFuns : t -> Loc.t -> Ident.t -> funtype list -> unit
+  val getFuns : t -> Ident.t -> funtype list
+  val addSetterFuns : t -> Ident.t -> funtype list -> unit
+  val getSetterFun : t -> Ident.t -> funtype list
+  val addOperators1 : t -> Loc.t -> AST.unop -> funtype list -> unit
+  val getOperators1 : t -> Loc.t -> AST.unop -> funtype list
+  val addOperators2 : t -> Loc.t -> AST.binop -> funtype list -> unit
+  val getOperators2 : t -> Loc.t -> AST.binop -> funtype list
+  val addGlobalVar : t -> var_info -> unit
+  val getGlobalVar : t -> Ident.t -> var_info option
+  val addConstant : t -> Ident.t -> AST.expr -> unit
+  val getConstant : t -> Ident.t -> AST.expr option
 end = struct
-    type t = {
-        mutable types       : typedef Bindings.t;
-        mutable functions   : (funtype list) Bindings.t;
-        mutable setters     : (sfuntype list) Bindings.t;
-        mutable operators1  : (funtype list) Operators1.t;
-        mutable operators2  : (funtype list) Operators2.t;
-        mutable encodings   : IdentSet.t;
-        mutable globals     : AST.ty Bindings.t;
-        mutable constants   : AST.expr Bindings.t;
+  type t = {
+    mutable types : typedef Bindings.t;
+    mutable functions : funtype list Bindings.t;
+    mutable setters : funtype list Bindings.t;
+    mutable operators1 : funtype list Operators1.t;
+    mutable operators2 : funtype list Operators2.t;
+    mutable globals : var_info Bindings.t;
+    mutable constants : AST.expr Bindings.t;
+  }
+
+  let mkempty _ : t =
+    {
+      types = Bindings.empty;
+      functions = Bindings.empty;
+      setters = Bindings.empty;
+      operators1 = Operators1.empty;
+      operators2 = Operators2.empty;
+      globals = Bindings.empty;
+      constants = Bindings.empty;
     }
 
-    let mkempty _: t = {
-        types       = Bindings.empty;
-        functions   = Bindings.empty;
-        setters     = Bindings.empty;
-        operators1  = Operators1.empty;
-        operators2  = Operators2.empty;
-        encodings   = IdentSet.empty;
-        globals     = Bindings.empty;
-        constants   = Bindings.empty;
+  let clone (env : t) : t =
+    {
+      types = env.types;
+      functions = env.functions;
+      setters = env.setters;
+      operators1 = env.operators1;
+      operators2 = env.operators2;
+      globals = env.globals;
+      constants = env.constants;
     }
 
-    let addType (env: t) (loc: AST.l) (qid: AST.ident) (t: typedef): unit =
-        (* Printf.printf "New type %s at %s\n" qid (pp_loc loc); *)
-        let t' = (match (Bindings.find_opt qid env.types, t) with
-            | (None,              _)            -> t
-            | (Some Type_Forward, _)            -> t
-            | (Some p,            Type_Forward) -> p
-            | (Some p,            _) when p <> t ->
-                    raise (DoesNotMatch (loc, "type definition", pp_typedef t, pp_typedef p))
-            | _ -> t
-        ) in
-        env.types <- Bindings.add qid t' env.types
+  let addType (env : t) (loc : Loc.t) (qid : Ident.t) (t : typedef) : unit =
+    (* Format.fprintf fmt "New type %a at %a\n" FMT.varname FMT.loc loc; *)
+    let t' =
+      match (Bindings.find_opt qid env.types, t) with
+      | None, _ -> t
+      | Some Type_Forward, _ -> t
+      | Some p, Type_Forward -> p
+      | Some p, _ when p <> t ->
+          raise
+            (DoesNotMatch
+               ( loc,
+                 "type definition",
+                 to_string2 (pp_typedef t),
+                 to_string2 (pp_typedef p) ))
+      | _ -> t
+    in
+    env.types <- Bindings.add qid t' env.types
 
-    let getType (env: t) (qid: AST.ident): typedef option =
-        Bindings.find_opt qid env.types
+  let getType (env : t) (qid : Ident.t) : typedef option =
+    Bindings.find_opt qid env.types
 
-    let isType  (env: t) (qid: AST.ident): bool = true (* todo *)
-    let isTycon (env: t) (qid: AST.ident): bool = true (* todo *)
-    let isEnum  (env: t) (qid: AST.ident): bool = true (* todo *)
+  let isType (env : t) (qid : Ident.t) : bool = true (* todo *)
+  let isTycon (env : t) (qid : Ident.t) : bool = true (* todo *)
+  let isEnum (env : t) (qid : Ident.t) : bool = true (* todo *)
 
-    let addFuns (env: t) (loc: AST.l) (qid: AST.ident) (ftys: funtype list): unit =
-        env.functions <- Bindings.add qid ftys env.functions
+  let addFuns (env : t) (loc : Loc.t) (qid : Ident.t) (ftys : funtype list) :
+      unit =
+    env.functions <- Bindings.add qid ftys env.functions
 
-    let getFuns (env: t) (qid: AST.ident): funtype list =
-        (match Bindings.find_opt qid env.functions with
-        | None -> []
-        | Some tys -> tys
-        )
+  let getFuns (env : t) (qid : Ident.t) : funtype list =
+    match Bindings.find_opt qid env.functions with
+    | None -> []
+    | Some tys -> tys
 
-    let addSetterFuns (env: t) (qid: AST.ident) (ftys: sfuntype list): unit =
-        env.setters <- Bindings.add qid ftys env.setters
+  let addSetterFuns (env : t) (qid : Ident.t) (ftys : funtype list) : unit =
+    env.setters <- Bindings.add qid ftys env.setters
 
-    let getSetterFun (env: t) (qid: AST.ident): sfuntype list =
-        (match Bindings.find_opt qid env.setters with
-        | None -> []
-        | Some tys -> tys
-        )
+  let getSetterFun (env : t) (qid : Ident.t) : funtype list =
+    match Bindings.find_opt qid env.setters with None -> [] | Some tys -> tys
 
-    let addOperators1 (env: t) (loc: AST.l) (op: AST.unop) (funs: funtype list): unit =
-        env.operators1 <- Operators1.update op (fun ov ->
-            let old = from_option ov (fun _ -> []) in
-            Some (List.append funs old)
-        ) env.operators1
+  let addOperators1 (env : t) (loc : Loc.t) (op : AST.unop)
+      (funs : funtype list) : unit =
+    List.iter (function fty -> FMT.add_unop op fty.funname) funs;
+    env.operators1 <-
+      Operators1.update op
+        (fun ov ->
+          let old = Option.value ov ~default:[] in
+          Some (funs @ old))
+        env.operators1
 
-    let getOperators1 (env: t) (loc: AST.l) (op: AST.unop): funtype list =
-        from_option (Operators1.find_opt op (env.operators1)) (fun _ -> [])
+  let getOperators1 (env : t) (loc : Loc.t) (op : AST.unop) : funtype list =
+    Option.value (Operators1.find_opt op env.operators1) ~default:[]
 
-    let addOperators2 (env: t) (loc: AST.l) (op: AST.binop) (funs: funtype list): unit =
-        List.iter (function fty -> add_binop op (ft_id fty)) funs;
-        env.operators2 <- Operators2.update op (fun ov ->
-            let old = from_option ov (fun _ -> []) in
-            Some (List.append funs old)
-        ) env.operators2
+  let addOperators2 (env : t) (loc : Loc.t) (op : AST.binop)
+      (funs : funtype list) : unit =
+    List.iter (function fty -> FMT.add_binop op fty.funname) funs;
+    env.operators2 <-
+      Operators2.update op
+        (fun ov ->
+          let old = Option.value ov ~default:[] in
+          Some (funs @ old))
+        env.operators2
 
-    let getOperators2 (env: t) (loc: AST.l) (op: AST.binop): funtype list =
-        from_option (Operators2.find_opt op (env.operators2)) (fun _ -> [])
+  let getOperators2 (env : t) (loc : Loc.t) (op : AST.binop) : funtype list =
+    Option.value (Operators2.find_opt op env.operators2) ~default:[]
 
-    let addEncoding (env: t) (qid: AST.ident): unit =
-        env.encodings <- IdentSet.add qid env.encodings
+  let addGlobalVar (env : t) (v : var_info) : unit =
+    (* Format.fprintf fmt "New global %a\n" pp_var_info v; *)
+    env.globals <- Bindings.add v.name v env.globals
 
-    let isEncoding (env: t) (qid: AST.ident): bool =
-        IdentSet.mem qid env.encodings
+  let getGlobalVar (env : t) (v : Ident.t) : var_info option =
+    (* Format.fprintf fmt "Looking for global variable %a\n" FMT.varname v; *)
+    Bindings.find_opt v env.globals
 
-    let addGlobalVar (env: t) (loc: AST.l) (qid: AST.ident) (ty: AST.ty) (isConstant: bool): unit =
-        (* Printf.printf "New %s %s at %s\n" (if isConstant then "constant" else "variable") qid (pp_loc loc); *)
-        env.globals <- Bindings.add qid ty env.globals
+  let getConstant (env : t) (v : Ident.t) : AST.expr option =
+    Bindings.find_opt v env.constants
 
-    let getGlobalVar (env: t) (v: AST.ident): AST.ty option =
-        (* Printf.printf "Looking for global variable %s\n" (pprint_ident v); *)
-        Bindings.find_opt v env.globals
-
-    let getConstant (env: t) (v: AST.ident): AST.expr option =
-        Bindings.find_opt v env.constants
-
-    let addConstant (env: t) (v: AST.ident) (e: AST.expr): unit =
-        let e' = subst_fun_expr (getConstant env) e in
-        env.constants <- Bindings.add v e' env.constants
+  let addConstant (env : t) (v : Ident.t) (e : AST.expr) : unit =
+    let e' = subst_fun_expr (getConstant env) e in
+    env.constants <- Bindings.add v e' env.constants
 end
 
-let subst_consts_expr (env: GlobalEnv.t) (e: AST.expr): AST.expr =
-    subst_fun_expr (GlobalEnv.getConstant env) e
+let subst_consts_expr (env : GlobalEnv.t) (e : AST.expr) : AST.expr =
+  subst_fun_expr (GlobalEnv.getConstant env) e
 
-let subst_consts_type (env: GlobalEnv.t) (ty: AST.ty): AST.ty =
-    subst_fun_type (GlobalEnv.getConstant env) ty
+let subst_consts_type (env : GlobalEnv.t) (ty : AST.ty) : AST.ty =
+  subst_fun_type (GlobalEnv.getConstant env) ty
 
-let isConstant (env: GlobalEnv.t) (v: AST.ident): bool =
-    GlobalEnv.getConstant env v <> None
-
-let removeConsts (env: GlobalEnv.t) (ids: IdentSet.t): IdentSet.t =
-    IdentSet.filter (fun v -> not (isConstant env v)) ids
+(** expand a type definition using type parameters *)
+let expand_type (loc : Loc.t) (ps : Ident.t list) (ty : AST.ty) (es : expr list) : AST.ty =
+  if List.length ps <> List.length es then begin
+    raise (TypeError (loc, "wrong number of type parameters"))
+  end;
+  let bs = mk_bindings (List.combine ps es) in
+  subst_type bs ty
 
 (** dereference typedef *)
-let rec derefType (env: GlobalEnv.t) (ty: AST.ty): AST.ty =
-    (match ty with
-    | Type_Constructor tc
-    | Type_App (tc, _) ->
-        (match GlobalEnv.getType env tc with
-        (* todo: instantiate with type parameters? *)
-        | Some (Type_Abbreviation ty') -> derefType env ty'
-        | _ -> ty
-        )
-    | _ -> ty
-    )
+let rec derefType (env : GlobalEnv.t) (loc : Loc.t) (ty : AST.ty) : AST.ty =
+  match ty with
+  | Type_Constructor (tc, es) -> (
+      match GlobalEnv.getType env tc with
+      | Some (Type_Abbreviation (ps, ty')) ->
+        let ty'' = expand_type loc ps ty' es in
+        derefType env loc ty''
+      | _ -> ty)
+  | _ -> ty
 
-(** compare index types *)
-let cmp_ixtype (ty1: AST.ixtype) (ty2: AST.ixtype): bool =
-    (match (ty1, ty2) with
-    | (Index_Enum tc1, Index_Enum tc2) -> tc1 = tc2
-    | (Index_Range _,  Index_Range _)  -> true
-    | _ -> false
-    )
-
-(** structural match on two types - ignoring the dependent type part *)
-(* todo: does not handle register<->bits coercions *)
-let rec cmp_type (env: GlobalEnv.t) (ty1: AST.ty) (ty2: AST.ty): bool =
-    (match (derefType env ty1, derefType env ty2) with
-    | (Type_Constructor c1,       Type_Constructor c2)       -> c1 = c2
-    | (Type_Bits(e1),             Type_Bits(e2))             -> true
-    | (Type_App (c1, es1),        Type_App (c2, es2))        -> c1 = c2
-    | (Type_OfExpr e1,            Type_OfExpr e2)            -> raise (InternalError "cmp_type: typeof")
-    (* todo: this is equating the types, not subtyping them *)
-    | (Type_Bits(e1),             Type_Register (w2, _))     -> true
-    | (Type_Register (w1, _),     Type_Bits(e2))             -> true
-    | (Type_Register (w1, _),     Type_Register (w2, _))     -> true
-    | (Type_Array (ixty1, elty1), Type_Array (ixty2, elty2)) -> cmp_ixtype ixty1 ixty2 && cmp_type env elty1 elty2
-    | (Type_Tuple tys1,           Type_Tuple tys2)           ->
-         (List.length tys1 = List.length tys2) && List.for_all2 (cmp_type env) tys1 tys2
-    | _ -> false
-    )
+let width_of_type (env : GlobalEnv.t) (loc : Loc.t) (ty : AST.ty) : AST.expr =
+  let ty' = derefType env loc ty in
+  Utils.from_option (Asl_utils.width_of_type ty')
+    (fun _ -> raise (InternalError
+      (loc, "width_of_type", (fun fmt -> FMT.ty fmt ty'), __LOC__)))
 
 
 (****************************************************************)
@@ -425,249 +342,153 @@ let rec cmp_type (env: GlobalEnv.t) (ty1: AST.ty) (ty2: AST.ty): bool =
     - a list of fieldname/type pairs for records
     - a list of fieldname/slice pairs for registers
  *)
-type fieldtypes
-    = FT_Record of (ty * ident) list
-    | FT_Register of (AST.slice list * ident) list
+type fieldtypes =
+  | FT_Record of (Ident.t * ty) list
+  | FT_Register of (AST.slice list * Ident.t) list
 
 (** Get fieldtype information for a record/register type *)
-let rec typeFields (env: GlobalEnv.t) (loc: AST.l) (x: ty): fieldtypes =
-    (match derefType env x with
-    | Type_Constructor tc
-    | Type_App (tc, _) ->
-        (match GlobalEnv.getType env tc with
-        | Some(Type_Record fs) -> FT_Record fs
-        | Some(Type_Abbreviation ty') -> typeFields env loc ty'
-        | _ -> raise (IsNotA(loc, "record", pprint_ident tc))
-        )
-    | Type_Register (wd, fs) -> FT_Register fs
-    | Type_OfExpr(e) -> raise (InternalError ("typeFields: Type_OfExpr " ^ ppp_expr e))
-    | _ -> raise (IsNotA(loc, "record/register", pp_type x))
-    )
+let typeFields (env : GlobalEnv.t) (loc : Loc.t) (x : ty) : fieldtypes =
+  match derefType env loc x with
+  | Type_Constructor (tc, es) -> (
+      match GlobalEnv.getType env tc with
+      | Some (Type_Record (ps, fs)) ->
+        let fs' = List.map (fun (f, ty) -> (f, expand_type loc ps ty es)) fs in
+        FT_Record fs'
+      | Some (Type_Exception fs) ->
+        FT_Record fs
+      | _ -> raise (IsNotA (loc, "record or exception", Ident.to_string tc)))
+  | Type_Bits (n, fs) -> FT_Register fs
+  | Type_OfExpr e ->
+      raise (InternalError
+        (loc, "typeFields: Type_OfExpr", (fun fmt -> FMT.expr fmt e), __LOC__))
+  | _ -> raise (IsNotA (loc, "record/register", pp_type x))
 
 (** Get fieldtype information for a named field of a record *)
-let get_recordfield (loc: AST.l) (rfs: (ty * ident) list) (f: ident): AST.ty =
-    (match List.filter (fun (_, fnm) -> fnm = f) rfs with
-    | [(fty, _)] -> fty
-    | [] -> raise (UnknownObject(loc, "field", pprint_ident f))
-    | fs -> raise (Ambiguous (loc, "field", pprint_ident f))
-    )
+let get_recordfield (loc : Loc.t) (rfs : (Ident.t * ty) list) (f : Ident.t) : AST.ty
+    =
+  match List.filter (fun (fnm, _) -> fnm = f) rfs with
+  | [ (_, fty) ] -> fty
+  | [] -> raise (UnknownObject (loc, "field", Ident.to_string f))
+  | fs -> raise (Ambiguous (loc, "field", Ident.to_string f))
 
 (** Get fieldtype information for a named field of a slice *)
-let get_regfield_info (loc: AST.l) (rfs: (AST.slice list * ident) list) (f: ident): AST.slice list =
-    (match List.filter (fun (_, fnm) -> fnm = f) rfs with
-    | [(ss, _)] -> ss
-    | [] -> raise (UnknownObject(loc, "field", pprint_ident f))
-    | fs -> raise (Ambiguous (loc, "field", pprint_ident f))
-    )
+let get_regfield_info (loc : Loc.t) (rfs : (AST.slice list * Ident.t) list)
+    (f : Ident.t) : AST.slice list =
+  match List.filter (fun (_, fnm) -> fnm = f) rfs with
+  | [ (ss, _) ] -> ss
+  | [] -> raise (UnknownObject (loc, "field", Ident.to_string f))
+  | fs -> raise (Ambiguous (loc, "field", Ident.to_string f))
 
 (** Get named field of a register and calculate type *)
-let get_regfield (loc: AST.l) (rfs: (AST.slice list * ident) list) (f: ident): (AST.slice list * AST.ty) =
-    let ss = get_regfield_info loc rfs f in
-    (ss, type_bits (slices_width ss))
+let get_regfield (loc : Loc.t) (rfs : (AST.slice list * Ident.t) list) (f : Ident.t)
+    : AST.slice list * AST.ty =
+  let ss = get_regfield_info loc rfs f in
+  (ss, type_bits (slices_width ss))
 
 (** Get named fields of a register and calculate type of concatenating them *)
-let get_regfields (loc: AST.l) (rfs: (AST.slice list * ident) list) (fs: ident list): (AST.slice list * AST.ty) =
-    let ss = List.flatten (List.map (get_regfield_info loc rfs) fs) in
-    (ss, type_bits (slices_width ss))
-
-
+let get_regfields (loc : Loc.t) (rfs : (AST.slice list * Ident.t) list)
+    (fs : Ident.t list) : AST.slice list * AST.ty =
+  let ss = List.flatten (List.map (get_regfield_info loc rfs) fs) in
+  (ss, type_bits (slices_width ss))
 
 (****************************************************************)
 (** {3 Environment (aka the Local+Global Symbol Table)}         *)
 (****************************************************************)
 
-(* The handling of implicitly declared variables is complex.
- *
- * The typechecker inserts a variable declaration for any variable
- * that is assigned to for which there is no explicit declaration.
- *
- * To match the way that ASL is written, the declaration doesn't
- * always go in the current (i.e., innermost) scope because
- * a lot of ASL code requires that the variable should still
- * exist after the current scope has ended.
- *
- * At the same time, the declaration must:
- * - be legal: any variables used in the type of the declaration
- *   must be in scope
- * - mean the same: any variables used in the type of the declaration
- *   must have the same values
- * - be unique: there must be at most one declaration of each variable
- *   name (implicit or explicit) within a function
- *   (Note that this also means that we cannot explicitly declare two
- *   variables with the same name in different scopes - even if they have
- *   the same type.)
- *
- * So the rule for deciding where to put an implicit variable declaration is:
- * - it must occur before the initial assignment(s)
- * - there must be no assignment to any dependent variables between
- *   the declaration and the initial assignment(s)
- *
- * To implement this, the environment tracks:
- * - the set of all local variables (implicit or explicit) in this function
- * - the set of variables assigned to so far in each scope
- * - the list of pending implicit declarations waiting to be emitted
- *   (this is a list to make it easier to emit declarations in order)
- * And we maintain the invariant that none of the pending implicit declarations
- * have dependencies that are modified in the current (innermost) scope.
- *
- * New variables (both implicitly declared and explicitly declared) are
- * checked against the set of all local variables for conflicts.
- *
- * New implicitly declared variables either:
- * - have declarations inserted immediately before their assignment
- *   (if their type depends on variables modified in the current scope)
- * or
- * - are added to the list of implicit declarations
- *
- * On leaving scope I for scope O:
- * - explicit declarations are inserted for any pending implicit declarations that
- *   depend on variables modified in scope O
- *)
-
-type implicitVars = (AST.ident * AST.ty) list
-
-let declare_implicits (loc: AST.l) (imps: implicitVars): AST.stmt list =
-    List.map (fun (v, ty) -> Stmt_VarDeclsNoInit(ty, [v], loc)) imps
-
 module Env : sig
-    type t
-    val mkEnv               : GlobalEnv.t -> t
-    val globals             : t -> GlobalEnv.t
-    val nest                : (t -> 'a) -> (t -> 'a)
-    val nest_with_bindings  : (t -> 'a) -> (t -> ('a * (AST.ident * AST.ty) list))
-    val addLocalVar         : t -> AST.l -> AST.ident -> AST.ty -> unit
-    val addLocalImplicitVar : t -> AST.l -> AST.ident -> AST.ty -> unit
-    val getAllImplicits     : t -> implicitVars
-    val getImplicits        : t -> implicitVars
-    val getVar              : t -> AST.ident -> (AST.ident * AST.ty) option
-    val markModified        : t -> AST.ident -> unit
-    val addConstraint       : t -> AST.l -> AST.expr -> unit
-    val getConstraints      : t -> AST.expr list
-    val setReturnType       : t -> AST.ty -> unit
-    val getReturnType       : t -> AST.ty option
+  type t
+
+  val mkEnv : GlobalEnv.t -> t
+  val globals : t -> GlobalEnv.t
+  val nest : (t -> 'a) -> t -> 'a
+  val addLocalVar : t -> var_info -> unit
+  val getVar : t -> Ident.t -> var_info option
+  val markModified : t -> Ident.t -> unit
+  val addConstraint : t -> Loc.t -> AST.expr -> unit
+  val getConstraints : t -> AST.expr list
+  val setReturnType : t -> AST.ty -> unit
+  val getReturnType : t -> AST.ty option
 end = struct
-    type t = {
-        globals             : GlobalEnv.t;
-        mutable rty         : AST.ty option;
+  type t = {
+    globals : GlobalEnv.t;
+    mutable rty : AST.ty option;
+    (* a stack of nested scopes representing the local type environment *)
+    (* Invariant: the stack is never empty *)
+    mutable locals : var_info Bindings.t list;
+    mutable modified : IdentSet.t;
+    (* constraints collected while typechecking current expression/assignment *)
+    mutable constraints : AST.expr list;
+  }
 
-        (* a stack of nested scopes representing the local type environment *)
-        (* Invariant: the stack is never empty *)
-        mutable locals      : AST.ty Bindings.t list;
-        mutable modified    : IdentSet.t;
-        mutable implicits   : AST.ty Bindings.t ref;
-
-        (* constraints collected while typechecking current expression/assignment *)
-        mutable constraints : AST.expr list;
+  let mkEnv (globalEnv : GlobalEnv.t) =
+    {
+      globals = globalEnv;
+      rty = None;
+      locals = [ Bindings.empty ];
+      modified = IdentSet.empty;
+      constraints = [];
     }
 
-    let mkEnv (globalEnv: GlobalEnv.t) = {
-        globals     = globalEnv;
-        rty         = None;
-        locals      = [Bindings.empty];
-        modified    = IdentSet.empty;
-        implicits   = ref Bindings.empty;
-        constraints = [];
-    }
+  (* todo: would it be better to make Env a subclass of GlobalEnv
+   * Doing that would eliminate many, many calls to this function
+   *)
+  let globals (env : t) : GlobalEnv.t = env.globals
 
-    (* todo: would it be better to make Env a subclass of GlobalEnv
-     * Doing that would eliminate many, many calls to this function
-     *)
-    let globals (env: t): GlobalEnv.t =
-        env.globals
+  let nest (k : t -> 'a) (parent : t) : 'a =
+    let child =
+      {
+        globals = parent.globals;
+        rty = parent.rty;
+        locals = Bindings.empty :: parent.locals;
+        modified = IdentSet.empty;
+        constraints = parent.constraints;
+      }
+    in
+    let r = k child in
+    parent.modified <- IdentSet.union parent.modified child.modified;
+    r
 
-    let nest (k: t -> 'a) (parent: t): 'a =
-        let child = {
-            globals     = parent.globals;
-            rty         = parent.rty;
-            locals      = Bindings.empty :: parent.locals;
-            modified    = IdentSet.empty;
-            implicits   = parent.implicits;
-            constraints = parent.constraints;
-        } in
-        let r = k child in
-        parent.modified <- IdentSet.union parent.modified child.modified;
-        r
+  let rec search_var (env : GlobalEnv.t) (bss : var_info Bindings.t list) (v : Ident.t) : var_info option =
+    ( match bss with
+    | bs :: bss' -> orelse_option (Bindings.find_opt v bs) (fun _ -> search_var env bss' v)
+    | [] -> GlobalEnv.getGlobalVar env v
+    )
 
-    let nest_with_bindings (k: t -> 'a) (parent: t): ('a * (AST.ident * AST.ty) list) =
-        let child = {
-            globals     = parent.globals;
-            rty         = parent.rty;
-            locals      = Bindings.empty :: parent.locals;
-            modified    = IdentSet.empty;
-            implicits   = parent.implicits;
-            constraints = parent.constraints;
-        } in
-        let r = k child in
-        parent.modified <- IdentSet.union parent.modified child.modified;
-        let locals    = Bindings.bindings (List.hd child.locals) in
-        let implicits = Bindings.bindings !(child.implicits) in
-        (r, List.append implicits locals)
-
-    let addLocalVar (env: t) (loc: AST.l) (v: AST.ident) (ty: AST.ty): unit =
-        if (GlobalEnv.getConstant (env.globals) v <> None) then begin
-            raise (TypeError (loc, pprint_ident v ^ " already declared as global constant"))
-        end;
-        (* Printf.printf "New local var %s : %s at %s\n" (pprint_ident v) (ppp_type ty) (pp_loc loc); *)
-        (match env.locals with
-        | (bs :: bss) -> env.locals <- (Bindings.add v ty bs) :: bss
-        | []          -> raise (InternalError "addLocalVar")
-        );
-        env.modified <- IdentSet.add v env.modified
-
-    let addLocalImplicitVar (env: t) (loc: AST.l) (v: AST.ident) (ty: AST.ty): unit =
-        (* Should only be called for undeclared variables *)
-        assert (GlobalEnv.getConstant (env.globals) v = None);
-        (* Printf.printf "New implicit: %s : %s\n" (pprint_ident v) (ppp_type ty); *)
-        env.implicits := Bindings.add v ty !(env.implicits);
-        env.modified <- IdentSet.add v env.modified
-
-    let getAllImplicits (env: t): implicitVars =
-        let imps = !(env.implicits) in
-        env.implicits := Bindings.empty;
-        Bindings.bindings imps
-
-    let getImplicits (env: t): implicitVars =
-        let unconflicted _ (ty: AST.ty): bool =
-            let deps = fv_type ty in
-            IdentSet.is_empty (IdentSet.inter deps env.modified)
+  let addLocalVar (env : t) (v : var_info) : unit =
+    (* Format.fprintf fmt "New local var %a : %a at %a\n" FMT.varname v.name FMT.ty (ppp_type v.ty) FMT.loc v.loc; *)
+    Option.iter (fun (w : var_info) ->
+        let msg = Format.asprintf "variable `%a` previously declared at `%a`"
+            FMT.varname v.name
+            FMT.loc w.loc
         in
-        let (good, conflicts) = Bindings.partition unconflicted !(env.implicits) in
-        env.implicits := good;
-        Bindings.bindings conflicts
+        raise (TypeError (v.loc, msg))
+      )
+      (search_var env.globals env.locals v.name);
+    (match env.locals with
+    | bs :: bss -> env.locals <- Bindings.add v.name v bs :: bss
+    | [] ->
+        raise (InternalError
+          (v.loc, "addLocalVar", (fun fmt -> FMT.varname fmt v.name), __LOC__))
+    );
+    if not v.is_constant then env.modified <- IdentSet.add v.name env.modified
 
-    let getVar (env: t) (v: AST.ident): (AST.ident * AST.ty) option =
-        (* Printf.printf "Looking for variable %s\n" (pprint_ident v); *)
-        let rec search (bss : AST.ty Bindings.t list): AST.ty option =
-            (match bss with
-            | (bs :: bss') ->
-                    orelse_option (Bindings.find_opt v bs) (fun _ ->
-                    search bss')
-            | [] ->
-                    orelse_option (Bindings.find_opt v !(env.implicits)) (fun _ ->
-                    GlobalEnv.getGlobalVar env.globals v)
-            )
-        in
-        map_option (fun ty -> (v, ty)) (search env.locals)
+  let getVar (env : t) (v : Ident.t) : var_info option =
+    (* Format.fprintf fmt "Looking for variable %a\n" FMT.varname v; *)
+    search_var env.globals env.locals v
 
-    let markModified (env: t) (v: AST.ident): unit =
-        env.modified <- IdentSet.add v env.modified
+  let markModified (env : t) (v : Ident.t) : unit =
+    env.modified <- IdentSet.add v env.modified
 
-    let addConstraint (env: t) (loc: AST.l) (c: AST.expr): unit =
-        env.constraints <- c :: env.constraints
+  let addConstraint (env : t) (loc : Loc.t) (c : AST.expr) : unit =
+    env.constraints <- c :: env.constraints
 
-    let getConstraints (env: t): AST.expr list =
-        env.constraints
-
-    let setReturnType (env: t) (ty: AST.ty): unit =
-        env.rty <- Some ty
-
-    let getReturnType (env: t): AST.ty option =
-        env.rty
-
+  let getConstraints (env : t) : AST.expr list = env.constraints
+  let setReturnType (env : t) (ty : AST.ty) : unit = env.rty <- Some ty
+  let getReturnType (env : t) : AST.ty option = env.rty
 end
 
 (****************************************************************)
-(** {2 Unification}                                             *)
+(** {2 Subtype satisfaction}                                    *)
 (****************************************************************)
 
 (****************************************************************)
@@ -683,33 +504,29 @@ end
     which gives a performance benefit.
  *)
 
-let rec simplify_expr (x: AST.expr): AST.expr =
-    let eval (x: AST.expr): Z.t option =
-        (match x with
-        | Expr_LitInt x' -> Some (Z.of_string x')
-        | _ -> None
-        )
-    in
-    let to_expr (x: Z.t): AST.expr =
-        Expr_LitInt (Z.to_string x)
-    in
+let rec simplify_expr (x : AST.expr) : AST.expr =
+  let eval (x : AST.expr) : Z.t option =
+    match x with Expr_Lit (VInt x') -> Some x' | _ -> None
+  in
+  let to_expr (x : Z.t) : AST.expr = Expr_Lit (VInt x) in
 
-    (match x with
-    | Expr_TApply (f, tes, es) ->
-            let es' = List.map simplify_expr es in
-            (match (f, flatten_map_option eval es') with
-            | (FIdent ("add_int",_), Some [a; b]) -> to_expr (Z.add a b)
-            | (FIdent ("sub_int",_), Some [a; b]) -> to_expr (Z.sub a b)
-            | (FIdent ("mul_int",_), Some [a; b]) -> to_expr (Z.mul a b)
-            | _ -> Expr_TApply (f, tes, es')
-            )
-    | _ -> x
-    )
-
-(** Perform simple constant folding of expressions within a type *)
-let simplify_type (x: AST.ty): AST.ty =
-    let repl = new replaceExprClass (fun e -> Some (simplify_expr e)) in
-    Asl_visitor.visit_type repl x
+  match x with
+  | Expr_TApply (f, tes, es, throws) -> (
+      let es' = List.map simplify_expr es in
+      match (f, flatten_map_option eval es') with
+      | i, Some [ a ]    when Ident.equal i neg_int -> to_expr (Primops.prim_neg_int a)
+      | i, Some [ a; b ] when Ident.equal i add_int -> to_expr (Primops.prim_add_int a b)
+      | i, Some [ a; b ] when Ident.equal i sub_int -> to_expr (Primops.prim_sub_int a b)
+      | i, Some [ a; b ] when Ident.equal i mul_int -> to_expr (Primops.prim_mul_int a b)
+      | i, Some [ a; b ] when Ident.equal i exact_div_int -> to_expr (Primops.prim_exact_div_int a b)
+      | i, Some [ a; b ] when Ident.equal i shl_int -> to_expr (Primops.prim_shl_int a b)
+      | i, Some [ a; b ] when Ident.equal i shr_int -> to_expr (Primops.prim_shr_int a b)
+      | i, Some [ a; b ] when Ident.equal i min -> to_expr (Z.min a b)
+      | i, Some [ a; b ] when Ident.equal i max -> to_expr (Z.max a b)
+      | i, Some [ a ] when Ident.equal i pow2_int -> to_expr (Primops.prim_pow2_int a)
+      | i, Some [ a; b ] when Ident.equal i pow_int_int -> to_expr (Primops.prim_pow_int_int a b)
+      | _ -> Expr_TApply (f, tes, es', throws))
+  | _ -> x
 
 
 (****************************************************************)
@@ -717,7 +534,8 @@ let simplify_type (x: AST.ty): AST.ty =
 (****************************************************************)
 
 (** Convert ASL expression to Z3 expression.
-    This only copes with a limited set of operations: ==, +, -, * and DIV.
+    This only copes with a limited set of operations:
+    ==, +, -, negate, *, and DIV.
     (It is possible that we will need to extend this list in the future but
     it is sufficient for the current ASL specifications.)
 
@@ -728,409 +546,646 @@ let simplify_type (x: AST.ty): AST.ty =
     ufs is a mutable list of conversions used to handle subexpressions
     that cannot be translated.  We treat such subexpressions as
     uninterpreted functions and add them to the 'ufs' list so that
-    we can reason that "F(x) == F(x)" without knowing "F".
+    we can reason that "F(x) == F(x)" without knowing what the function
+    "F" does.
  *)
 
-let rec z3_of_expr (ctx: Z3.context) (ufs: (AST.expr * Z3.Expr.expr) list ref) (x: AST.expr): Z3.Expr.expr =
-    (match x with
-    | Expr_Var(v) ->
-        let intsort = Z3.Arithmetic.Integer.mk_sort ctx in
-        Z3.Expr.mk_const_s ctx (pprint_ident v) intsort
-    | Expr_Parens y -> z3_of_expr ctx ufs y
-    | Expr_LitInt i -> Z3.Arithmetic.Integer.mk_numeral_s ctx i
+let rec z3_of_expr (ctx : Z3.context) (ufs : (AST.expr * Z3.Expr.expr) list ref)
+    (x : AST.expr) : Z3.Expr.expr =
+  match x with
+  | Expr_Var v ->
+      let intsort = Z3.Arithmetic.Integer.mk_sort ctx in
+      Z3.Expr.mk_const_s ctx (Ident.to_string v) intsort
+  | Expr_Lit (VInt i) -> Z3.Arithmetic.Integer.mk_numeral_s ctx (Z.to_string i)
+  (* todo: the following lines involving DIV are not sound *)
+  | Expr_TApply
+      ( i,
+        [],
+        [ Expr_TApply (j, [], [ a; b ], _); c ],
+        _
+      )
+    when Ident.equal i mul_int && Ident.equal j exact_div_int && b = c ->
+      z3_of_expr ctx ufs a
+  | Expr_TApply
+      ( i,
+        [],
+        [ a; Expr_TApply (j, [], [ b; c ], _) ],
+        _
+      )
+    when Ident.equal i mul_int && Ident.equal j exact_div_int && a = c ->
+      z3_of_expr ctx ufs b
+  | Expr_TApply
+      ( i,
+        [],
+        [
+          Expr_TApply (j, [], [ a1; b1 ], _);
+          Expr_TApply (k, [], [ a2; b2 ], _);
+        ],
+        _
+      )
+    when Ident.equal i add_int && Ident.equal j exact_div_int && Ident.equal k exact_div_int && a1 = a2 && b1 = b2 && b1 = two ->
+      z3_of_expr ctx ufs a1
+  | Expr_TApply
+      ( i,
+        [],
+        [ a; Expr_TApply (j, [], [ b; c ], _) ],
+        _
+      ) when Ident.equal i eq_int && Ident.equal j exact_div_int ->
+      Z3.Boolean.mk_eq ctx
+        (Z3.Arithmetic.mk_mul ctx
+           [ z3_of_expr ctx ufs c; z3_of_expr ctx ufs a ])
+        (z3_of_expr ctx ufs b)
+  | Expr_TApply (i, [], [x], _) when Ident.equal i neg_int ->
+      Z3.Arithmetic.mk_unary_minus ctx (z3_of_expr ctx ufs x)
+  | Expr_TApply (i, [], xs, _) when Ident.equal i add_int ->
+      Z3.Arithmetic.mk_add ctx (List.map (z3_of_expr ctx ufs) xs)
+  | Expr_TApply (i, [], xs, _) when Ident.equal i sub_int ->
+      Z3.Arithmetic.mk_sub ctx (List.map (z3_of_expr ctx ufs) xs)
+  | Expr_TApply (i, [], xs, _) when Ident.equal i mul_int ->
+      Z3.Arithmetic.mk_mul ctx (List.map (z3_of_expr ctx ufs) xs)
+  | Expr_TApply (i, [], [a; b], _) when Ident.equal i shl_int ->
+      let b' = Z3.Arithmetic.mk_power ctx (Z3.Arithmetic.Integer.mk_numeral_i ctx 2) (z3_of_expr ctx ufs b) in
+      Z3.Arithmetic.mk_mul ctx [z3_of_expr ctx ufs a; b']
+  | Expr_TApply (i, [], [a; b], _) when Ident.equal i shr_int ->
+      let b' = Z3.Arithmetic.mk_power ctx (Z3.Arithmetic.Integer.mk_numeral_i ctx 2) (z3_of_expr ctx ufs b) in
+      Z3.Arithmetic.mk_div ctx (z3_of_expr ctx ufs a) b'
+  | Expr_TApply (i, [], [ a; b ], _) when Ident.equal i exact_div_int ->
+      Z3.Arithmetic.mk_div ctx (z3_of_expr ctx ufs a) (z3_of_expr ctx ufs b)
+  | Expr_TApply (i, [], [ a; b], _) when Ident.equal i min ->
+      let a' = z3_of_expr ctx ufs a in
+      let b' = z3_of_expr ctx ufs b in
+      let c = Z3.Arithmetic.mk_le ctx a' b' in
+      Z3.Boolean.mk_ite ctx c a' b'
+  | Expr_TApply (i, [], [ a; b], _) when Ident.equal i max ->
+      let a' = z3_of_expr ctx ufs a in
+      let b' = z3_of_expr ctx ufs b in
+      let c = Z3.Arithmetic.mk_le ctx a' b' in
+      Z3.Boolean.mk_ite ctx c b' a'
+  | Expr_TApply (i, [], [x], _) when Ident.equal i pow2_int ->
+      Z3.Arithmetic.mk_power ctx (Z3.Arithmetic.Integer.mk_numeral_i ctx 2) (z3_of_expr ctx ufs x)
+  | Expr_TApply (i, [], [a; b], _) when Ident.equal i pow_int_int ->
+      Z3.Arithmetic.mk_power ctx (z3_of_expr ctx ufs a) (z3_of_expr ctx ufs b)
+  | Expr_TApply (i, [], [ a; b ], _) when Ident.equal i eq_int ->
+      Z3.Boolean.mk_eq ctx (z3_of_expr ctx ufs a) (z3_of_expr ctx ufs b)
+  | Expr_TApply (i, [], [ a; b ], _) when Ident.equal i le_int ->
+      Z3.Arithmetic.mk_le ctx (z3_of_expr ctx ufs a) (z3_of_expr ctx ufs b)
+  | Expr_TApply (i, [], [ a; b ], _) when Ident.equal i lt_int ->
+      Z3.Arithmetic.mk_lt ctx (z3_of_expr ctx ufs a) (z3_of_expr ctx ufs b)
+  | Expr_TApply (i, [], [ a; b ], _) when Ident.equal i ge_int ->
+      Z3.Arithmetic.mk_ge ctx (z3_of_expr ctx ufs a) (z3_of_expr ctx ufs b)
+  | Expr_TApply (i, [], [ a; b ], _) when Ident.equal i gt_int ->
+      Z3.Arithmetic.mk_gt ctx (z3_of_expr ctx ufs a) (z3_of_expr ctx ufs b)
+  | Expr_TApply (i, [], [ a; b ], _) when Ident.equal i and_bool ->
+    Z3.Boolean.mk_and ctx [z3_of_expr ctx ufs a; z3_of_expr ctx ufs b]
+  | Expr_TApply (i, [], [ a; b ], _) when Ident.equal i or_bool ->
+    Z3.Boolean.mk_or ctx [z3_of_expr ctx ufs a; z3_of_expr ctx ufs b]
+  | Expr_TApply (i, [], [ a; b ], _) when Ident.equal i implies_bool ->
+      Z3.Boolean.mk_implies ctx (z3_of_expr ctx ufs a) (z3_of_expr ctx ufs b)
+  | _ -> (
+      if verbose then
+        Format.fprintf fmt
+          "    Unable to translate %a - using as uninterpreted function\n"
+          FMT.expr x;
+      let intsort = Z3.Arithmetic.Integer.mk_sort ctx in
+      match List.assoc_opt x !ufs with
+      | None ->
+          let uf = Z3.Expr.mk_fresh_const ctx "UNINTERPRETED" intsort in
+          ufs := (x, uf) :: !ufs;
+          uf
+      | Some uf -> uf)
 
-    (* todo: the following lines involving DIV are not sound *)
-    | Expr_TApply (FIdent ("mul_int",_), [], [Expr_TApply (FIdent ("fdiv_int",_), [], [a; b]); c]) when b = c -> z3_of_expr ctx ufs a
-    | Expr_TApply (FIdent ("mul_int",_), [], [a; Expr_TApply (FIdent ("fdiv_int",_), [], [b; c])]) when a = c -> z3_of_expr ctx ufs b
-    | Expr_TApply (FIdent ("add_int",_), [], [Expr_TApply (FIdent ("fdiv_int",_), [], [a1; b1]);
-                                         Expr_TApply (FIdent ("fdiv_int",_), [], [a2; b2])])
-         when a1 = a2 && b1 = b2 && b1 = Expr_LitInt "2"
-         -> z3_of_expr ctx ufs a1
-    | Expr_TApply (FIdent ("eq_int",_), [], [a; Expr_TApply (FIdent ("fdiv_int",_), [], [b; c])]) ->
-            Z3.Boolean.mk_eq ctx
-                (Z3.Arithmetic.mk_mul ctx [z3_of_expr ctx ufs c; z3_of_expr ctx ufs a])
-                (z3_of_expr ctx ufs b)
+let z3_ctx = Z3.mk_context []
 
-    | Expr_TApply (FIdent ("add_int",_),  [], xs)    -> Z3.Arithmetic.mk_add ctx (List.map (z3_of_expr ctx ufs) xs)
-    | Expr_TApply (FIdent ("sub_int",_),  [], xs)    -> Z3.Arithmetic.mk_sub ctx (List.map (z3_of_expr ctx ufs) xs)
-    | Expr_TApply (FIdent ("mul_int",_),  [], xs)    -> Z3.Arithmetic.mk_mul ctx (List.map (z3_of_expr ctx ufs) xs)
-    | Expr_TApply (FIdent ("fdiv_int",_), [], [a;b]) -> Z3.Arithmetic.mk_div ctx (z3_of_expr ctx ufs a) (z3_of_expr ctx ufs b)
-    | Expr_TApply (FIdent ("eq_int",_),   [], [a;b]) -> Z3.Boolean.mk_eq ctx (z3_of_expr ctx ufs a) (z3_of_expr ctx ufs b)
-    | _ ->
-            if verbose then Printf.printf "    Unable to translate %s - using as uninterpreted function\n" (pp_expr x);
-            let intsort = Z3.Arithmetic.Integer.mk_sort ctx in
-            (match List.assoc_opt x !ufs with
-            | None ->
-                    let uf = Z3.Expr.mk_fresh_const ctx "UNINTERPRETED" intsort in
-                    ufs := (x, uf) :: !ufs;
-                    uf
-            | Some uf ->
-                    uf
-            )
+let solver = Z3.Solver.mk_simple_solver z3_ctx
+
+(** check that bs => cs where bs and cs are lists of boolean expressions *)
+let check_constraints (bs : expr list) (cs : expr list) : bool =
+  (* note that we rebuild the Z3 context each time.
+   * It is possible to share them across all invocations to save
+   * about 10% of execution time.
+   *)
+  let ufs = ref [] in
+  (* uninterpreted function list *)
+  let bs' = List.map (z3_of_expr z3_ctx ufs) bs in
+  let cs' = List.map (z3_of_expr z3_ctx ufs) cs in
+  let p =
+    Z3.Boolean.mk_implies z3_ctx
+      (Z3.Boolean.mk_and z3_ctx bs')
+      (Z3.Boolean.mk_and z3_ctx cs')
+  in
+  if verbose then
+    Format.fprintf fmt "      - Checking %s\n" (Z3.Expr.to_string p);
+  Z3.Solver.push solver;
+  Z3.Solver.add solver [ Z3.Boolean.mk_not z3_ctx p ];
+  let q = Z3.Solver.check solver [] in
+  Z3.Solver.pop solver 1;
+  if verbose && q <> UNSATISFIABLE then begin
+    Format.fprintf fmt "Failed property %s\n" (Z3.Expr.to_string p);
+    ( match Z3.Solver.get_model solver with
+    | Some model -> Format.fprintf fmt "        - Fails for model '%s'\n" (Z3.Model.to_string model)
+    | None -> Format.fprintf fmt "        - Unable to extract counterexample"
     )
-
-(** check that bs => cs *)
-let check_constraints (bs: expr list) (cs: expr list): bool =
-    (* note that we rebuild the Z3 context each time.
-     * It is possible to share them across all invocations to save
-     * about 10% of execution time.
-     *)
-    let z3_ctx = Z3.mk_context [] in
-    let solver = Z3.Solver.mk_simple_solver z3_ctx in
-    let ufs = ref [] in (* uninterpreted function list *)
-    let bs' = List.map (z3_of_expr z3_ctx ufs) bs in
-    let cs' = List.map (z3_of_expr z3_ctx ufs) cs in
-    let p = Z3.Boolean.mk_implies z3_ctx (Z3.Boolean.mk_and z3_ctx bs') (Z3.Boolean.mk_and z3_ctx cs') in
-    if verbose then Printf.printf "      - Checking %s\n" (Z3.Expr.to_string p);
-    Z3.Solver.add solver [Z3.Boolean.mk_not z3_ctx p];
-    let q = Z3.Solver.check solver [] in
-    if q = SATISFIABLE then Printf.printf "Failed property %s\n" (Z3.Expr.to_string p);
-    q = UNSATISFIABLE
-
+  end;
+  q = UNSATISFIABLE
 
 (****************************************************************)
-(** {3 Unification support code}                                *)
+(** {3 Checking subtyping}                                      *)
 (****************************************************************)
 
-(** Unifier
+let simplify_constraints (cs : constraint_range list) : constraint_range list =
+  (* todo: remove constants, duplicates, etc. *)
+  cs
 
-    This class supports collecting all the constraints introduced while
-    typechecking an expression, checking those constraints
-    and synthesizing a solution.
+let constraint_union (ocrs1 : constraint_range list option) (ocrs2 : constraint_range list option) : constraint_range list option =
+  ( match (ocrs1, ocrs2) with
+  | (None, _) -> ocrs2
+  | (_, None) -> ocrs1
+  | (Some crs1, Some crs2) -> Some (simplify_constraints (crs1 @ crs2))
+  )
 
-    This is the most complex part of the entire typechecker.
-    Most of that complexity is the result of having to support
-    code like
+let check_equality
+  (env : Env.t) (loc : Loc.t)
+  (x : AST.expr) (y : AST.expr)
+  : unit =
+  let x' = simplify_expr x in
+  let y' = simplify_expr y in
 
-        bits(64) x = ZeroExtend(R[i]);
-
-    where the width of the ZeroExtend call is determined by
-    the context that it occurs in.
- *)
-class unifier (loc: AST.l) (assumptions: expr list) = object (self)
-
-    (* unification results in bindings of the form "$i == $j".
-     * We use a renaming structure to track equivalence classes
-     * and to pick a canonical member of each equivalence class
-     *)
-    val mutable renamings = new equivalences
-
-    val mutable bindings : AST.expr Bindings.t = Bindings.empty
-
-    val mutable constraints : AST.expr list = []
-
-    val mutable next = 0
-
-    method fresh: ident =
-        let v = genericTyvar next in
-        ignore (renamings#canonicalize v); (* add v to rename table *)
-        next  <- next + 1;
-        v
-
-    method isFresh (x: ident): bool =
-        isGenericTyvar x
-
-    method addEquality (x: AST.expr) (y: AST.expr): unit =
-        (match (x, y) with
-        | (Expr_Var v, Expr_Var w) when self#isFresh v && self#isFresh w ->
-                renamings#merge v w
-        | (Expr_Var v, _) when self#isFresh v && not (Bindings.mem v bindings) ->
-                bindings <- Bindings.add v y bindings
-        | (_, Expr_Var w) when self#isFresh w && not (Bindings.mem w bindings) ->
-                bindings <- Bindings.add w x bindings
-        | _ ->
-                constraints <- mk_eq_int x y :: constraints
-        )
-
-    method addEqualities (xs: AST.expr list) (ys: AST.expr list) =
-        if List.length xs = List.length ys then
-            List.iter2 self#addEquality xs ys
-
-    method checkConstraints: expr Bindings.t = begin
-        (* Plan:
-         * - Generate renaming that maps each fresh var to canonical
-         *   representative of equivalence class.
-         * - Collect all the bindings associated with each equivalence class.
-         * - For each equivalence class, check that there is at least
-         *   one closed binding for that equivalence class and
-         *   add all the others as constraints.
-         *   (A "closed binding" is a binding that does not contain any fresh
-         *   variables - construct it by substituting other closed bindings
-         *   into a binding.)
-         * - If any equivalence class has no closed bindings, report an error.
-         *)
-        let rns     = renamings#mapping in
-        let classes = renamings#classes in
-
-        (* map each canonical representative to set of bindings *)
-        let binds   = Bindings.map (fun vs -> flatmap_option (fun v -> Bindings.find_opt v bindings) (IdentSet.elements vs)) classes in
-
-        if verbose then begin
-            Printf.printf "    - Checking Constraints at %s\n" (pp_loc loc);
-            Bindings.iter (fun v e -> Printf.printf "      Old Bind: %s -> %s\n" (pprint_ident v) (ppp_expr e)) bindings;
-            Bindings.iter (fun v es -> List.iter (fun e -> Printf.printf "      binds: %s -> %s\n" (pprint_ident v) (ppp_expr e)) es) binds;
-            renamings#pp "      Renaming: ";
-            Bindings.iter (fun v w -> Printf.printf "      - renaming: %s -> %s\n" (pprint_ident v) (pprint_ident w)) rns
-        end;
-
-        let isClosed (x: expr): bool =
-            IdentSet.is_empty (IdentSet.filter self#isFresh (fv_expr x))
-        in
-
-        (* todo: memoize close_ident to improve performance  - should probably profile first *)
-        (* search for a closed binding for a variable x by testing whether any of the available bindings can be closed *)
-        let rec close_ident (x: ident): expr =
-            let x' = renamings#canonicalize x in
-            (match bind_option (Bindings.find_opt x' binds) (fun es -> first_option close_expr es) with
-            | Some e -> e
-            | None ->
-                Printf.printf "Type Error at %s\n" (pp_loc loc);
-                if verbose then begin
-                    List.iter (fun v -> Printf.printf "  Related to: %s\n" (pprint_ident v)) (IdentSet.elements (Bindings.find x' classes));
-                    List.iter (fun e -> Printf.printf "  Candidate: %s\n" (pp_expr e)) (Bindings.find x' binds);
-                    renamings#pp "  Renaming: ";
-                    Bindings.iter (fun v e -> Printf.printf "  Bind: %s -> %s\n" (pprint_ident v) (ppp_expr e)) bindings
-                end;
-                raise (TypeError (loc, "Unable to infer value of type parameter "^ pprint_ident x'))
-            )
-
-            (* attempt to close an expression by replacing all fresh vars with a closed expression *)
-        and close_expr (x: expr): expr option =
-            let subst = new substFunClass (fun x -> if self#isFresh x then Some (close_ident x) else None) in
-            let x'    = Asl_visitor.visit_expr subst x in
-            if isClosed x' then
-                Some x'
-            else
-                None
-        in
-
-        (* map of each canonical member to a closed expression *)
-        let pre_closed = Bindings.mapi (fun k _ -> close_ident k) classes in
-
-
-        (* extend map to all type variables *)
-        let closed = Bindings.map (fun v -> Bindings.find v pre_closed) rns in
-
-        if verbose then begin
-            Bindings.iter (fun v e -> Printf.printf "      PreClosed Bind: %s -> %s\n" (pprint_ident v) (ppp_expr e)) pre_closed;
-            Bindings.iter (fun v e -> Printf.printf "      Closed Bind: %s -> %s\n" (pprint_ident v) (ppp_expr e)) closed
-        end;
-
-        constraints <- List.map (subst_expr closed) constraints;
-
-        (* turn all old bindings into constraints *)
-        let new_constraints = List.map (fun (v, e) -> mk_eq_int (Bindings.find v closed) (subst_expr closed e)) (Bindings.bindings bindings) in
-        constraints <- new_constraints @ constraints;
-        bindings    <- closed;
-
-        if verbose then begin
-            List.iter (fun c -> Printf.printf "      OldConstraint: %s\n" (ppp_expr c)) constraints;
-            List.iter (fun c -> Printf.printf "      NewConstraint: %s\n" (ppp_expr c)) new_constraints;
-            List.iter (fun c -> Printf.printf "      Constraint: %s\n" (ppp_expr c)) constraints
-        end;
-
-        constraints <- List.map simplify_expr constraints;
-
-        (* as a minor optimisation and also to declutter error messages, delete equalities that are obviously satisfied *)
-        constraints <- List.filter (function Expr_TApply(FIdent ("eq_int",_), [], [x; y]) -> x <> y | _ -> true) constraints;
-
-        (* The optimisation of not invoking solver if there are no constraints
-         * improves runtime by a factor of 6x
-         *)
-        if constraints <> [] && not (check_constraints assumptions constraints) then begin
-            Printf.printf "Type Error at %s\n" (pp_loc loc);
-            if verbose then begin
-                renamings#pp "      Renaming: ";
-                Bindings.iter (fun v e -> Printf.printf "      Bind: %s -> %s\n" (pprint_ident v) (ppp_expr e)) bindings
-            end;
-            List.iter (fun c -> Printf.printf "      Constraint: %s\n" (ppp_expr c)) constraints;
-            flush stdout;
-            raise (TypeError (loc, "Type mismatch"))
-        end;
-
-        bindings
+  (* As a performance optimisation, omit SMT calls that are trivially true *)
+  if x' <> y' then begin
+    let assumptions = Env.getConstraints env in
+    let constraints = [mk_eq_int x' y'] in
+    if not (check_constraints assumptions constraints) then begin
+      raise (DoesNotMatch (loc, "type width parameter", pp_expr x, pp_expr y))
     end
+  end
 
-end
+(* a constraint range a..b is only legal if a <= b *)
+let is_legal_constraint_range (cr : AST.constraint_range) : AST.expr option =
+  ( match cr with
+  | Constraint_Single _ -> None
+  | Constraint_Range (lo, hi) -> Some (mk_le_int lo hi)
+  )
 
-(** Create a fresh unifier, invoke a function that uses the unifier and check
-    that the constraints are satisfied.
-    Returns the synthesized bindings and result of function
+let are_legal_constraint_ranges (crs : AST.constraint_range list) : AST.expr =
+  mk_ands (List.filter_map is_legal_constraint_range crs)
+
+let constraint_range_to_expr (v : AST.expr) (cr : AST.constraint_range) : AST.expr =
+  ( match cr with
+  | Constraint_Single e -> mk_eq_int v e
+  | Constraint_Range (lo, hi) -> mk_and (mk_le_int lo v) (mk_le_int v hi)
+  )
+
+let constraint_ranges_to_expr (v : AST.expr) (crs : AST.constraint_range list) : AST.expr =
+  mk_ors (List.map (constraint_range_to_expr v) crs)
+
+let is_subrange (env : Env.t) (crs1 : constraint_range list) (crs2 : constraint_range list) : bool =
+  let v = Expr_Var wildcard_ident in
+  let chk = mk_implies
+              (mk_and (are_legal_constraint_ranges crs1) (constraint_ranges_to_expr v crs1))
+              (constraint_ranges_to_expr v crs2)  in
+  let assumptions = Env.getConstraints env in
+  let r = check_constraints assumptions [chk] in
+  if verbose && not r then begin
+    Format.printf "Failed subrange check %a => %a\n"
+      FMT.exprs assumptions
+      FMT.expr chk
+  end;
+  r
+
+let check_subrange_satisfies (env : Env.t) (loc : Loc.t) (ocrs1 : constraint_range list option) (ocrs2 : constraint_range list option) : unit =
+  ( match (ocrs1, ocrs2) with
+  | (_, None) -> ()
+  | (None, Some crs2) ->
+    let msg = Format.asprintf "`integer` is not a subrange of `%a`"
+        FMT.constraints crs2
+    in
+    raise (TypeError (loc, msg))
+  | (Some crs1, Some crs2) ->
+    if not (is_subrange env crs1 crs2) then begin
+      let msg = Format.asprintf "`%a` is not a subrange of `%a`"
+          FMT.constraints crs1
+          FMT.constraints crs2
+      in
+      raise (TypeError (loc, msg))
+    end
+  )
+
+(** Check that ty1 subtype-satisfies ty2
+    On failure, report an error.
+
+    This differs from eq_structural and synthesize_type (below)
+    in that it checks the dependent part of the type.
  *)
-let with_unify (env: Env.t) (loc: AST.l) (f: unifier -> 'a): (expr Bindings.t * 'a) =
-    let u = new unifier loc (Env.getConstraints env) in
-    let r = f u in
-    let bs = u#checkConstraints in
-    (bs, r)
+let rec check_subtype_satisfies (env : Env.t) (loc : Loc.t) (ty1 : AST.ty) (ty2 : AST.ty) : unit =
+  let genv = Env.globals env in
+  (* Substitute global constants in types *)
+  let subst_consts = new substFunClass (GlobalEnv.getConstant genv) in
+  let ty1' = Asl_visitor.visit_type subst_consts ty1 in
+  let ty2' = Asl_visitor.visit_type subst_consts ty2 in
+  ( match (derefType genv loc ty1', derefType genv loc ty2') with
+  | Type_Integer ocrs1, Type_Integer ocrs2 ->
+      if !enable_constraint_checks then check_subrange_satisfies env loc ocrs1 ocrs2
+  | Type_Bits (e1, fs1), Type_Bits (e2, fs2)
+    (* todo: check that register fields fs2 are a subset of fs1 *)
+    -> check_equality env loc e1 e2
+  | Type_Constructor (tc1, es1), Type_Constructor (tc2, es2) when tc1 = tc2 ->
+      assert (List.length es1 = List.length es2);
+      List.iter2 (check_equality env loc) es1 es2
+  | Type_OfExpr e1, Type_OfExpr e2 ->
+      raise (InternalError
+        (loc, "check_subtype_satisfies: typeof", (fun fmt -> FMT.ty fmt ty1), __LOC__))
+  | Type_Array (ixty1, elty1), Type_Array (ixty2, elty2) ->
+      ( match (ixty1, ixty2) with
+      | Index_Enum tc1, Index_Enum tc2 -> ()
+      | Index_Int sz1, Index_Int sz2 -> check_equality env loc sz1 sz2
+      | _ ->
+        raise (DoesNotMatch (loc, "array index type", pp_ixtype ixty1, pp_ixtype ixty2))
+      );
+      check_subtype_satisfies env loc elty1 elty2
+  | Type_Tuple tys1, Type_Tuple tys2 ->
+      if List.length tys1 <> List.length tys2 then begin
+        raise (DoesNotMatch (loc, "tuple length", pp_type ty2, pp_type ty1))
+      end;
+      List.iter2 (check_subtype_satisfies env loc) tys1 tys2
+  | _ -> raise (DoesNotMatch (loc, "type", pp_type ty2, pp_type ty1))
+  )
+
+
+(** Calculate the least supertype of `ty1` and `ty2`
+ *
+ *  e.g. the least supertype of "integer \{0..3\}" and "integer \{8, 16\}"
+ *  is "integer \{0..3, 8, 16\}"
+ *
+ *  If no supertype exists, report an error.
+ *)
+let rec least_supertype (env : Env.t) (loc : Loc.t) (ty1 : AST.ty) (ty2 : AST.ty) : AST.ty =
+  let genv = Env.globals env in
+  (* Substitute global constants in types *)
+  let subst_consts = new substFunClass (GlobalEnv.getConstant genv) in
+  let ty1' = Asl_visitor.visit_type subst_consts ty1 in
+  let ty2' = Asl_visitor.visit_type subst_consts ty2 in
+  ( match (derefType genv loc ty1', derefType genv loc ty2') with
+  | (Type_Integer ocrs1, Type_Integer ocrs2) -> Type_Integer (constraint_union ocrs1 ocrs2)
+  | (Type_Bits (e1, _), Type_Bits (e2, _)) ->
+      check_equality env loc e1 e2;
+      ty1
+  | (Type_Constructor (tc1, es1), Type_Constructor (tc2, es2)) when tc1 = tc2 ->
+      assert (List.length es1 = List.length es2);
+      List.iter2 (check_equality env loc) es1 es2;
+      ty1
+  | (Type_OfExpr e1, Type_OfExpr e2) ->
+      raise (InternalError (loc, "least_supertype: typeof", (fun fmt -> FMT.ty fmt ty1), __LOC__))
+  | (Type_Array (ixty1, elty1), Type_Array (ixty2, elty2)) ->
+      ( match (ixty1, ixty2) with
+      | (Index_Enum tc1, Index_Enum tc2) when tc1 == tc2 -> ()
+      | (Index_Int sz1, Index_Int sz2) -> check_equality env loc sz1 sz2
+      | _ ->
+        raise (DoesNotMatch (loc, "array index type", pp_ixtype ixty1, pp_ixtype ixty2))
+      );
+      let elty' = least_supertype env loc elty1 elty2 in
+      Type_Array (ixty1, elty')
+  | Type_Tuple tys1, Type_Tuple tys2 ->
+      if List.length tys1 <> List.length tys2 then begin
+        raise (DoesNotMatch (loc, "tuple length", pp_type ty2, pp_type ty1))
+      end;
+      let tys' = List.map2 (least_supertype env loc) tys1 tys2 in
+      Type_Tuple tys'
+  | _ -> raise (DoesNotMatch (loc, "type", pp_type ty2, pp_type ty1))
+  )
+
 
 (****************************************************************)
-(** {3 Type Unification}                                        *)
+(** {2 Typechecking function (and operator) application}        *)
+(*                                                              *)
+(* This consists of                                             *)
+(* - synthesizing type parameters                               *)
+(*   (eg if "x : bits(8)", then, in a call "IsZero(x)", we      *)
+(*   infer the parameter "8"                                    *)
+(* - typechecking a function call                               *)
+(* - disambiguating which function or operator is being called  *)
+(*   (eg in the expression "x + y", we use the types of x and y *)
+(*   to decide whether it is an integer addition, bit addition, *)
+(*   etc.)                                                      *)
 (****************************************************************)
 
-(** Notes on how type inference works:
+(****************************************************************)
+(** {3 Synthesis of type parameters (which checking subtyping}  *)
+(****************************************************************)
 
-    - we use structural matching (ignoring the dependent type)
-      to disambiguate each binop/unop/function/procedure call/getter/setter
-
-    - as we construct each TApply node,
-      - we insert fresh type variables $0, $1, ... for each of the type arguments
-        (these are things we are going to solve for)
-      - unification generates two kinds of constraints:
-        1. bindings for type variables whenever unification requires "$i == e" or "e == $i"
-           for some type variable $i
-        2. constraints where there are multiple bindings for a single variable
-        3. constraints on type variables whenever unification requires "e1 == e2"
-           where e1 is not a variable
-
-    - after scanning an entire assignment/expression, we check:
-        1. do we have at least one binding for each variable?
-        2. are the bindings consistent with the constraints?
-      Note that we could potentially give better (more localized) type errors if
-      we check for consistency as we go along and if we check that a variable
-      is bound as soon as the result type could not possibly involve the variable.
-      (e.g., when checking "(e1 == e2 && Q) || R", any type variables associated
-      with the equality check do not impact the && or || because "boolean" does
-      not have any type parameters.)
-
-    Note that there is a choice of what type arguments to add to a function
-
-        bits(N) ZeroExtend(bits(M) x, integer N)
-
-    We can either:
-    - add only the missing information "M"
-      In effect, we are saying that missing type parameters are implicit parameters that are
-      added by the type inference process and that the "type parameters" are basically just
-      value expressions that are added by type inference.
-    - add type arguments for both "M" and "N".
-      In effect we are saying that type parameters are distinct from value parameters
-      and we are in the strange situation that a function could have both a value
-      parameter M and a type parameter N and they might be bound to different (but
-      equivalent) arguments.
-      This is what archex does.
+(** Record bindings of type parameters to values from the types of
+ * actual arguments.
+ * (If there are multiple bindings, we will use the last one found
+ * and detect any mismatches during the subsequent typecheck.
  *)
+let synthesize_equality (s : (AST.expr option) Scope.t) (x : AST.expr) (y : AST.expr) : unit =
+  ( match y with
+  | Expr_Var v ->
+      ( match Scope.get s v with
+      | Some None -> Scope.set s v (Some x)
+      | _ -> ()
+      )
+  | _ -> ()
+  )
 
-(** Unify two index types *)
-let unify_ixtype (u: unifier) (ty1: AST.ixtype) (ty2: AST.ixtype): unit =
-    (match (ty1, ty2) with
-    | (Index_Enum tc1,         Index_Enum tc2) -> ()
-    | (Index_Range (lo1, hi1), Index_Range (lo2, hi2)) ->
-            u#addEquality lo1 lo2;
-            u#addEquality hi1 hi2
-    | _ -> ()
+(** Synthesize type parameter values by matching
+ *  an actual argument type `ty1` (e.g., "bits(32)")
+ *  against the corresponding formal argument type `ty2`
+ *  (e.g., "bits(N)" where `N` is a parameter of the function).
+ *  The result is put in `s`.
+ *
+ *  This does not check that the types match so it is necessary
+ *  to call `check_subtype_satisfies` after the type parameters
+ *  have been determined.
+ *)
+let rec synthesize_type
+  (env : Env.t) (loc : Loc.t) (s : AST.expr option Scope.t)
+  (ty1 : AST.ty) (ty2 : AST.ty)
+  : unit =
+  let genv = Env.globals env in
+  ( match (derefType genv loc ty1, derefType genv loc ty2) with
+  | Type_Bits (e1, _), Type_Bits (e2, _) -> synthesize_equality s e1 e2
+  | Type_Constructor (tc1, es1), Type_Constructor (tc2, es2) when tc1 = tc2 ->
+      assert (List.length es1 = List.length es2);
+      List.iter2 (synthesize_equality s) es1 es2
+  | Type_Array (_, elty1), Type_Array (_, elty2) ->
+      synthesize_type env loc s elty1 elty2
+  | Type_Tuple tys1, Type_Tuple tys2 ->
+      if List.length tys1 <> List.length tys2 then begin
+        raise (DoesNotMatch (loc, "tuple length", pp_type ty2, pp_type ty1))
+      end;
+      List.iter2 (synthesize_type env loc s) tys1 tys2
+  | _ -> ()
+  )
+
+(** Synthesize all the parameter values by matching actual argument types
+ *  against the formal argument types.
+ *)
+let synthesize_parameters (env : Env.t) (loc : Loc.t)
+    (fty : funtype) (es : AST.expr list) (tys : AST.ty list) : AST.expr Bindings.t =
+  assert (List.length fty.atys = List.length es);
+  let genv = Env.globals env in
+
+  (* Synthesize parameter values using a combination of any explicit
+   * parameter values and matching the types of the actual arguments
+   * against the types of the formal arguments.
+   * The parameter values are accumulated in `s`
+   *)
+  let s : (AST.expr option) Scope.t = Scope.empty () in
+  List.iter (fun (p, _) -> Scope.set s p None) fty.params;
+  iter3 (fun e ety (v, ty) ->
+      if List.mem_assoc v fty.params then
+        Scope.set s v (Some (subst_consts_expr genv e))
+      else begin
+        (* Substitute global constants in types *)
+        let subst_consts = new substFunClass (GlobalEnv.getConstant genv) in
+        let ety' = Asl_visitor.visit_type subst_consts ety in
+        let ty' = Asl_visitor.visit_type subst_consts ty in
+        synthesize_type env loc s ety' ty'
+      end
     )
+    es
+    tys
+    fty.atys;
 
-(** Unify two types
+  (* Extract values of the parameters from s *)
+  let check_parameter (v, oe) =
+    let e = from_option oe (fun _ ->
+        raise (TypeError (loc, "unable to synthesize type parameter " ^ Ident.to_string v)))
+    in
+    (v, e)
+  in
+  Scope.bindings s
+    |> List.map check_parameter
+    |> mk_bindings
 
-    This performs a structural match on two types - ignoring the dependent type part
- *)
-(* todo: does not handle register<->bits coercions *)
-let rec unify_type (env: GlobalEnv.t) (u: unifier) (ty1: AST.ty) (ty2: AST.ty): unit =
-    (* Substitute global constants in types *)
-    let subst_consts = new substFunClass (GlobalEnv.getConstant env) in
-    let ty1' = Asl_visitor.visit_type subst_consts ty1 in
-    let ty2' = Asl_visitor.visit_type subst_consts ty2 in
-    (match (derefType env ty1', derefType env ty2') with
-    | (Type_Constructor c1,       Type_Constructor c2)       -> ()
-    | (Type_Bits(e1),             Type_Bits(e2))             -> u#addEquality e1 e2
-    | (Type_App (c1, es1),        Type_App (c2, es2))        -> u#addEqualities es1 es2
-    | (Type_OfExpr e1,            Type_OfExpr e2)            -> raise (InternalError "unify_type: typeof")
-    (* todo: this is equating the types, not subtyping them *)
-    | (Type_Bits(e1),             Type_Register (w2, _))     -> u#addEquality e1 (Expr_LitInt w2)
-    | (Type_Register (w1, _),     Type_Bits(e2))             -> u#addEquality (Expr_LitInt w1) e2
-    | (Type_Register (w1, _),     Type_Register (w2, _))     -> u#addEquality (Expr_LitInt w1) (Expr_LitInt w2)
-    | (Type_Array (ixty1, elty1), Type_Array (ixty2, elty2)) -> unify_ixtype u ixty1 ixty2; unify_type env u elty1 elty2
-    | (Type_Tuple tys1,           Type_Tuple tys2)           -> List.iter2 (unify_type env u) tys1 tys2
-    | _ -> ()
+(****************************************************************)
+(** {3 Constraints}                                             *)
+(****************************************************************)
+
+(** apply a unary constraint transformer to an optional constraint set *)
+let lift1_constraints
+    (f : constraint_range -> constraint_range)
+    (oxs : constraint_range list option)
+  : constraint_range list option
+  =
+  Option.map (fun xs -> simplify_constraints (List.map f xs)) oxs
+
+(** apply a binary constraint transformer to two optional constraint sets *)
+let lift2_constraints
+    (f : constraint_range -> constraint_range -> constraint_range)
+    (oxs : constraint_range list option)
+    (oys : constraint_range list option)
+  : constraint_range list option
+  =
+  ( match (oxs, oys) with
+  | (Some xs, Some ys) -> Some (simplify_constraints (cross_combine f xs ys))
+  | _ -> None
+  )
+
+let add_constraints (x : constraint_range) (y : constraint_range) : constraint_range =
+  ( match (x, y) with
+  | (Constraint_Single x, Constraint_Single y) -> Constraint_Single (mk_add_int x y)
+  | (Constraint_Single x, Constraint_Range (yl,yh)) -> Constraint_Range (mk_add_int x yl, mk_add_int x yh)
+  | (Constraint_Range (xl,xh), Constraint_Single y) -> Constraint_Range (mk_add_int xl y, mk_add_int xh y)
+  | (Constraint_Range (xl,xh), Constraint_Range (yl,yh)) -> Constraint_Range (mk_add_int xl yl, mk_add_int xh yh)
+  )
+
+let sub_constraints (x : constraint_range) (y : constraint_range) : constraint_range =
+  ( match (x, y) with
+  | (Constraint_Single x, Constraint_Single y) -> Constraint_Single (mk_sub_int x y)
+  | (Constraint_Single x, Constraint_Range (yl,yh)) -> Constraint_Range (mk_sub_int x yl, mk_sub_int x yh)
+  | (Constraint_Range (xl,xh), Constraint_Single y) -> Constraint_Range (mk_sub_int xl y, mk_sub_int xh y)
+  | (Constraint_Range (xl,xh), Constraint_Range (yl,yh)) -> Constraint_Range (mk_sub_int xl yh, mk_sub_int xh yl)
+  )
+
+let neg_constraints (x : constraint_range) : constraint_range =
+  ( match x with
+  | Constraint_Single x -> Constraint_Single (mk_neg_int x)
+  | Constraint_Range (xl,xh) -> Constraint_Range (mk_neg_int xh, mk_neg_int xl)
+  )
+
+let mul_constraints (x : constraint_range) (y : constraint_range) : constraint_range =
+  ( match (x, y) with
+  | (Constraint_Single x, Constraint_Single y) -> Constraint_Single (mk_mul_int x y)
+  | (Constraint_Single x, Constraint_Range (yl,yh)) ->
+    let l = mk_min_int (mk_mul_int x yl) (mk_mul_int x yh) in
+    let h = mk_max_int (mk_mul_int x yl) (mk_mul_int x yh) in
+    Constraint_Range (l, h)
+  | (Constraint_Range (xl, xh), Constraint_Single y) ->
+    let l = mk_min_int (mk_mul_int y xl) (mk_mul_int y xh) in
+    let h = mk_max_int (mk_mul_int y xl) (mk_mul_int y xh) in
+    Constraint_Range (l, h)
+  | (Constraint_Range (xl, xh), Constraint_Range (yl, yh)) ->
+    let l = mk_min_int (mk_min_int (mk_mul_int yl xl) (mk_mul_int yl xh))
+                       (mk_min_int (mk_mul_int yh xl) (mk_mul_int yh xh))
+    in
+    let h = mk_max_int (mk_max_int (mk_mul_int yl xl) (mk_mul_int yl xh))
+                       (mk_max_int (mk_mul_int yh xl) (mk_mul_int yh xh))
+    in
+    Constraint_Range (l, h)
+  )
+
+let pow_constraints (x : constraint_range) (y : constraint_range) : constraint_range =
+  ( match (x, y) with
+  | (Constraint_Single x, Constraint_Single y) -> Constraint_Single (mk_pow_int_int x y)
+  | (Constraint_Single x, Constraint_Range (yl,yh)) ->
+    let l = mk_pow_int_int x yl in
+    let h = mk_pow_int_int x yh in
+    Constraint_Range (l, h)
+  | (Constraint_Range (xl, xh), Constraint_Single y) ->
+    let l = mk_pow_int_int xl y in
+    let h = mk_pow_int_int xh y in
+    Constraint_Range (l, h)
+  | (Constraint_Range (xl, xh), Constraint_Range (yl, yh)) ->
+    let l = mk_pow_int_int xl yl in
+    let h = mk_pow_int_int xh yh in
+    Constraint_Range (l, h)
+  )
+
+let exact_div_constraints (x : constraint_range) (y : constraint_range) : constraint_range =
+  ( match (x, y) with
+  | (Constraint_Single x, Constraint_Single y) -> Constraint_Single (mk_exact_div_int x y)
+  | (Constraint_Single x, Constraint_Range (yl,yh)) ->
+    let l = mk_exact_div_int x yh in
+    let h = mk_exact_div_int x yl in
+    Constraint_Range (l, h)
+  | (Constraint_Range (xl, xh), Constraint_Single y) ->
+    let l = mk_exact_div_int xl y in
+    let h = mk_exact_div_int xh y in
+    Constraint_Range (l, h)
+  | (Constraint_Range (xl, xh), Constraint_Range (yl, yh)) ->
+    let l = mk_exact_div_int xl yh in
+    let h = mk_exact_div_int xh yl in
+    Constraint_Range (l, h)
+  )
+
+let max_constraints (x : constraint_range) (y : constraint_range) : constraint_range =
+  ( match (x, y) with
+  | (Constraint_Single x, Constraint_Single y) -> Constraint_Single (mk_max_int x y)
+  | (Constraint_Single x, Constraint_Range (yl,yh)) -> Constraint_Range (mk_max_int x yl, mk_max_int x yh)
+  | (Constraint_Range (xl,xh), Constraint_Single y) -> Constraint_Range (mk_max_int xl y, mk_max_int xh y)
+  | (Constraint_Range (xl,xh), Constraint_Range (yl,yh)) -> Constraint_Range (mk_max_int xl yl, mk_max_int xh yh)
+  )
+
+let min_constraints (x : constraint_range) (y : constraint_range) : constraint_range =
+  ( match (x, y) with
+  | (Constraint_Single x, Constraint_Single y) -> Constraint_Single (mk_min_int x y)
+  | (Constraint_Single x, Constraint_Range (yl,yh)) -> Constraint_Range (mk_min_int x yl, mk_min_int x yh)
+  | (Constraint_Range (xl,xh), Constraint_Single y) -> Constraint_Range (mk_min_int xl y, mk_min_int xh y)
+  | (Constraint_Range (xl,xh), Constraint_Range (yl,yh)) -> Constraint_Range (mk_min_int xl yl, mk_min_int xh yh)
+  )
+
+let mk_unop (op : Ident.t) (tys : AST.expr list) (x : AST.expr) : AST.expr =
+  Expr_TApply (op, tys, [x], NoThrow)
+
+(** Construct "pow2_int(x)" *)
+let mk_pow2_int (x : AST.expr) : AST.expr =
+  ( match x with
+  | Expr_Lit (VInt i) -> Asl_utils.mk_litbigint (Primops.prim_pow2_int i)
+  | _ -> mk_unop pow2_int [] x
+  )
+
+(* Refine the result type of a calculation for known functions *)
+let refine_type (fty : funtype) (tys : AST.ty list) : AST.ty option =
+  ( match (fty.funname, tys) with
+  | (i, [Type_Bits (n, _)]) when Ident.equal i cvt_bits_uint -> Some (Type_Integer (Some [Constraint_Range (zero, mk_sub_int (mk_pow2_int n) one)]))
+  | (i, [Type_Bits (n, _)]) when Ident.equal i cvt_bits_sint -> Some (Type_Integer (Some [Constraint_Range (mk_neg_int (mk_pow2_int (mk_sub_int n one)), mk_sub_int (mk_pow2_int (mk_sub_int n one)) one)]))
+  | (i, [Type_Integer c1; Type_Integer c2]) when Ident.equal i add_int -> Some (Type_Integer (lift2_constraints add_constraints c1 c2))
+  | (i, [Type_Integer c1; Type_Integer c2]) when Ident.equal i sub_int -> Some (Type_Integer (lift2_constraints sub_constraints c1 c2))
+  | (i, [Type_Integer c]) when Ident.equal i neg_int -> Some (Type_Integer (lift1_constraints neg_constraints c))
+  | (i, [Type_Integer c1; Type_Integer c2]) when Ident.equal i mul_int -> Some (Type_Integer (lift2_constraints mul_constraints c1 c2))
+  | (i, [Type_Integer c1; Type_Integer c2]) when Ident.equal i pow_int_int -> Some (Type_Integer (lift2_constraints pow_constraints c1 c2))
+  | (i, [Type_Integer c1; Type_Integer c2]) when Ident.equal i exact_div_int -> Some (Type_Integer (lift2_constraints exact_div_constraints c1 c2))
+  | (i, [Type_Integer c1; Type_Integer c2]) when Ident.equal i max -> Some (Type_Integer (lift2_constraints max_constraints c1 c2))
+  | (i, [Type_Integer c1; Type_Integer c2]) when Ident.equal i min -> Some (Type_Integer (lift2_constraints min_constraints c1 c2))
+  | _ -> None
+  )
+
+(****************************************************************)
+(** {3 Instantiating/typechecking application of functions/operators} *)
+(****************************************************************)
+
+(** Instantiating a function type produces the following information *)
+type fun_instance =
+  { name       : Ident.t;
+    parameters : AST.expr list;
+    ovty       : AST.ty option; (* type of setter rhs *)
+    rty        : AST.ty;
+  }
+
+(** Instantiate type of function *)
+let instantiate_fun (env : Env.t) (loc : Loc.t)
+    (fty : funtype) (es : AST.expr list) (tys : AST.ty list) : fun_instance =
+  (* Format.printf "%a: Synthesizing parameters for call to %a\n" FMT.loc loc FMT.varname fty.funname; *)
+  let bs = synthesize_parameters env loc fty es tys in
+
+  (* Check each argument *)
+  List.iter2 (fun actual_ty (v, aty) ->
+    let aty' = subst_type bs aty in
+    (* Format.printf "%a: Argument type %a -> %a\n" FMT.loc loc FMT.ty aty FMT.ty aty'; *)
+    check_subtype_satisfies env loc actual_ty aty'
     )
+    tys
+    fty.atys;
 
-(** Apply substitutions to an expression *)
-let unify_subst_e (s: expr Bindings.t) (x: AST.expr): AST.expr =
-    subst_expr s x
-
-(** Apply substitutions to an L-expression *)
-let unify_subst_le (s: expr Bindings.t) (x: AST.lexpr): AST.lexpr =
-    subst_lexpr s x
-
-(** Apply substitutions to a type *)
-let unify_subst_ty (s: expr Bindings.t) (x: AST.ty): AST.ty =
-    subst_type s x
-
-(** Replace all type variables in function type with fresh variables *)
-let mkfresh_funtype (u: unifier) (fty: funtype): funtype =
-    let (f, isArr, tvs, cs, atys, rty) = fty in
-
-    (* generate renamings for all type variables *)
-    let rns = List.map (fun tv -> (tv, u#fresh)) tvs in
-    let s   = mk_bindings (List.map (fun (v, w) -> (v, Expr_Var w)) rns) in
-
-    let tvs'  = List.map snd rns in
-    let atys' = List.map (fun (ty, a) ->
-        let ty' = subst_type s ty in
-        let a'  = from_option (List.assoc_opt a rns) (fun _ -> a) in
-        (ty', a')
-    ) atys in
-    let cs'   = List.map (subst_expr s) cs in
-    let rty'  = subst_type s rty in
-    (f, isArr, tvs', cs', atys', rty')
-
-(** Replace all type variables in setter function type with fresh variables *)
-let mkfresh_sfuntype (u: unifier) (fty: sfuntype): sfuntype =
-    let (f, tvs, cs, atys, vty) = fty in
-
-    (* generate renamings for all type variables *)
-    let rns = List.map (fun tv -> (tv, u#fresh)) tvs in
-    let s   = mk_bindings (List.map (fun (v, w) -> (v, Expr_Var w)) rns) in
-
-    let tvs'  = List.map snd rns in
-    let atys' = List.map (fun aty ->
-        (match aty with
-        | Formal_In(ty, a) ->
-            let ty' = subst_type s ty in
-            let a'  = from_option (List.assoc_opt a rns) (fun _ -> a) in
-            Formal_In(ty', a')
-        | Formal_InOut(ty, a) ->
-            let ty' = subst_type s ty in
-            let a'  = from_option (List.assoc_opt a rns) (fun _ -> a) in
-            Formal_InOut(ty', a')
-        )
-    ) atys in
-    let cs'   = List.map (subst_expr s) cs in
-    let vty'  = subst_type s vty in
-    (f, tvs', cs', atys', vty')
-
-(** Check that ty2 is a subtype of ty1: ty1 >= ty2 *)
-let check_type (env: Env.t) (u: unifier) (loc: AST.l) (ty1: AST.ty) (ty2: AST.ty): unit =
-    if not (cmp_type (Env.globals env) ty1 ty2) then
-        raise (DoesNotMatch(loc, "type", pp_type ty1, pp_type ty2))
-    else
-        unify_type (Env.globals env) u ty1 ty2
-
-(** Check that ty1 is identical to ty2 *)
-(* todo: make sure that this does not do subtyping *)
-let check_type_exact (env: Env.t) (loc: AST.l) (ty1: AST.ty) (ty2: AST.ty): unit =
-    ignore (with_unify env loc (fun u ->
-        check_type env u loc ty1 ty2
-    ))
+  (* Construct result *)
+  let parameters = List.map (fun (p, _) -> Bindings.find p bs) fty.params in
+  let ovty = Option.map (subst_type bs) fty.ovty in
+  let rty1 = subst_type bs fty.rty in
+  (* Possible refined type based on constraints *)
+  let rty2 = refine_type fty tys in
+  let rty = Option.value rty2 ~default:rty1 in
+  { name = fty.funname; parameters; ovty; rty }
 
 
 (****************************************************************)
-(** {2 Disambiguation of functions and operators}               *)
+(** {3 Disambiguation of functions and operators}               *)
+(*                                                              *)
+(* Note that disambiguation of getter/setter functions is       *)
+(* scattered through the LExpr/Expr-handling code. Search for   *)
+(* calls to 'chooseFunction' to find that code                  *)
 (****************************************************************)
+
+(** structural match on two types - ignoring the dependent type part and constraints
+ *
+ *  This is called "type-clashing" in ASL 1.0
+ *)
+let rec eq_structural (env : GlobalEnv.t) (loc : Loc.t) (ty1 : AST.ty) (ty2 : AST.ty) : bool =
+  match (derefType env loc ty1, derefType env loc ty2) with
+  | Type_Integer _, Type_Integer _ -> true
+  | Type_Bits (e1, _), Type_Bits (e2, _) -> true
+  | Type_Constructor (c1, es1), Type_Constructor (c2, es2) -> c1 = c2
+  | Type_OfExpr e1, Type_OfExpr e2 -> raise (InternalError
+      (loc, "eq_structural: typeof", (fun fmt -> FMT.ty fmt ty1), __LOC__))
+  | Type_Array (ixty1, elty1), Type_Array (ixty2, elty2) ->
+      ( match (ixty1, ixty2) with
+      | Index_Enum tc1, Index_Enum tc2 -> tc1 = tc2
+      | Index_Int _, Index_Int _ -> true
+      | _ -> false
+      )
+  | Type_Tuple tys1, Type_Tuple tys2 ->
+      List.length tys1 = List.length tys2
+      && List.for_all2 (eq_structural env loc) tys1 tys2
+  | _ -> false
 
 (** Generate error message when function disambiguation fails *)
-let reportChoices (loc: AST.l) (what: string) (nm: string) (tys: AST.ty list) (funs: funtype list): unit =
-    if funs = [] then
-        Printf.printf "%s: Can't find matching %s for %s\n" (pp_loc loc) what nm
-    else
-        Printf.printf "%s: Ambiguous choice for %s %s\n" (pp_loc loc) what nm;
-    List.iter (fun ty -> Printf.printf "  Arg : %s\n" (pp_type ty)) tys;
-    List.iter (fun (f, _, _, _, atys, rty) ->
-        Printf.printf "  Choice : %s : %s -> %s\n"
-            (pprint_ident f)
-            (Utils.to_string (PPrintCombinators.separate (PPrintEngine.string " ")
-                (List.map (fun (ty, _) -> PP.pp_ty ty) atys)))
-            (pp_type rty)
-    ) funs
+let reportChoices (loc : Loc.t) (what : string) (nm : string)
+    (tys : AST.ty list) (funs : funtype list) : unit =
+  FMT.loc fmt loc;
+  FMT.colon fmt;
+  FMTUtils.nbsp fmt;
+  let error_message = match funs with
+      | [] -> "Can't find matching " ^ what ^ " for " ^ nm
+      | [f] -> "Type error in " ^ what ^ " arguments for " ^ nm
+      | _ -> "Ambiguous choice for " ^ what ^ " " ^ nm
+  in
+  Format.pp_print_string fmt error_message;
+  FMTUtils.cut fmt;
+  FMTUtils.vbox fmt (fun _ ->
+      Format.fprintf fmt "Function arguments with types (%a) do not match@," FMT.types tys;
+      List.iter (Format.fprintf fmt "  %a@," pp_funtype) funs
+    );
+  FMTUtils.flush fmt
 
 (** Check whether a list of function argument types is compatible with the
     type of a function.
@@ -1138,433 +1193,511 @@ let reportChoices (loc: AST.l) (what: string) (nm: string) (tys: AST.ty list) (f
     One function type is compatible with another if they have the same number
     of arguments and each argument has the same base type
  *)
-let isCompatibleFunction (env: GlobalEnv.t) (isArr: bool) (tys: AST.ty list) (ft: funtype): bool =
-    let nargs = List.length tys in
-    let (_, isArr', _, _, atys, _) = ft in
-    isArr = isArr' && List.length atys = nargs && List.for_all2 (cmp_type env) (List.map fst atys) tys
+let isCompatibleFunction (env : GlobalEnv.t) (loc : Loc.t) (isArr : bool) (tys : AST.ty list)
+    (fty : funtype) : bool =
+  let nargs = List.length tys in
+  isArr = fty.isArray
+  && List.length fty.atys = nargs
+  && List.for_all2 (eq_structural env loc) (List.map snd fty.atys) tys
 
 (** Disambiguate a function name based on the number and type of arguments *)
-let chooseFunction (env: GlobalEnv.t) (loc: AST.l) (what: string) (nm: string) (isArr: bool) (tys: AST.ty list) (funs: funtype list): funtype option =
-    let funs' = List.filter (isCompatibleFunction env isArr tys) funs in
-    (match nub funs' with
-    | []  -> None
-    | [r] -> Some r
-    | fs  ->
-            (* todo: it would probably be better to detect ambiguity when functions are
-             * defined instead of waiting until they are called
-             *)
-            reportChoices loc what nm tys fs;
-            raise (Ambiguous (loc, what, nm))
+let chooseFunction (env : GlobalEnv.t) (loc : Loc.t) (what : string)
+    (nm : string) (isArr : bool) (tys : AST.ty list) (funs : funtype list) :
+    funtype option =
+  let funs' = List.filter (isCompatibleFunction env loc isArr tys) funs in
+  match nub funs' with
+  | [] -> None
+  | [ r ] -> Some r
+  | fs ->
+      (* todo: it would probably be better to detect ambiguity when functions are
+       * defined instead of waiting until they are called
+       *)
+      reportChoices loc what nm tys fs;
+      raise (Ambiguous (loc, what, nm))
+
+let check_duplicate_field_names (fx : 'a -> Ident.t) (fs : 'a list) (loc : Loc.t) =
+  let fieldnames = ref IdentSet.empty in
+  List.iter (fun f ->
+      let f' = fx f in
+      if IdentSet.mem f' !fieldnames then begin
+        let msg = Format.asprintf "fieldname `%a` is declared multiple times"
+            FMT.fieldname f'
+        in
+        raise (TypeError (loc, msg))
+      end;
+      fieldnames := IdentSet.add f' !fieldnames
     )
-
-(** Check whether a list of function argument types is compatible with the
-    type of a setter function.
-
-    One function type is compatible with another if they have the same number
-    of arguments and each argument has the same base type
- *)
-let isCompatibleSetterFunction (env: GlobalEnv.t) (tys: AST.ty list) (ft: sfuntype): bool =
-    let nargs = List.length tys in
-    let (_, _, _, atys, _) = ft in
-    (List.length atys = nargs) && List.for_all2 (cmp_type env) (List.map sformal_type atys) tys
-
-(** Disambiguate a setter function name based on the number and type of arguments *)
-let chooseSetterFunction (env: GlobalEnv.t) (loc: AST.l) (what: string) (nm: ident) (tys: AST.ty list) (funs: sfuntype list): sfuntype option =
-    let funs' = List.filter (isCompatibleSetterFunction env tys) funs in
-    (match nub funs' with
-    | []  -> None
-    | [r] -> Some r
-    | fs  ->
-            (* todo: it would probably be better to detect ambiguity when functions are
-             * defined instead of waiting until they are called
-             *)
-            reportChoices loc what (pprint_ident nm) tys (List.map funtype_of_sfuntype fs);
-            raise (Ambiguous (loc, what, pprint_ident nm))
-    )
-
-(** Instantiate type of function using unifier 'u' *)
-let instantiate_fun (env: GlobalEnv.t) (u: unifier) (loc: AST.l) (fty: funtype) (es: AST.expr list) (tys: AST.ty list): (AST.ident * AST.expr list * AST.ty) =
-    let (f, _, tvs, cs, atys, rty) = mkfresh_funtype u fty in
-
-    (* Add bindings for every explicit type argument *)
-    assert ((List.length atys) == (List.length es));
-    List.iter2 (fun (_, v) e -> if List.mem v tvs then u#addEquality (Expr_Var v) (subst_consts_expr env e)) atys es;
-
-    (* unify argument types *)
-    assert ((List.length atys) == (List.length tys));
-    List.iter2 (unify_type env u) (List.map fst atys) tys;
-
-    let tes = List.map (fun tv -> Expr_Var tv) tvs in
-    (f, tes, rty)
-
-(** Instantiate type of setter function using unifier 'u' *)
-let instantiate_sfun (env: GlobalEnv.t) (u: unifier) (loc: AST.l) (fty: sfuntype) (es: AST.expr list) (tys: AST.ty list) (ty: AST.ty): (AST.ident * AST.expr list) =
-    let (f, tvs, cs, atys, vty) = mkfresh_sfuntype u fty in
-
-    (* Add bindings for every explicit type argument *)
-    assert ((List.length atys) == (List.length es));
-    List.iter2 (fun aty e ->
-        let v = sformal_var aty in
-        if List.mem v tvs then u#addEquality (Expr_Var v) (subst_consts_expr env e)
-    ) atys es;
-
-    (* unify argument types *)
-    List.iter2 (unify_type env u) (List.map sformal_type atys) tys;
-
-    (* unify value type *)
-    unify_type env u vty ty;
-
-    let tes = List.map (fun tv -> Expr_Var tv) tvs in
-    (f, tes)
-
+    fs
 
 (** Disambiguate and typecheck application of a function to a list of arguments *)
-let tc_apply (env: GlobalEnv.t) (u: unifier) (loc: AST.l) (what: string) (f: AST.ident) (es: AST.expr list) (tys: AST.ty list): (AST.ident * AST.expr list * AST.ty) =
-    let funs  = GlobalEnv.getFuns env f in
-    let nm    = pprint_ident f in
-    (match chooseFunction env loc "function" nm false tys funs with
-    | None ->
-            reportChoices loc what nm tys funs;
-            raise (UnknownObject(loc, what, nm))
-    | Some fty ->
-            if verbose then Printf.printf "    - Found matching %s at %s for %s = %s\n" what (pp_loc loc) nm (Utils.to_string (pp_funtype fty));
-            instantiate_fun env u loc fty es tys
-    )
+let tc_apply (env : Env.t) (loc : Loc.t) (what : string)
+    (f : Ident.t) (es : AST.expr list) (tys : AST.ty list) : fun_instance =
+  let genv = Env.globals env in
+  let funs = GlobalEnv.getFuns genv f in
+  let nm = Ident.to_string f in
+  match funs with
+  | [] ->
+      raise (UnknownObject (loc, what, nm))
+  | _ ->
+      ( match chooseFunction genv loc what nm false tys funs with
+      | None ->
+          reportChoices loc what nm tys funs;
+          raise (TypeError (loc, "function arguments"))
+      | Some fty ->
+          (* if verbose then Format.fprintf fmt "    - Found matching %s at %a for %s = %a\n" what FMT.loc loc nm pp_funtype fty; *)
+          instantiate_fun env loc fty es tys
+      )
 
 (** Disambiguate and typecheck application of a unary operator to argument *)
-let tc_unop (env: GlobalEnv.t) (u: unifier) (loc: AST.l) (op: unop) (x: AST.expr) (ty: AST.ty): (AST.ident * AST.expr list * AST.ty) =
-    let what = "unary operator" in
-    let nm   = Utils.to_string (PP.pp_unop op) in
-    let tys  = [ty] in
-    let ops  = GlobalEnv.getOperators1 env loc op in
-    (match chooseFunction env loc what nm false [ty] ops with
-    | None ->
-            reportChoices loc what nm tys ops;
-            raise (UnknownObject(loc, what, nm))
-    | Some fty ->
-            instantiate_fun env u loc fty [x] tys
-    )
+let tc_unop (env : Env.t) (loc : Loc.t) (op : unop)
+    (x : AST.expr) (ty : AST.ty) : fun_instance =
+  let genv = Env.globals env in
+  let what = "unary operator" in
+  let nm = pp_unop op in
+  let tys = [ ty ] in
+  let ops = GlobalEnv.getOperators1 genv loc op in
+  match chooseFunction genv loc what nm false [ ty ] ops with
+  | None ->
+      reportChoices loc what nm tys ops;
+      raise (UnknownObject (loc, what, nm))
+  | Some fty ->
+      instantiate_fun env loc fty [ x ] tys
 
 (** Disambiguate and typecheck application of a binary operator to arguments *)
-let tc_binop (env: GlobalEnv.t) (u: unifier) (loc: AST.l) (op: binop) (x1: AST.expr) (x2: AST.expr) (ty1: AST.ty) (ty2: AST.ty): (AST.ident * AST.expr list * AST.ty) =
-    let what = "binary operator" in
-    let nm   = Utils.to_string (PP.pp_binop op) in
-    let tys  = [ty1; ty2] in
-    let ops  = GlobalEnv.getOperators2 env loc op in
-    (match chooseFunction env loc what nm false tys ops with
-    | None ->
-            reportChoices loc "binary operator" nm tys ops;
-            raise (UnknownObject(loc, what, nm))
-    | Some fty ->
-            instantiate_fun env u loc fty [x1; x2] tys
-    )
-
+let tc_binop (env : Env.t) (loc : Loc.t) (op : binop)
+    (x1 : AST.expr) (x2 : AST.expr) (ty1 : AST.ty) (ty2 : AST.ty) :
+    fun_instance =
+  let genv = Env.globals env in
+  let what = "binary operator" in
+  let nm = pp_binop op in
+  let tys = [ ty1; ty2 ] in
+  let ops = GlobalEnv.getOperators2 genv loc op in
+  match chooseFunction genv loc what nm false tys ops with
+  | None ->
+      reportChoices loc "binary operator" nm tys ops;
+      raise (UnknownObject (loc, what, nm))
+  | Some fty ->
+      instantiate_fun env loc fty [ x1; x2 ] tys
 
 (****************************************************************)
 (** {2 Typecheck expressions}                                   *)
 (****************************************************************)
 
 (** Lookup a variable in environment *)
-let check_var (env: Env.t) (loc: AST.l) (v: AST.ident): (AST.ident * AST.ty) =
-    (match Env.getVar env v with
-    | None -> raise (UnknownObject(loc, "variable", pprint_ident v))
-    | Some (v', ty') -> (v', ty')
-    )
+let get_var (env : Env.t) (loc : Loc.t) (v : Ident.t) : var_info =
+  from_option (Env.getVar env v) (fun _ -> raise (UnknownObject (loc, "variable", Ident.to_string v)))
+
+(** check that we have exactly the fields required *)
+let check_field_assignments (loc : Loc.t) (fs : (Ident.t * ty) list) (fas : (Ident.t * expr) list) : unit =
+  let expected = IdentSet.of_list (List.map fst fs) in
+  let assigned = IdentSet.of_list (List.map fst fas) in
+  if not (IdentSet.equal assigned expected) then begin
+    let missing = IdentSet.elements (IdentSet.diff expected assigned) in
+    let extra = IdentSet.elements (IdentSet.diff assigned expected) in
+    let msg = "record initializer is missing fields "
+      ^ String.concat ", " (List.map Ident.to_string missing)
+      ^ " and/or has extra fields "
+      ^ String.concat ", " (List.map Ident.to_string extra)
+    in
+    raise (TypeError (loc, msg))
+  end
 
 (** Typecheck list of expressions *)
-let rec tc_exprs (env: Env.t) (u: unifier) (loc: AST.l) (xs: AST.expr list): (AST.expr * AST.ty) list =
-    List.map (tc_expr env u loc) xs
+let rec tc_exprs (env : Env.t) (loc : Loc.t) (xs : AST.expr list)
+    : (AST.expr * AST.ty) list =
+  List.map (tc_expr env loc) xs
 
 (** Typecheck expression and check that it is a subtype of ty *)
-and check_expr (env: Env.t) (loc: AST.l) (ty: AST.ty) (x: AST.expr): AST.expr =
-    let (s, x') = with_unify env loc (fun u ->
-        let (x', ty') = tc_expr env u loc x in
-        if verbose then Printf.printf "    - Typechecking %s : %s\n" (pp_expr x') (pp_type ty');
-        check_type env u loc ty ty';
-        x'
-    ) in
-    unify_subst_e s x'
+and check_expr (env : Env.t) (loc : Loc.t) (ty : AST.ty) (x : AST.expr) :
+    AST.expr =
+  let (x', ty') = tc_expr env loc x in
+  if verbose then
+    Format.fprintf fmt "    - Typechecking %a : %a\n" FMT.expr x' FMT.ty ty';
+  check_subtype_satisfies env loc ty' ty;
+  x'
 
 (** Typecheck 'if c then expr' *)
-and tc_e_elsif (env: Env.t) (u: unifier) (loc: AST.l) (x: AST.e_elsif): (AST.e_elsif * AST.ty) =
-    (match x with
-    | E_Elsif_Cond(c, e) ->
-            let c'       = check_expr env loc type_bool c in
-            let (e', ty) = tc_expr env u loc e in
-            (E_Elsif_Cond(c', e'), ty)
-    )
+and tc_e_elsif (env : Env.t) (loc : Loc.t) (x : AST.e_elsif) :
+    AST.e_elsif * AST.ty =
+  match x with
+  | E_Elsif_Cond (c, e) ->
+      let c' = check_expr env loc type_bool c in
+      let e', ty = tc_expr env loc e in
+      (E_Elsif_Cond (c', e'), ty)
 
 (** Typecheck bitslice indices *)
-and tc_slice (env: Env.t) (u: unifier) (loc: AST.l) (x: AST.slice): (AST.slice * AST.ty) =
-    (match x with
-    | Slice_Single(e) ->
-            let (e', ty) = tc_expr env u loc e in
-            (Slice_Single(e'), ty)
-    | Slice_HiLo(hi, lo) ->
-            let hi' = check_expr env loc type_integer hi in
-            let lo' = check_expr env loc type_integer lo in
-            (Slice_HiLo(hi', lo'), type_integer)
-    | Slice_LoWd(lo, wd) ->
-            let lo' = check_expr env loc type_integer lo in
-            let wd' = check_expr env loc type_integer wd in
-            (Slice_LoWd(lo', wd'), type_integer)
-    )
+and tc_slice (env : Env.t) (loc : Loc.t) (x : AST.slice) :
+    AST.slice * AST.ty =
+  match x with
+  | Slice_Single e ->
+      let e', ty = tc_expr env loc e in
+      (Slice_Single e', ty)
+  | Slice_HiLo (hi, lo) ->
+      let hi' = check_expr env loc type_integer hi in
+      let lo' = check_expr env loc type_integer lo in
+      (Slice_HiLo (hi', lo'), type_integer)
+  | Slice_LoWd (lo, wd) ->
+      let lo' = check_expr env loc type_integer lo in
+      let wd' = check_expr env loc type_integer wd in
+      (Slice_LoWd (lo', wd'), type_integer)
+  | Slice_Element (lo, wd) ->
+      let lo' = check_expr env loc type_integer lo in
+      let wd' = check_expr env loc type_integer wd in
+      (Slice_Element (lo', wd'), type_integer)
 
 (** Typecheck pattern against type ty *)
-and tc_pattern (env: Env.t) (loc: AST.l) (ty: AST.ty) (x: AST.pattern): AST.pattern = 
-    ( match x with
-    | Pat_LitInt(l) ->
-            check_type_exact env loc ty type_integer;
-            Pat_LitInt(l)
-    | Pat_LitHex(l) ->
-            check_type_exact env loc ty type_integer;
-            Pat_LitHex(l)
-    | Pat_LitBits(l) ->
-            check_type_exact env loc ty (type_bitsK (string_of_int (masklength l)));
-            Pat_LitBits(l)
-    | Pat_LitMask(l) ->
-            check_type_exact env loc ty (type_bitsK (string_of_int (masklength l)));
-            Pat_LitMask(l)
-    | Pat_Const(l) ->
-            let (c, cty) = check_var env loc l in
-            (* todo: check it is a global constant *)
-            check_type_exact env loc ty cty;
-            Pat_Const(c)
-    | Pat_Wildcard ->
-            Pat_Wildcard
-    | Pat_Tuple(ps) ->
-            let ps' = (match ty with
-                | Type_Tuple tys when List.length ps = List.length tys ->
-                    List.map2 (tc_pattern env loc) tys ps
-                | _ -> raise (IsNotA(loc, "tuple of length ?", pp_type ty))
-            ) in
-            Pat_Tuple(ps')
-    | Pat_Set(ps) ->
-            let ps' = List.map (tc_pattern env loc ty) ps in
-            Pat_Set(ps')
-    | Pat_Single(Expr_LitMask m) ->
-            (* todo: this is a workaround for bad IN sugar *)
-            tc_pattern env loc ty (Pat_LitMask m)
-    | Pat_Single(e) ->
-            let e' = check_expr env loc ty e in
-            Pat_Single(e')
-    | Pat_Range(lo, hi) ->
-            let lo' = check_expr env loc ty lo in
-            let hi' = check_expr env loc ty hi in
-            (* Must be integer because no other type supports <= operator *)
-            check_type_exact env loc ty type_integer;
-            Pat_Range(lo', hi')
-    )
+and tc_pattern (env : Env.t) (loc : Loc.t) (ty : AST.ty) (x : AST.pattern) :
+    AST.pattern =
+  match x with
+  | Pat_Lit (VInt _)  -> check_subtype_satisfies env loc ty type_integer; x
+  | Pat_Lit (VIntN v)  -> check_subtype_satisfies env loc ty (type_sintN (mk_litint v.n)); x
+  | Pat_Lit (VReal _) -> check_subtype_satisfies env loc ty type_real; x
+  | Pat_Lit (VBits b) -> check_subtype_satisfies env loc ty (type_bits (mk_litint (Primops.prim_length_bits b))); x
+  | Pat_Lit (VMask m) -> check_subtype_satisfies env loc ty (type_bits (mk_litint (Primops.prim_length_mask m))); x
+  | Pat_Lit _ ->
+      raise (InternalError
+        (loc, "tc_pattern: lit", (fun fmt -> FMT.pattern fmt x), __LOC__))
+  | Pat_Const c ->
+      let i = get_var env loc c in
+      if i.is_local || not i.is_constant then begin
+        let msg = Format.asprintf "pattern match of `%a` should be a constant. (Variable was declared at `%a`.)"
+                    FMT.varname i.name
+                    FMT.loc i.loc
+        in
+        raise (TypeError (loc, msg))
+      end;
+      check_subtype_satisfies env loc ty i.ty;
+      Pat_Const c
+  | Pat_Wildcard -> Pat_Wildcard
+  | Pat_Tuple ps ->
+      let ps' =
+        match ty with
+        | Type_Tuple tys when List.length ps = List.length tys ->
+            List.map2 (tc_pattern env loc) tys ps
+        | _ -> raise (IsNotA (loc, "tuple of length ?", pp_type ty))
+      in
+      Pat_Tuple ps'
+  | Pat_Set ps ->
+      let ps' = List.map (tc_pattern env loc ty) ps in
+      Pat_Set ps'
+  | Pat_Single (Expr_Lit (VMask m as v)) ->
+      (* todo: this is a workaround for bad IN sugar *)
+      tc_pattern env loc ty (Pat_Lit v)
+  | Pat_Single e ->
+      let (e', ety) = tc_expr env loc e in
+      ignore (least_supertype env loc ty ety);
+      Pat_Single e'
+  | Pat_Range (lo, hi) ->
+      (* Must be integer because no other type supports <= operator *)
+      let lo' = check_expr env loc type_integer lo in
+      let hi' = check_expr env loc type_integer hi in
+      check_subtype_satisfies env loc ty type_integer;
+      Pat_Range (lo', hi')
 
 (** Typecheck bitslice syntax
     This primarily consists of disambiguating between array indexing and bitslicing
     Note that this function is almost identical to tc_slice_lexpr
  *)
-and tc_slice_expr (env: Env.t) (u: unifier) (loc: AST.l) (x: expr) (ss: (AST.slice * AST.ty) list): (AST.expr * AST.ty) =
-    if List.length ss == 0 then begin
-        raise (TypeError (loc, "empty list of subscripts"))
-    end;
-    let ss' = List.map fst ss in
-    let (x', ty) = tc_expr env u loc x in
-    (match derefType (Env.globals env) ty with
-    | Type_Array(ixty, elty) ->
-            (match ss with
-            | [(Slice_Single i, ity)] ->
-                    check_type env u loc (ixtype_basetype ixty) ity;
-                    (Expr_Array(x', i), elty)
-            | _ -> raise (TypeError (loc, "multiple subscripts for array"))
-            )
-    | Type_Bits(n) ->
-            (Expr_Slices(x', ss'), type_bits (slices_width ss'))
-    | Type_Register (wd, _) ->
-            (Expr_Slices(x', ss'), type_bits (slices_width ss'))
-    | Type_Constructor tc when tc = Ident "integer" ->
-            (* todo: desugar into a call to slice_int? *)
-            (Expr_Slices(x', ss'), type_bits (slices_width ss'))
-    | _ -> raise (TypeError (loc, "slice of expr"))
-    )
+and tc_slice_expr (env : Env.t) (loc : Loc.t) (x : expr)
+    (ss : (AST.slice * AST.ty) list) : AST.expr * AST.ty =
+  if List.length ss = 0 then raise (TypeError (loc, "empty list of subscripts"));
+  let ss' = List.map fst ss in
+  let x', ty' = tc_expr env loc x in
+  let ty = type_bits (slices_width ss') in
+  match derefType (Env.globals env) loc ty' with
+  | Type_Array (ixty, elty) -> (
+      match ss with
+      | [ (Slice_Single i, ity) ] ->
+          check_subtype_satisfies env loc ity (ixtype_basetype ixty);
+          (Expr_Array (x', i), elty)
+      | _ -> raise (TypeError (loc, "multiple subscripts for array")))
+  | Type_Bits _
+  | Type_Integer _ ->
+      (Expr_Slices (ty', x', ss'), ty)
+  | _ -> raise (TypeError (loc, "slice of expr"))
 
 (** Typecheck expression *)
-and tc_expr (env: Env.t) (u: unifier) (loc: AST.l) (x: AST.expr): (AST.expr * AST.ty) =
-    (match x with
-    | Expr_If(c, t, els, e) ->
-            let c'        = check_expr env loc type_bool c in
-            let (t', tty)     = tc_expr env u loc t in
-            let (els', eltys) = List.split (List.map (tc_e_elsif env u loc) els) in
-            let (e', ety)     = tc_expr env u loc e in
-            List.iter (fun elty -> check_type env u loc tty elty) eltys;
-            check_type env u loc tty ety;
-            (Expr_If(c', t', els', e'), tty)
-    | Expr_Binop(x, Binop_Eq, Expr_LitMask(y)) ->
-            (* syntactic sugar *)
-            tc_expr env u loc (Expr_In(x, Pat_LitMask y))
-    | Expr_Binop(x, Binop_NtEq, Expr_LitMask(y)) ->
-            (* syntactic sugar *)
-            tc_expr env u loc (Expr_Unop (Unop_BoolNot, (Expr_In(x, Pat_LitMask y))))
-    | Expr_Binop(x, op, y) ->
-            let (x', xty) = tc_expr env u loc x in
-            let (y', yty) = tc_expr env u loc y in
-            let (f, tes, ty) = tc_binop (Env.globals env) u loc op x' y' xty yty in
-            (Expr_TApply(f, tes, [x'; y']), ty)
-    | Expr_Field(e, f) ->
-            let (e', ty) = tc_expr env u loc e in
-            (match typeFields (Env.globals env) loc ty with
-            | FT_Record rfs ->
-                (Expr_Field(e', f), get_recordfield loc rfs f)
-            | FT_Register rfs ->
-                let (ss, ty') = get_regfield loc rfs f in
-                (Expr_Slices(e', ss), ty')
-            )
-    | Expr_Fields(e, fs) ->
-            let (e', ty) = tc_expr env u loc e in
-            (match typeFields (Env.globals env) loc ty with
-            | FT_Record rfs ->
-                let tys = List.map (get_recordfield loc rfs) fs in
-                (Expr_Fields(e', fs), mk_concat_tys tys)
-            | FT_Register rfs ->
-                let (ss, ty') = get_regfields loc rfs fs in
-                (Expr_Slices(e', ss), ty')
-            )
-    | Expr_Slices(e, ss) ->
-            let all_single = List.for_all (function (Slice_Single _) -> true | _ -> false) ss in
-            let ss' = List.map (tc_slice env u loc) ss in
+and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) :
+    AST.expr * AST.ty =
+  match x with
+  | Expr_If (c, t, els, e) ->
+      let c' = check_expr env loc type_bool c in
+      let t', tty = tc_expr env loc t in
+      let els', eltys = List.split (List.map (tc_e_elsif env loc) els) in
+      let e', ety = tc_expr env loc e in
+      let ty = List.fold_left (least_supertype env loc) tty eltys in
+      let ty' = least_supertype env loc ty ety in
+      (Expr_If (c', t', els', e'), ty')
+  | Expr_Let (v, t, e, b) ->
+      Env.nest (fun env' ->
+          let t' = tc_type env' loc t in
+          let e' = check_expr env' loc t' e in
+          if t' = type_integer then
+            Env.addConstraint env loc (mk_eq_int (Expr_Var v) e');
+          Env.addLocalVar env' {name=v; loc; ty=t'; is_local=true; is_constant=true};
+          let (b', bty') = tc_expr env' loc b in
+          (Expr_Let (v, t', e', b'), bty')
+        )
+        env
+  | Expr_Binop (x, Binop_Eq, Expr_Lit (VMask _ as m)) ->
+      (* syntactic sugar *)
+      tc_expr env loc (Expr_In (x, Pat_Lit m))
+  | Expr_Binop (x, Binop_NtEq, Expr_Lit (VMask _ as m)) ->
+      (* syntactic sugar *)
+      tc_expr env loc (Expr_Unop (Unop_BoolNot, Expr_In (x, Pat_Lit m)))
+  | Expr_Binop (x, op, y) ->
+      let x', xty = tc_expr env loc x in
+      let y', yty = tc_expr env loc y in
+      let fty = tc_binop env loc op x' y' xty yty in
+      (Expr_TApply (fty.name, fty.parameters, [ x'; y' ], NoThrow), fty.rty)
+  | Expr_Field (e, f) ->
+      let e', ty = tc_expr env loc e in
+      ( match typeFields (Env.globals env) loc ty with
+      | FT_Record rfs -> (Expr_Field (e', f), get_recordfield loc rfs f)
+      | FT_Register rfs ->
+          let ss, ty' = get_regfield loc rfs f in
+          (Expr_Slices (ty, e', ss), ty')
+      )
+  | Expr_Fields (e, fs) ->
+      let e', ty = tc_expr env loc e in
+      ( match typeFields (Env.globals env) loc ty with
+      | FT_Record rfs ->
+          let tys = List.map (get_recordfield loc rfs) fs in
+          let ws = List.map (width_of_type (Env.globals env) loc) tys in
+          let w = Xform_simplify_expr.mk_add_ints ws in
+          (Expr_Fields (e', fs), type_bits w)
+      | FT_Register rfs ->
+          let ss, ty' = get_regfields loc rfs fs in
+          (Expr_Slices (ty, e', ss), ty')
+      )
+  | Expr_Slices (_, e, ss) -> (
+      let all_single =
+        List.for_all (function Slice_Single _ -> true | _ -> false) ss
+      in
+      let ss' = List.map (tc_slice env loc) ss in
 
-            (* Note that the order of the following check is critical:
-             * First check for getter functions then check for arrays or bitvectors because
-             * of conflicting names like SPSR and SPSR[] in the v8-A specification.
-             *)
+      (* Note that the order of the following check is critical:
+       * First check for getter functions then check for arrays or bitvectors because
+       * of conflicting names like SPSR and SPSR[] in the v8-A specification.
+       *)
 
-            (* variable slice or getter call? *)
-            (match e with
-            | Expr_Var(a) ->
-                let tys = List.map (function (_, ty) -> ty) ss' in
-                let getters = GlobalEnv.getFuns (Env.globals env) (addSuffix a "read") in
-                let ogetters = chooseFunction (Env.globals env) loc "getter function" (pprint_ident a) true tys getters in
-                (match ogetters with
-                | Some fty when all_single ->
-                    let es = List.map (function (Slice_Single a, _) -> a | _ -> raise (InternalError "Expr_Slices")) ss' in
-                    let (f', tes', rty) = instantiate_fun (Env.globals env) u loc fty es tys in
-                    (Expr_TApply (f', tes', es), rty)
-                | _ ->
-                    tc_slice_expr env u loc e ss'
-                )
-            | _ ->
-                tc_slice_expr env u loc e ss'
-            )
+      (* variable slice or getter call? *)
+      match e with
+      | Expr_Var a -> (
+          let tys = List.map (function _, ty -> ty) ss' in
+          let getters =
+            GlobalEnv.getFuns (Env.globals env) (Ident.add_suffix a ~suffix:"read")
+          in
+          let ogetters =
+            chooseFunction (Env.globals env) loc "getter function"
+              (Ident.to_string a) true tys getters
+          in
+          match ogetters with
+          | Some fty when all_single ->
+              let es =
+                List.map
+                  (function
+                    | Slice_Single a, _ -> a
+                    | _ -> raise (InternalError
+                      (loc, "Expr_Slices", (fun fmt -> FMT.expr fmt x), __LOC__)))
+                  ss'
+              in
+              let fty' = instantiate_fun env loc fty es tys in
+              (Expr_TApply (fty'.name, fty'.parameters, es, NoThrow), fty'.rty)
+          | _ -> tc_slice_expr env loc e ss')
+      | _ -> tc_slice_expr env loc e ss')
+  | Expr_RecordInit (tc, es, fas) ->
+      if not (GlobalEnv.isType (Env.globals env) tc) then
+        raise (IsNotA (loc, "type constructor", Ident.to_string tc));
+      let (ps, fs) =
+        match GlobalEnv.getType (Env.globals env) tc with
+        | Some (Type_Record (ps, fs)) -> (ps, fs)
+        | Some (Type_Exception fs) -> ([], fs)
+        | _ -> raise (IsNotA (loc, "record or exception type", Ident.to_string tc))
+      in
+      if List.length es <> List.length ps then
+        raise (TypeError (loc, "wrong number of type parameters"));
+      check_field_assignments loc fs fas;
 
-    | Expr_In(e, p) ->
-            let (s, (e', ety')) = with_unify env loc (fun u -> tc_expr env u loc e) in
-            let e''   = unify_subst_e  s e' in
-            let ety'' = unify_subst_ty s ety' in
-            if verbose then Printf.printf "    - Typechecking %s IN ... : %s\n" (pp_expr e') (pp_type ety');
-            let p' = tc_pattern env loc ety'' p in
-            (Expr_In(e'', p'), type_bool)
-    | Expr_Var(v) ->
-            (match Env.getVar env v with
-            | Some (v', ty') ->
-                (Expr_Var(v'),  ty')
-            | None ->
-                let getters = GlobalEnv.getFuns (Env.globals env) (addSuffix v "read") in
-                (match chooseFunction (Env.globals env) loc "getter function" (pprint_ident v) false [] getters with
-                | Some fty ->
-                    let (f', tes', rty) = instantiate_fun (Env.globals env) u loc fty [] [] in
-                    (Expr_TApply (f', tes', []), rty)
-                | None -> raise (UnknownObject(loc, "variable or getter functions", pprint_ident v))
-                )
-            )
-    | Expr_Parens(e) ->
-            let (e', ty) = tc_expr env u loc e in
-            (Expr_Parens(e'), ty)
-    | Expr_TApply(f, tes, es) ->
-            let (es', tys) = List.split (tc_exprs env u loc es) in
-            let (f', tes'', ty) = tc_apply (Env.globals env) u loc "function" f es' tys in
-            (Expr_TApply(f', tes'', es'), ty)
-    | Expr_Tuple(es) ->
-            let (es', tys) = List.split (List.map (tc_expr env u loc) es) in
-            (Expr_Tuple(es'), Type_Tuple(tys))
-    | Expr_Unop(op, e) ->
-            let (e', ety) = tc_expr env u loc e in
-            (* Printf.printf "%s: unop %s : %s\n" (pp_loc loc) (pp_expr e) (pp_type ety); *)
-            let (f, tes, ty) = tc_unop (Env.globals env) u loc op e ety in
-            (Expr_TApply(f, tes, [e']), ty)
-    | Expr_Unknown(t) ->
-            let ty' = tc_type env loc t in
-            (Expr_Unknown(ty'),  ty')
-    | Expr_ImpDef(t, os) ->
-            let ty' = tc_type env loc t in
-            (Expr_ImpDef(ty', os),  ty')
-    | Expr_Array(a, e) ->
-            let (a', ty) = tc_expr env u loc a in
-            (match derefType (Env.globals env) ty with
-            | Type_Array(ixty, elty) ->
-                    let e' = check_expr env loc (ixtype_basetype ixty) e in
-                    (Expr_Array(a', e'), elty)
-            | _ -> raise (TypeError (loc, "subscript of non-array"))
-            )
-    | Expr_LitInt(i) ->
-            (Expr_LitInt(i),  type_integer)
-    | Expr_LitHex(i) ->
-            (Expr_LitHex(i),  type_integer)
-    | Expr_LitReal(r) ->
-            (Expr_LitReal(r),  type_real)
-    | Expr_LitBits(b) ->
-            (Expr_LitBits(b),  type_bitsK (string_of_int (masklength b)))
-    | Expr_LitMask(b) ->
-            (* todo: this case only exists because of the (bad) sugar of
-             * writing "x == '0x'" instead of "x IN '0x'"
-             *)
-            raise (InternalError "tc_expr: litmask")
-    | Expr_LitString(s) ->
-            (Expr_LitString(s), type_string)
-    )
+      (* add values of type parameters to environment *)
+      let es' = List.map (check_expr env loc type_integer) es in
+      let s = mk_bindings (List.combine ps es') in
 
+      (* typecheck each field of the record *)
+      let fas' =
+        List.map
+          (fun (f, e) ->
+            let fty = get_recordfield loc fs f in
+            let fty' = subst_type s fty in
+            let e' = check_expr env loc fty' e in
+            (f, e'))
+          fas
+      in
+
+      (Expr_RecordInit (tc, es', fas'), Type_Constructor (tc, es'))
+  | Expr_ArrayInit [] ->
+      raise (InternalError (loc, "expr ArrayInit is empty", (fun fmt -> FMT.expr fmt x), __LOC__))
+  | Expr_ArrayInit (e::es) ->
+      let (e', ty) = tc_expr env loc e in
+      let rty = ref ty in
+      let es' = List.map
+          (fun i ->
+            let (i', ity) = tc_expr env loc i in
+            rty := least_supertype env loc !rty ity;
+            i')
+          es
+      in
+      let n = List.length (e::es) in
+      let ixty = Index_Int (mk_litint n) in
+      (Expr_ArrayInit (e'::es'), Type_Array (ixty, !rty))
+  | Expr_In (e, p) ->
+      let (e', ety') = tc_expr env loc e in
+      if verbose then
+        Format.fprintf fmt "    - Typechecking %a IN ... : %a\n" FMT.expr e' FMT.ty ety';
+      let p' = tc_pattern env loc ety' p in
+      (Expr_In (e', p'), type_bool)
+  | Expr_Var v ->
+      ( match Env.getVar env v with
+      | Some i -> (Expr_Var i.name, i.ty)
+      | None ->
+        ( match GlobalEnv.getType (Env.globals env) v with
+        | Some (Type_Exception fs)
+        | Some (Type_Record ([], fs)) ->
+          if not (Utils.is_empty fs) then begin
+            let msg = Format.asprintf "record/exception `%a` requires field values but none are supplied"
+                FMT.varname v
+            in
+            raise (TypeError (loc, msg))
+          end;
+          (Expr_RecordInit (v, [], []), Type_Constructor (v, []))
+        | Some _ ->
+          raise (IsNotA (loc, "record or exception type", Ident.to_string v));
+        | None ->
+          let getters =
+            GlobalEnv.getFuns (Env.globals env) (Ident.add_suffix v ~suffix:"read")
+          in
+          match
+            chooseFunction (Env.globals env) loc "getter function"
+              (Ident.to_string v) false [] getters
+          with
+          | Some fty ->
+              let fty' = instantiate_fun env loc fty [] [] in
+              (Expr_TApply (fty'.name, fty'.parameters, [], NoThrow), fty'.rty)
+          | None ->
+              raise
+                (UnknownObject
+                   (loc, "variable or getter functions", Ident.to_string v))
+        )
+      )
+  | Expr_TApply (f, tes, es, throws) ->
+      let es', tys = List.split (tc_exprs env loc es) in
+      let fty = tc_apply env loc "function" f es' tys in
+      (Expr_TApply (fty.name, fty.parameters, es', throws), fty.rty)
+  | Expr_Tuple es ->
+      let es', tys = List.split (List.map (tc_expr env loc) es) in
+      (Expr_Tuple es', Type_Tuple tys)
+  | Expr_Concat (_, es) ->
+      let es', tys = List.split (List.map (tc_expr env loc) es) in
+      let ws = List.map (width_of_type (Env.globals env) loc) tys in
+      let w = Xform_simplify_expr.mk_add_ints ws in
+      (Expr_Concat (ws, es'), type_bits w)
+  | Expr_Unop (op, e) ->
+      let e', ety = tc_expr env loc e in
+      (* Format.fprintf fmt "%a: unop %a : %a\n" FMT.loc loc FMT.expr e FMT.ty ety; *)
+      let fty = tc_unop env loc op e ety in
+      (Expr_TApply (fty.name, fty.parameters, [ e' ], NoThrow), fty.rty)
+  | Expr_Unknown t ->
+      let ty' = tc_type env loc t in
+      (Expr_Unknown ty', ty')
+  | Expr_Array (a, e) -> (
+      let a', ty = tc_expr env loc a in
+      match derefType (Env.globals env) loc ty with
+      | Type_Array (ixty, elty) ->
+          let e' = check_expr env loc (ixtype_basetype ixty) e in
+          (Expr_Array (a', e'), elty)
+      | _ -> raise (TypeError (loc, "subscript of non-array")))
+  | Expr_Lit (VInt _)    -> (x, Type_Integer (Some([Constraint_Single x])))
+  | Expr_Lit (VIntN v)   -> (x, type_sintN (mk_litint v.n))
+  | Expr_Lit (VReal _)   -> (x, type_real)
+  | Expr_Lit (VBits b)   -> (x, type_bits (mk_litint (Primops.prim_length_bits b)))
+  | Expr_Lit (VString _) -> (x, type_string)
+  | Expr_Lit _ ->
+      raise (InternalError
+        (loc, "tc_expr: lit", (fun fmt -> FMT.expr fmt x), __LOC__))
+  | Expr_AsConstraint (e, c) ->
+      let e' = check_expr env loc type_integer e in
+      let c' = tc_constraints env loc c in
+      (Expr_AsConstraint (e', c'), Type_Integer (Some c'))
+  | Expr_AsType (e, t) ->
+      let e', ty = tc_expr env loc e in
+      let t' = tc_type env loc t in
+      (* todo: check that ty is structurally consistent with t' *)
+      (Expr_AsType (e', t'), t')
 
 (** Typecheck list of types *)
-and tc_types (env: Env.t) (loc: AST.l) (xs: AST.ty list): AST.ty list =
-    List.map (tc_type env loc) xs
+and tc_types (env : Env.t) (loc : Loc.t) (xs : AST.ty list) : AST.ty list =
+  List.map (tc_type env loc) xs
 
 (** Typecheck type *)
-and tc_type (env: Env.t) (loc: AST.l) (x: AST.ty): AST.ty =
-    ( match x with
-    | Type_Constructor(tc) ->
-            if not (GlobalEnv.isType (Env.globals env) tc) then raise (IsNotA (loc, "type constructor", pprint_ident tc));
-            (match GlobalEnv.getType (Env.globals env) tc with
-            (* todo: instantiate with type parameters? *)
-            | Some (Type_Abbreviation ty') -> derefType (Env.globals env) ty'
-            | _ -> Type_Constructor(tc)
-            )
-    | Type_Bits(n) ->
-            let n' = check_expr env loc type_integer n in
-            Type_Bits(n')
-    | Type_App(tc, es) ->
-            if not (GlobalEnv.isTycon (Env.globals env) tc) then raise (IsNotA (loc, "type constructor", pprint_ident tc));
-            let es' = List.map (check_expr env loc type_integer) es in
-            Type_App(tc, es')
-    | Type_OfExpr(e) ->
-            let (s, (_, ty)) = with_unify env loc (fun u -> tc_expr env u loc e) in
-            unify_subst_ty s ty
-    | Type_Register(wd, fs) ->
-            let fs' = List.map (fun (ss, f) ->
-                let (s, ss') = with_unify env loc (fun u -> List.map (fun s -> fst (tc_slice env u loc s)) ss)
-                in
-                let ss'' = List.map (subst_slice s) ss' in
-                (ss'', f)
-            ) fs in
-            Type_Register (wd, fs')
-    | Type_Array(Index_Enum(tc),ety) ->
-            if not (GlobalEnv.isEnum (Env.globals env) tc) then raise (IsNotA (loc, "enumeration type", pprint_ident tc));
-            let ety' = tc_type env loc ety in
-            Type_Array(Index_Enum(tc),ety')
-    | Type_Array(Index_Range(lo,hi),ety) ->
-            let lo' = check_expr env loc type_integer lo in
-            let hi' = check_expr env loc type_integer hi in
-            let ety' = tc_type env loc ety in
-            Type_Array(Index_Range(lo',hi'),ety')
-    | Type_Tuple(tys) ->
-            let tys' = tc_types env loc tys in
-            Type_Tuple(tys')
-    )
+and tc_type (env : Env.t) (loc : Loc.t) (x : AST.ty) : AST.ty =
+  match x with
+  | Type_Integer ocrs ->
+      let ocrs' = Option.map (tc_constraints env loc) ocrs in
+      Type_Integer ocrs'
+  | Type_Bits (n, fs) ->
+      let n' = check_expr env loc type_integer n in
+      check_duplicate_field_names (fun (_, f) -> f) fs loc;
+      let fs' =
+        List.map
+          (fun (ss, f) ->
+            let ss' = List.map (fun s -> fst (tc_slice env loc s)) ss in
+            (ss', f))
+          fs
+      in
+      Type_Bits (n', fs')
+  | Type_Constructor (tc, es) ->
+      let es' = List.map (check_expr env loc type_integer) es in
+      if (tc = Builtin_idents.sintN) || (GlobalEnv.isTycon (Env.globals env) tc) then (
+        Type_Constructor (tc, es')
+      ) else (
+        raise (IsNotA (loc, "type constructor", Ident.to_string tc))
+      )
+  | Type_OfExpr e ->
+      let (_, ty) = tc_expr env loc e in
+      ty
+  | Type_Array (Index_Enum tc, ety) ->
+      if not (GlobalEnv.isEnum (Env.globals env) tc) then
+        raise (IsNotA (loc, "enumeration type", Ident.to_string tc));
+      let ety' = tc_type env loc ety in
+      Type_Array (Index_Enum tc, ety')
+  | Type_Array (Index_Int sz, ety) ->
+      let sz' = check_expr env loc type_integer sz in
+      let ety' = tc_type env loc ety in
+      Type_Array (Index_Int sz', ety')
+  | Type_Tuple tys ->
+      let tys' = tc_types env loc tys in
+      Type_Tuple tys'
 
+(* check ty and check that ty1 is a subtype of ty. *)
+and check_type (env : Env.t) (loc : Loc.t) (ty1 : ty) (ty : ty) : ty =
+  let ty' = tc_type env loc ty in
+  check_subtype_satisfies env loc ty1 ty';
+  ty'
+
+and tc_constraint (env : Env.t) (loc : Loc.t) (c : AST.constraint_range) :
+    AST.constraint_range =
+  match c with
+  | Constraint_Single e ->
+      let e' = check_expr env loc type_integer e in
+      Constraint_Single e'
+  | Constraint_Range (lo, hi) ->
+      let lo' = check_expr env loc type_integer lo in
+      let hi' = check_expr env loc type_integer hi in
+      Constraint_Range (lo', hi')
+
+and tc_constraints (env : Env.t) (loc : Loc.t) (cs : AST.constraint_range list)
+    : AST.constraint_range list =
+  List.map (tc_constraint env loc) cs
 
 (****************************************************************)
 (** {2 Typecheck L-expressions}                                 *)
@@ -1575,126 +1708,155 @@ and tc_type (env: Env.t) (loc: AST.l) (x: AST.ty): AST.ty =
     This primarily consists of disambiguating between array indexing and bitslicing
     Note that this function is almost identical to tc_slice_expr
  *)
-let rec tc_slice_lexpr (env: Env.t) (u: unifier) (loc: AST.l) (x: lexpr) (ss: (AST.slice * AST.ty) list): (AST.lexpr * AST.ty) =
-    if List.length ss == 0 then begin
-        raise (TypeError (loc, "empty list of subscripts"))
-    end;
-    let ss' = List.map fst ss in
-    let (x', ty) = tc_lexpr2 env u loc x in
-    (match derefType (Env.globals env) ty with
-    | Type_Array(ixty, elty) ->
-            (match ss with
-            | [(Slice_Single i, ity)] ->
-                    check_type env u loc (ixtype_basetype ixty) ity;
-                    (LExpr_Array (x', i), elty)
-            | _ -> raise (TypeError (loc, "multiple subscripts for array"))
-            )
-    | Type_Bits(n) ->
-            (LExpr_Slices(x', ss'), type_bits (slices_width ss'))
-    | Type_Register (wd, _) ->
-            (LExpr_Slices(x', ss'), type_bits (slices_width ss'))
-    | Type_Constructor tc when tc = Ident "integer" ->
-            (* There is an argument for making this operation illegal *)
-            if false then printf "Warning: slice assignment of integer at %s\n" (pp_loc loc);
-            (LExpr_Slices(x', ss'), type_bits (slices_width ss'))
-    | _ -> raise (TypeError (loc, "slice of lexpr"))
-    )
+let rec tc_slice_lexpr (env : Env.t) (loc : Loc.t) (x : lexpr)
+    (ss : (AST.slice * AST.ty) list) : AST.lexpr * AST.ty =
+  if List.length ss = 0 then raise (TypeError (loc, "empty list of subscripts"));
+  let ss' = List.map fst ss in
+  let x', ty' = tc_lexpr2 env loc x in
+  let ty = type_bits (slices_width ss') in
+  match derefType (Env.globals env) loc ty' with
+  | Type_Array (ixty, elty) -> (
+      match ss with
+      | [ (Slice_Single i, ity) ] ->
+          check_subtype_satisfies env loc ity (ixtype_basetype ixty);
+          (LExpr_Array (x', i), elty)
+      | _ -> raise (TypeError (loc, "multiple subscripts for array")))
+  | Type_Bits (n, _) ->
+    (LExpr_Slices (ty', x', ss'), ty)
+  | Type_Integer _ ->
+      (* There is an argument for making this operation illegal *)
+      if false then
+        Format.fprintf fmt "Warning: slice assignment of integer at %a\n"
+          FMT.loc loc;
+      (LExpr_Slices (ty', x', ss'), ty)
+  | _ -> raise (TypeError (loc, "slice of lexpr"))
 
 (** Typecheck left hand side of expression in context where
     type of right hand side is not yet known
  *)
-and tc_lexpr2 (env: Env.t) (u: unifier) (loc: AST.l) (x: AST.lexpr): (AST.lexpr * AST.ty) =
-    ( match x with
-    | LExpr_Wildcard ->
-        raise (TypeError (loc, "wildcard in lexpr2"))
-    | LExpr_Var(v) ->
-        (match Env.getVar env v with
-        | Some (v', ty') ->
-            Env.markModified env v;
-            (LExpr_Var(v'), ty')
-        | None ->
-            let getters = GlobalEnv.getFuns (Env.globals env) (addSuffix v "read") in
-            let setters = GlobalEnv.getFuns (Env.globals env) (addSuffix v "write") in
-            let ogetter = chooseFunction (Env.globals env) loc "var getter function" (pprint_ident v) false [] getters in
-            (match ogetter with
-            | Some fty ->
-                let (_, _, _, _, _, rty) = fty in
-                let gty = (match chooseFunction (Env.globals env) loc "var setter function" (pprint_ident v) false [rty] setters with
+and tc_lexpr2 (env : Env.t) (loc : Loc.t) (x : AST.lexpr) :
+    AST.lexpr * AST.ty =
+  match x with
+  | LExpr_Wildcard -> raise (TypeError (loc, "wildcard in lexpr2"))
+  | LExpr_Var v -> (
+      match Env.getVar env v with
+      | Some i ->
+          if i.is_constant then begin
+            let msg = Format.asprintf "assignment to immutable variable `%a` declared at `%a`"
+                        FMT.varname i.name
+                        FMT.loc i.loc
+            in
+            raise (TypeError (loc, msg))
+          end;
+          Env.markModified env v;
+          (LExpr_Var i.name, i.ty)
+      | None -> (
+          let getters =
+            GlobalEnv.getFuns (Env.globals env) (Ident.add_suffix v ~suffix:"read")
+          in
+          let setters =
+            GlobalEnv.getSetterFun (Env.globals env) (Ident.add_suffix v ~suffix:"write")
+          in
+          let ogetter =
+            chooseFunction (Env.globals env) loc "var getter function"
+              (Ident.to_string v) false [] getters
+          in
+          match ogetter with
+          | Some fty ->
+              let gty =
+                match
+                  chooseFunction (Env.globals env) loc "var setter function"
+                    (Ident.to_string v) false [] setters
+                with
                 | Some gty -> gty
-                | None -> raise (UnknownObject(loc, "var setter function", pprint_ident v))
-                ) in
-                let (f', tes', rty) = instantiate_fun (Env.globals env) u loc fty [] [] in
-                (LExpr_ReadWrite (f', ft_id gty, tes', []), rty)
-            | None ->
-                raise (UnknownObject(loc, "variable", pprint_ident v))
-            )
-        )
-    | LExpr_Field(l, f) ->
-        let (l', ty) = tc_lexpr2 env u loc l in
-        (match typeFields (Env.globals env) loc ty with
-        | FT_Record rfs ->
-            (LExpr_Field(l', f), get_recordfield loc rfs f)
-        | FT_Register rfs ->
-            let (ss, ty') = get_regfield loc rfs f in
-            (LExpr_Slices(l', ss), ty')
-        )
-    | LExpr_Fields(l, fs) ->
-        let (l', ty) = tc_lexpr2 env u loc l in
-        (match typeFields (Env.globals env) loc ty with
-        | FT_Record rfs ->
-            let tys = List.map (get_recordfield loc rfs) fs in
-            (LExpr_Fields(l', fs), mk_concat_tys tys)
-        | FT_Register rfs ->
-            let (ss, ty') = get_regfields loc rfs fs in
-            (LExpr_Slices(l', ss), ty')
-        )
-    | LExpr_Slices(e, ss) ->
-        let all_single = List.for_all (function (Slice_Single _) -> true | _ -> false) ss in
-        let ss' = List.map (tc_slice env u loc) ss in
+                | None ->
+                    raise
+                      (UnknownObject (loc, "var setter function", Ident.to_string v))
+              in
+              let fty' = instantiate_fun env loc fty [] [] in
+              let throws = NoThrow in (* todo: need to allow ? on var *)
+              (LExpr_ReadWrite (fty'.name, gty.funname, fty'.parameters, [], throws), fty'.rty)
+          | None -> raise (UnknownObject (loc, "variable", Ident.to_string v))))
+  | LExpr_Field (l, f) -> (
+      let l', ty = tc_lexpr2 env loc l in
+      match typeFields (Env.globals env) loc ty with
+      | FT_Record rfs -> (LExpr_Field (l', f), get_recordfield loc rfs f)
+      | FT_Register rfs ->
+          let ss, ty' = get_regfield loc rfs f in
+          (LExpr_Slices (ty, l', ss), ty'))
+  | LExpr_Fields (l, fs) -> (
+      let l', ty = tc_lexpr2 env loc l in
+      match typeFields (Env.globals env) loc ty with
+      | FT_Record rfs ->
+          let tys = List.map (get_recordfield loc rfs) fs in
+          let ws = List.map (width_of_type (Env.globals env) loc) tys in
+          let w = Xform_simplify_expr.mk_add_ints ws in
+          (LExpr_Fields (l', fs), type_bits w)
+      | FT_Register rfs ->
+          let ss, ty' = get_regfields loc rfs fs in
+          (LExpr_Slices (ty, l', ss), ty'))
+  | LExpr_Slices (_, e, ss) -> (
+      let all_single =
+        List.for_all (function Slice_Single _ -> true | _ -> false) ss
+      in
+      let ss' = List.map (tc_slice env loc) ss in
 
-        (* variable slice or setter call?
-         * Start by testing for getter/setter pair
-         * If that fails, test for an array variable or bitvector variable
-         *)
-        (match e with
-        | LExpr_Var(a) ->
-            let tys = List.map (function (_, ty) -> ty) ss' in
-            let getters = GlobalEnv.getFuns (Env.globals env) (addSuffix a "read") in
-            let setters = GlobalEnv.getSetterFun (Env.globals env) (addSuffix a "set") in
-            let ogetters = chooseFunction (Env.globals env) loc "getter function" (pprint_ident a) true tys getters in
-            let osetters = chooseSetterFunction (Env.globals env) loc "setter function" a tys setters in
-            (match (ogetters, osetters) with
-            | (Some fty, Some gty) when all_single ->
-                (* todo: check for Formal_InOut and check that corresponding argument is a legal lexpr *)
-                let es = List.map (function (Slice_Single a, _) -> a | _ -> raise (InternalError "Expr_Slices")) ss' in
-                let (f', tes', rty) = instantiate_fun (Env.globals env) u loc fty es tys in
-                (LExpr_ReadWrite(f', sft_id gty, tes', es), rty)
-            | (None,   Some _) -> raise (UnknownObject(loc, "getter function", pprint_ident a))
-            | (Some _, None)   -> raise (UnknownObject(loc, "setter function", pprint_ident a))
-            | _ -> tc_slice_lexpr env u loc e ss'
-            )
-        | _ ->
-            tc_slice_lexpr env u loc e ss'
-        )
-
-    | LExpr_BitTuple(ls) ->
-        let (ls', tys) = List.split (List.map (tc_lexpr2 env u loc) ls) in
-        let ty = mk_concat_tys tys in
-        (LExpr_BitTuple(ls'), ty)
-    | LExpr_Tuple(ls) ->
-        let (ls', tys) = List.split (List.map (tc_lexpr2 env u loc) ls) in
-        (LExpr_Tuple(ls'), Type_Tuple(tys))
-    | LExpr_Array(a, e) ->
-        let (a', ty) = tc_lexpr2 env u loc a in
-        (match derefType (Env.globals env) ty with
-        | Type_Array(ixty, elty) ->
-                let e' = check_expr env loc (ixtype_basetype ixty) e in
-                (LExpr_Array(a', e'), elty)
-        | _ -> raise (TypeError (loc, "subscript of non-array"))
-        )
-    | _ -> raise (InternalError "tc_lexpr2")
-    )
-
+      (* variable slice or setter call?
+       * Start by testing for getter/setter pair
+       * If that fails, test for an array variable or bitvector variable
+       *)
+      match e with
+      | LExpr_Var a -> (
+          let tys = List.map (function _, ty -> ty) ss' in
+          let getters =
+            GlobalEnv.getFuns (Env.globals env) (Ident.add_suffix a ~suffix:"read")
+          in
+          let setters =
+            GlobalEnv.getSetterFun (Env.globals env) (Ident.add_suffix a ~suffix:"write")
+          in
+          let ogetters =
+            chooseFunction (Env.globals env) loc "getter function"
+              (Ident.to_string a) true tys getters
+          in
+          let osetters =
+            chooseFunction (Env.globals env) loc "setter function"
+              (Ident.to_string a) true tys setters
+          in
+          match (ogetters, osetters) with
+          | Some fty, Some gty when all_single ->
+              let es =
+                List.map
+                  (function
+                    | Slice_Single a, _ -> a
+                    | _ -> raise (InternalError
+                      (loc, "Expr_Slices", (fun fmt -> FMT.lexpr fmt e), __LOC__)))
+                  ss'
+              in
+              let fty' = instantiate_fun env loc fty es tys in
+              let throws = NoThrow in (* todo : need to add throws to Var *)
+              (LExpr_ReadWrite (fty'.name, gty.funname, fty'.parameters, es, throws), fty'.rty)
+          | None, Some _ ->
+              raise (UnknownObject (loc, "getter function", Ident.to_string a))
+          | Some _, None ->
+              raise (UnknownObject (loc, "setter function", Ident.to_string a))
+          | _ -> tc_slice_lexpr env loc e ss')
+      | _ -> tc_slice_lexpr env loc e ss')
+  | LExpr_BitTuple (_, ls) ->
+      let ls', tys = List.split (List.map (tc_lexpr2 env loc) ls) in
+      let ws = List.map (width_of_type (Env.globals env) loc) tys in
+      let w = Xform_simplify_expr.mk_add_ints ws in
+      (LExpr_BitTuple (ws, ls'), type_bits w)
+  | LExpr_Tuple ls ->
+      let ls', tys = List.split (List.map (tc_lexpr2 env loc) ls) in
+      (LExpr_Tuple ls', Type_Tuple tys)
+  | LExpr_Array (a, e) -> (
+      let a', ty = tc_lexpr2 env loc a in
+      match derefType (Env.globals env) loc ty with
+      | Type_Array (ixty, elty) ->
+          let e' = check_expr env loc (ixtype_basetype ixty) e in
+          (LExpr_Array (a', e'), elty)
+      | _ -> raise (TypeError (loc, "subscript of non-array")))
+  | _ -> raise (InternalError (loc, "tc_lexpr2", (fun fmt -> FMT.lexpr fmt x), __LOC__))
 
 (****************************************************************)
 (** {2 Typecheck statements}                                    *)
@@ -1703,837 +1865,727 @@ and tc_lexpr2 (env: Env.t) (u: unifier) (loc: AST.l) (x: AST.lexpr): (AST.lexpr 
 (** Typecheck left hand side of expression and check that rhs type 'ty' is compatible.
     Return set of variables assigned to in this expression
  *)
-let rec tc_lexpr (env: Env.t) (u: unifier) (loc: AST.l) (ty: AST.ty) (x: AST.lexpr): (AST.lexpr * implicitVars) =
-    ( match x with
-    | LExpr_Wildcard ->
-        (LExpr_Wildcard, [])
-    | LExpr_Var(v) when v == Ident "_" -> (* treat '_' as wildcard token *)
-        (LExpr_Wildcard, [])
-    | LExpr_Var(v) ->
-        (match Env.getVar env v with
-        | Some (_, ty') ->
-            check_type env u loc ty' ty;
-            Env.markModified env v;
-            (LExpr_Var v, [])
-        | None ->
-            let setters = GlobalEnv.getFuns (Env.globals env) (addSuffix v "write") in
-            let osetter = chooseFunction (Env.globals env) loc "var setter function" (pprint_ident v) false [ty] setters in
-            (match osetter with
-            | Some gty ->
-                let dummy_arg = Expr_LitInt("42") in (* the value and type of this are ignored *)
-                let (g', tes', rty) = instantiate_fun (Env.globals env) u loc gty [dummy_arg] [ty] in
-                (LExpr_Write (ft_id gty, tes', []), [])
-            | None ->
-                (* Implicitly declared variable *)
-                Env.markModified env v;
-                (LExpr_Var v, [(v, ty)])
-            )
-        )
-    | LExpr_Field(l, f) ->
-        let (l', rty) = tc_lexpr2 env u loc l in
-        let (r,  ty') = (match typeFields (Env.globals env) loc rty with
-            | FT_Record rfs ->
-                (LExpr_Field(l', f), get_recordfield loc rfs f)
-            | FT_Register rfs ->
-                let (ss, ty') = get_regfield loc rfs f in
-                (LExpr_Slices(l', ss), ty')
-            )
-        in
-        check_type env u loc ty' ty;
-        (r, [])
-    | LExpr_Fields(l, fs) ->
-        let (l', lty) = tc_lexpr2 env u loc l in
-        let (r,  ty') = (match typeFields (Env.globals env) loc lty with
-            | FT_Record rfs ->
-                let tys = List.map (get_recordfield loc rfs) fs in
-                (LExpr_Fields(l', fs), mk_concat_tys tys)
-            | FT_Register rfs ->
-                let (ss, ty') = get_regfields loc rfs fs in
-                (LExpr_Slices(l', ss), ty')
-            )
-        in
-        check_type env u loc ty' ty;
-        (r, [])
-    | LExpr_Slices(e, ss) ->
-        let all_single = List.for_all (function (Slice_Single _) -> true | _ -> false) ss in
-        let ss' = List.map (tc_slice env u loc) ss in
+let rec tc_lexpr (env : Env.t) (loc : Loc.t) (ty : AST.ty) (x : AST.lexpr) : AST.lexpr =
+  match x with
+  | LExpr_Wildcard ->
+      LExpr_Wildcard
+  | LExpr_Var v when Ident.equal v  wildcard_ident ->
+      (* treat '_' as wildcard token *)
+      LExpr_Wildcard
+  | LExpr_Var v -> (
+      match Env.getVar env v with
+      | Some i ->
+          if i.is_constant then begin
+            let msg = Format.asprintf "assignment to immutable variable `%a` declared at `%a`"
+                        FMT.varname i.name
+                        FMT.loc i.loc
+            in
+            raise (TypeError (loc, msg))
+          end;
+          check_subtype_satisfies env loc ty i.ty;
+          Env.markModified env v;
+          LExpr_Var v
+      | None -> (
+          let setters =
+            GlobalEnv.getSetterFun (Env.globals env) (Ident.add_suffix v ~suffix:"write")
+          in
+          let osetter =
+            chooseFunction (Env.globals env) loc "var setter function"
+              (Ident.to_string v) false [] setters
+          in
+          match osetter with
+          | Some gty ->
+              let gty' = instantiate_fun env loc gty [] [] in
+              let vty = from_option gty'.ovty (fun _ -> raise (InternalError
+                (loc, "tc_lexpr LExpr_Var", (fun fmt -> FMT.lexpr fmt x), __LOC__))) in
+              check_subtype_satisfies env loc ty vty;
+              let throws = NoThrow in
+              LExpr_Write (gty'.name, gty'.parameters, [], throws)
+          | None ->
+              raise (UnknownObject (loc, "variable", Ident.to_string v))
+          )
+      )
+  | LExpr_Field (l, f) ->
+      let l', rty = tc_lexpr2 env loc l in
+      let r, fty =
+        match typeFields (Env.globals env) loc rty with
+        | FT_Record rfs -> (LExpr_Field (l', f), get_recordfield loc rfs f)
+        | FT_Register rfs ->
+            let ss, ty' = get_regfield loc rfs f in
+            (LExpr_Slices (rty, l', ss), ty')
+      in
+      check_subtype_satisfies env loc ty fty;
+      r
+  | LExpr_Fields (l, fs) ->
+      let l', lty = tc_lexpr2 env loc l in
+      let r, ty' =
+        match typeFields (Env.globals env) loc lty with
+        | FT_Record rfs ->
+            let tys = List.map (get_recordfield loc rfs) fs in
+            let ws = List.map (width_of_type (Env.globals env) loc) tys in
+            let w = Xform_simplify_expr.mk_add_ints ws in
+            (LExpr_Fields (l', fs), type_bits w)
+        | FT_Register rfs ->
+            let ss, ty' = get_regfields loc rfs fs in
+            (LExpr_Slices (lty, l', ss), ty')
+      in
+      check_subtype_satisfies env loc ty ty';
+      r
+  | LExpr_Slices (_, e, ss) ->
+      let all_single =
+        List.for_all (function Slice_Single _ -> true | _ -> false) ss
+      in
+      let ss' = List.map (tc_slice env loc) ss in
 
-        (* variable slice or setter call?
-         * Start by testing for getter/setter pair
-         * If that fails, test for slice of a var-getter
-         * If that fails, test for an array variable or bitvector variable
-         *)
-        let (e', ty') = (match e with
-            | LExpr_Var(a) ->
-                let tys = List.map (function (_, ty) -> ty) ss' in
-                let setters = GlobalEnv.getSetterFun (Env.globals env) (addSuffix a "set") in
-                let osetters = chooseSetterFunction (Env.globals env) loc "setter function" a tys setters in
-                (match osetters with
-                | Some gty when all_single ->
-                    (* todo: check for Formal_InOut and check that corresponding argument is a legal lexpr *)
-                    let es = List.map (function (Slice_Single a, _) -> a | _ -> raise (InternalError "Expr_Slices1")) ss' in
-                    let (g', tes') = instantiate_sfun (Env.globals env) u loc gty es tys ty in
-                    (LExpr_Write(sft_id gty, tes', es), ty)
-                | _ ->
-                    let getters = GlobalEnv.getFuns (Env.globals env) (addSuffix a "read") in
-                    let setters = GlobalEnv.getFuns (Env.globals env) (addSuffix a "write") in
-                    let vty = type_bitsK "0" in (* note that width is ignored *)
-                    let ogetter = chooseFunction (Env.globals env) loc "var getter function" (pprint_ident a) false [] getters in
-                    let osetter = chooseFunction (Env.globals env) loc "var setter function" (pprint_ident a) false [vty] setters in
-                    (match (ogetter, osetter) with
-                    | (Some fty, Some (g, _, tvs, _, ftys, rty)) ->
-                        (* todo: calculate type correctly *)
-                        let wr = LExpr_ReadWrite(ft_id fty, g, [], []) in
-                        (* todo: check slices are integer *)
-                        (* todo: check rty is bits(_) *)
-                        let ss'' = List.map fst ss' in
-                        (LExpr_Slices(wr, ss''), type_bits (slices_width ss''))
-                    | (None,   Some _) -> raise (UnknownObject(loc, "var getter function", pprint_ident a))
-                    | (Some _, None)   -> raise (UnknownObject(loc, "var setter function", pprint_ident a))
-                    | (None,   None)   -> tc_slice_lexpr env u loc e ss'
-                    )
-                )
-            | _ ->
-                tc_slice_lexpr env u loc e ss'
-        ) in
-        check_type env u loc ty' ty;
-        (e', [])
+      (* variable slice or setter call?
+       * Start by testing for getter/setter pair
+       * If that fails, test for slice of a var-getter
+       * If that fails, test for an array variable or bitvector variable
+       *)
+      let e', ty' =
+        match e with
+        | LExpr_Var a -> (
+            let tys = List.map (function _, ty -> ty) ss' in
+            let setters =
+              GlobalEnv.getSetterFun (Env.globals env) (Ident.add_suffix a ~suffix:"write")
+            in
+            let osetters =
+              chooseFunction (Env.globals env) loc "setter function"
+                (Ident.to_string a) true tys setters
+            in
+            match osetters with
+            | Some gty when all_single ->
+                let es =
+                  List.map
+                    (function
+                      | Slice_Single a, _ -> a
+                      | _ -> raise (InternalError
+                        (loc, "Expr_Slices1", (fun fmt -> FMT.lexpr fmt e), __LOC__)))
+                    ss'
+                in
+                let gty' = instantiate_fun env loc gty es tys in
+                let vty = from_option gty'.ovty (fun _ -> raise (InternalError
+                  (loc, "tc_lexpr LExpr_Slices", (fun fmt -> FMT.lexpr fmt e), __LOC__))) in
+                check_subtype_satisfies env loc ty vty;
+                let throws = NoThrow in
+                (LExpr_Write (gty'.name, gty'.parameters, es, throws), ty)
+            | _ -> (
+                let getters =
+                  GlobalEnv.getFuns (Env.globals env) (Ident.add_suffix a ~suffix:"read")
+                in
+                let setters =
+                  GlobalEnv.getSetterFun (Env.globals env) (Ident.add_suffix a ~suffix:"write")
+                in
+                let ogetter =
+                  chooseFunction (Env.globals env) loc "var getter function"
+                    (Ident.to_string a) false [] getters
+                in
+                let osetter =
+                  chooseFunction (Env.globals env) loc "var setter function"
+                    (Ident.to_string a) false [] setters
+                in
+                match (ogetter, osetter) with
+                | Some fty, Some fty' ->
+                    (* todo: calculate type correctly *)
+                    let throws = NoThrow in
+                    let wr = LExpr_ReadWrite (fty.funname, fty'.funname, [], [], throws) in
+                    (* todo: check slices are integer *)
+                    (* todo: check rty is bits(_) *)
+                    let ss'' = List.map fst ss' in
+                    (LExpr_Slices (fty.rty, wr, ss''), type_bits (slices_width ss''))
+                | None, Some _ ->
+                    raise
+                      (UnknownObject (loc, "var getter function", Ident.to_string a))
+                | Some _, None ->
+                    raise
+                      (UnknownObject (loc, "var setter function", Ident.to_string a))
+                | None, None -> tc_slice_lexpr env loc e ss'))
+        | _ -> tc_slice_lexpr env loc e ss'
+      in
+      check_subtype_satisfies env loc ty ty';
+      e'
+  | LExpr_BitTuple (_, ls) ->
+      let ls', tys = List.split (List.map (tc_lexpr2 env loc) ls) in
+      let ws = List.map (width_of_type (Env.globals env) loc) tys in
+      let w = Xform_simplify_expr.mk_add_ints ws in
+      check_subtype_satisfies env loc ty (type_bits w);
+      LExpr_BitTuple (ws, ls')
+  | LExpr_Tuple ls ->
+      let ls' =
+        match ty with
+        | Type_Tuple tys when List.length ls = List.length tys ->
+            List.map2 (tc_lexpr env loc) tys ls
+        | _ -> raise (IsNotA (loc, "tuple of length ?", pp_type ty))
+      in
+      LExpr_Tuple ls'
+  | LExpr_Array (a, e) -> (
+      let a', ty = tc_lexpr2 env loc a in
+      match derefType (Env.globals env) loc ty with
+      | Type_Array (ixty, elty) ->
+          let e', ety = tc_expr env loc e in
+          check_subtype_satisfies env loc ety (ixtype_basetype ixty);
+          LExpr_Array (a', e')
+      | _ -> raise (TypeError (loc, "subscript of non-array")))
+  | _ -> raise (InternalError (loc, "tc_lexpr", (fun fmt -> FMT.lexpr fmt x), __LOC__))
 
-    | LExpr_BitTuple(ls) ->
-        let (ls', tys) = List.split (List.map (tc_lexpr2 env u loc) ls) in
-        let ty' = mk_concat_tys tys in
-        check_type env u loc ty' ty;
-        (LExpr_BitTuple(ls'), [])
-    | LExpr_Tuple(ls) ->
-        let (ls', iss) = (match ty with
-            | Type_Tuple tys when List.length ls = List.length tys ->
-                List.split (List.map2 (tc_lexpr env u loc) tys ls)
-            | _ -> raise (IsNotA(loc, "tuple of length ?", pp_type ty))
-        ) in
-        (LExpr_Tuple(ls'), List.concat iss)
-    | LExpr_Array(a, e) ->
-        let (a', ty) = tc_lexpr2 env u loc a in
-        (match derefType (Env.globals env) ty with
-        | Type_Array(ixty, elty) ->
-                let (e', ety) = tc_expr env u loc e in
-                check_type env u loc (ixtype_basetype ixty) ety;
-                (LExpr_Array(a', e'), [])
-        | _ -> raise (TypeError (loc, "subscript of non-array"))
-        )
-    | _ -> raise (InternalError "tc_lexpr")
-    )
+let rec add_decl_item_vars (env : Env.t) (loc : Loc.t) (is_constant : bool) (x : AST.decl_item) : unit =
+  match x with
+  | DeclItem_Var (v, Some ty) ->
+      Env.addLocalVar env {name=v; loc; ty; is_local=true; is_constant}
+  | DeclItem_Tuple dis ->
+      List.iter (add_decl_item_vars env loc is_constant) dis
+  | DeclItem_BitTuple dis ->
+      List.iter (fun (ov, ty) ->
+        ( match ov with
+        | Some v -> Env.addLocalVar env {name=v; loc; ty; is_local=true; is_constant}
+        | _ -> ()
+        ))
+        dis
+  | DeclItem_Wildcard oty ->
+      ()
+  | DeclItem_Var (v, None) ->
+      raise (InternalError
+        (loc, "visit_declitem", (fun fmt -> FMT.decl_item fmt x), __LOC__))
+
+let tc_decl_bit (env : Env.t) (loc : Loc.t) (x : (Ident.t option * AST.ty)) : (Ident.t option * AST.ty) =
+  let (ov, ty) = x in
+  let ty' = tc_type env loc ty in
+  ( match ty' with
+  | Type_Bits _ -> (ov, ty')
+  | _ -> raise (TypeError (loc, "bits type expected"))
+  )
+
+(* typecheck a decl_item using the type `ity` of the initializer *)
+let rec tc_decl_item (env : Env.t) (loc : Loc.t) (ity : AST.ty) (x : AST.decl_item) : AST.decl_item =
+  match (ity, x) with
+  | (ity, DeclItem_Var (v, None)) ->
+    DeclItem_Var (v, Some ity)
+  | (ity, DeclItem_Var (v, Some ty)) ->
+      let ty' = check_type env loc ity ty in
+      DeclItem_Var (v, Some ty')
+  | (Type_Tuple itys, DeclItem_Tuple dis) when List.length dis = List.length itys ->
+      let dis' = List.map2 (tc_decl_item env loc) itys dis in
+      DeclItem_Tuple dis'
+  | (_, DeclItem_Tuple dis) ->
+      let len = List.length dis in
+      raise (IsNotA (loc, Format.asprintf "tuple of length %d" len, pp_type ity))
+  | (Type_Bits (n, _), DeclItem_BitTuple dbs) ->
+      let dbs' = List.map (tc_decl_bit env loc) dbs in
+      let (vs', tys) = List.split dbs' in
+      let ws = List.map (width_of_type (Env.globals env) loc) tys in
+      let w = Xform_simplify_expr.mk_add_ints ws in
+      let ty' = type_bits w in
+      check_subtype_satisfies env loc ty' ity;
+      DeclItem_BitTuple dbs'
+  | (_, DeclItem_BitTuple _) ->
+      raise (IsNotA (loc, "bitvector", pp_type ity))
+  | (ity, DeclItem_Wildcard None) ->
+      DeclItem_Wildcard (Some ity)
+  | (ity, DeclItem_Wildcard (Some ty)) ->
+      let ty' = check_type env loc ity ty in
+      DeclItem_Wildcard (Some ty')
 
 (** Typecheck list of statements *)
-let rec tc_stmts (env: Env.t) (loc: AST.l) (xs: AST.stmt list): AST.stmt list =
-    let rss = Env.nest (fun env' -> List.map (fun s ->
-        let s' = tc_stmt env' s in
-        let imps = Env.getImplicits env' in
-        List.iter (fun (v, ty) -> Env.addLocalVar env' loc v ty) imps;
-        let decls = declare_implicits loc imps in
-        if verbose && decls <> [] then Printf.printf "Implicit decls: %s %s" (pp_loc loc) (Utils.to_string (PP.pp_indented_block decls));
-        List.append decls [s']
-    ) xs
-    ) env in
-    List.concat rss
+let rec tc_stmts (env : Env.t) (loc : Loc.t) (xs : AST.stmt list) :
+    AST.stmt list =
+  Env.nest
+    (fun env' -> List.map (tc_stmt env') xs)
+    env
 
 (** Typecheck 'if expr then stmt' *)
-and tc_s_elsif (env: Env.t) (loc: AST.l) (x: AST.s_elsif): AST.s_elsif =
-    (match x with
-    | S_Elsif_Cond(c, s) ->
-            let c' = check_expr env loc type_bool c in
-            let s' = tc_stmts env loc s in
-            S_Elsif_Cond(c', s')
-    )
+and tc_s_elsif (env : Env.t) (x : AST.s_elsif) : AST.s_elsif =
+  match x with
+  | S_Elsif_Cond (c, s, loc) ->
+      let c' = check_expr env loc type_bool c in
+      let s' = tc_stmts env loc s in
+      S_Elsif_Cond (c', s', loc)
 
 (** Typecheck case alternative *)
-and tc_alt (env: Env.t) (loc: AST.l) (ty: AST.ty) (x: AST.alt): AST.alt =
-    (match x with
-    | Alt_Alt(ps, oc, b) ->
-            let ps' = List.map (tc_pattern env loc ty) ps in
-            let oc' = map_option (fun c -> check_expr env loc type_bool c) oc in
-            let b' = tc_stmts env loc b in
-            Alt_Alt(ps', oc', b')
-    )
+and tc_alt (env : Env.t) (ty : AST.ty) (x : AST.alt) : AST.alt =
+  match x with
+  | Alt_Alt (ps, oc, b, loc) ->
+      let ps' = List.map (tc_pattern env loc ty) ps in
+      let oc' = Option.map (fun c -> check_expr env loc type_bool c) oc in
+      let b' = tc_stmts env loc b in
+      Alt_Alt (ps', oc', b', loc)
 
 (** Typecheck exception catcher 'when expr stmt' *)
-and tc_catcher (env: Env.t) (loc: AST.l) (x: AST.catcher): AST.catcher =
-    (match x with
-    | Catcher_Guarded(c, b) ->
-            let c' = check_expr env loc type_bool c in
-            let b' = tc_stmts env loc b in
-            Catcher_Guarded(c', b')
-    )
+and tc_catcher (env : Env.t) (loc : Loc.t) (x : AST.catcher) : AST.catcher =
+  match x with
+  | Catcher_Guarded (v, tc, b, loc) ->
+      if not (GlobalEnv.isTycon (Env.globals env) tc) then begin
+        raise (IsNotA (loc, "exception type", Ident.to_string tc))
+      end;
+      let b' = Env.nest
+        (fun env' ->
+          Env.addLocalVar env' {name=v; loc; ty=Type_Constructor (tc, []); is_local=true; is_constant=true};
+          tc_stmts env' loc b)
+        env
+      in
+      Catcher_Guarded (v, tc, b', loc)
 
-(** Typecheck statement *)
-and tc_stmt (env: Env.t) (x: AST.stmt): AST.stmt =
-    (match x with
-    | Stmt_VarDeclsNoInit(ty, vs, loc) ->
-            let ty' = tc_type env loc ty in
-            List.iter (fun v -> Env.addLocalVar env loc v ty') vs;
-            Stmt_VarDeclsNoInit(ty', vs, loc)
-    | Stmt_VarDecl(ty, v, i, loc) ->
-            let ty' = tc_type env loc ty in
-            let i' = check_expr env loc ty' i in
-            Env.addLocalVar env loc v ty';
-            Stmt_VarDecl(ty', v, i', loc)
-    | Stmt_ConstDecl(ty, v, i, loc) ->
-            let ty' = tc_type env loc ty in
-            let i'  = check_expr env loc ty' i in
-            Env.addLocalVar env loc v ty';
-            if ty' = type_integer then Env.addConstraint env loc (mk_eq_int (Expr_Var v) i');
-            Stmt_ConstDecl(ty', v, i', loc)
-    | Stmt_Assign(l, r, loc) ->
-            let (s, (r', rty, l', imps)) = with_unify env loc (fun u ->
-                let (r', rty)  = tc_expr env u loc r in
-                let (l', imps) = tc_lexpr env u loc rty l in
-                if verbose then Printf.printf "    - Typechecking %s <- %s : %s\n" (pp_lexpr l') (pp_expr r') (pp_type rty);
-                (r', rty, l', imps)
-            ) in
-            let l'' = unify_subst_le s l' in
-            let r'' = unify_subst_e  s r' in
-            List.iter (fun (v, ty) ->
-                let ty' = unify_subst_ty s ty in
-                (* todo: note that type potentially involves local variables
-                 * eg in assignments like "x = address[31:N] : Zeros(N);"
-                 * whose "obvious" type is "bits(((31-N)+1)+N)"
-                 *
-                 * We could attempt to simplify the type (in this example,
-                 * it could be simplified to "bits(32)"), this would be somewhat
-                 * fragile (unless we can guarantee that the simplified expression
-                 * does not involve any variables that it does not need to involve).
-                 *
-                 * So, we do not simplify the expression and, instead, we
-                 * declare the variable in the outermost scope in which all
-                 * free variables are in scope.
-                 *
-                 * (That said, it may be a worthwhile optimization to simplify
-                 * the expression before execution to avoid gratuitiously complex
-                 * bitwidth calculations.)
-                 *)
-                Env.addLocalImplicitVar env loc v ty'
-            ) imps;
-            Stmt_Assign(l'', r'', loc)
-    | Stmt_TCall(f, tes, es, loc) ->
-            let (s, (f', tes'', es')) = with_unify env loc (fun u ->
-                let (es', tys) = List.split (tc_exprs env u loc es) in
-                let (f', tes'', ty) = tc_apply (Env.globals env) u loc "procedure" f es' tys in
-                check_type env u loc ty type_unit;
-                (f', tes'', es')
-            ) in
-            let es''   = List.map (unify_subst_e s) es' in
-            let tes''' = List.map (unify_subst_e s) tes'' in
-            Stmt_TCall(f', tes''', es'', loc)
-    | Stmt_FunReturn(e, loc) ->
-            let rty = (match Env.getReturnType env with
-            | Some ty -> ty
-            | None    -> raise (InternalError "Stmt_FunReturn")
-            ) in
-            let e' = check_expr env loc rty e in
-            Stmt_FunReturn(e', loc)
-    | Stmt_ProcReturn(loc) ->
-            (match Env.getReturnType env with
-            | None -> ()
-            | Some (Type_Tuple []) -> ()
-            | _ -> raise (InternalError "return type should be None")
-            );
-            Stmt_ProcReturn(loc)
-    | Stmt_Assert(e, loc) ->
-            let e' = check_expr env loc type_bool e in
-            Stmt_Assert(e', loc)
-    | Stmt_Unpred(loc) ->
-            Stmt_Unpred(loc)
-    | Stmt_ConstrainedUnpred(loc) ->
-            Stmt_ConstrainedUnpred(loc)
-    | Stmt_ImpDef(s, loc) ->
-            Stmt_ImpDef(s, loc)
-    | Stmt_Undefined(loc) ->
-            Stmt_Undefined(loc)
-    | Stmt_ExceptionTaken(loc) ->
-            Stmt_ExceptionTaken(loc)
-    | Stmt_Dep_Unpred(loc) ->
-            Stmt_Dep_Unpred(loc)
-    | Stmt_Dep_ImpDef(s, loc) ->
-            Stmt_Dep_ImpDef(s, loc)
-    | Stmt_Dep_Undefined(loc) ->
-            Stmt_Dep_Undefined(loc)
-    | Stmt_See(e, loc) ->
-            Stmt_See(e, loc)
-    | Stmt_Throw(v, loc) ->
-            let _ = with_unify env loc (fun u ->
-                let (v', ty) = check_var env loc v in
-                check_type env u loc type_exn ty
-            ) in
-            Stmt_Throw(v, loc)
-    | Stmt_DecodeExecute(i, e, loc) ->
-            let ty = ( match pprint_ident i with
-                | "A64" | "A32" | "T32" -> type_bitsK("32")
-                | "T16" -> type_bitsK("16")
-                | _ -> raise (UnknownObject(loc, "instruction set", pprint_ident i))
-            ) in
-            let e' = check_expr env loc ty e in
-            Stmt_DecodeExecute(i, e', loc)
-    | Stmt_If(c, t, els, e, loc) ->
-            let c'   = check_expr env loc type_bool c in
-            let t'   = tc_stmts env loc t in
-            let els' = List.map (tc_s_elsif env loc) els in
-            let e'   = tc_stmts env loc e in
-            Stmt_If(c', t', els', e', loc)
-    | Stmt_Case(e, alts, odefault, loc) ->
-            let (s, (e', ty')) = with_unify env loc (fun u -> tc_expr env u loc e) in
-            let e''       = unify_subst_e  s e' in
-            let ty''      = unify_subst_ty s ty' in
-            let alts'     = List.map (tc_alt env loc ty'') alts in
-            let odefault' = map_option (fun b -> tc_stmts env loc b) odefault in
-            Stmt_Case(e'', alts', odefault', loc)
-    | Stmt_For(v, start, dir, stop, b, loc) ->
-            let start' = check_expr env loc type_integer start in
-            let stop'  = check_expr env loc type_integer stop in
-            let b' = Env.nest (fun env' ->
-                Env.addLocalVar env' loc v type_integer;
-                tc_stmts env' loc b
-            ) env in
-            let b'' = List.append (declare_implicits loc (Env.getImplicits env)) b' in
-            Stmt_For(v, start', dir, stop', b'', loc)
-    | Stmt_While(c, b, loc) ->
-            let c' = check_expr env loc type_bool c in
-            let b' = tc_stmts env loc b in
-            Stmt_While(c', b', loc)
-    | Stmt_Repeat(b, c, loc) ->
-            let b' = tc_stmts env loc b in
-            let c' = check_expr env loc type_bool c in
-            Stmt_Repeat(b', c', loc)
-    | Stmt_Try(tb, ev, catchers, odefault, loc) ->
-            let tb' = tc_stmts env loc tb in
-            Env.nest (fun env' ->
-                Env.addLocalVar env' loc ev type_exn;
-                let catchers' = List.map (tc_catcher env' loc) catchers in
-                let odefault' = map_option (fun b -> tc_stmts env loc b) odefault in
-                Stmt_Try(tb', ev, catchers', odefault', loc)
-            ) env
-    )
+(** typecheck statement *)
+and tc_stmt (env : Env.t) (x : AST.stmt) : AST.stmt =
+  match x with
+  | Stmt_VarDeclsNoInit (vs, ty, loc) ->
+      let ty' = tc_type env loc ty in
+      List.iter (fun v -> Env.addLocalVar env {name=v; loc; ty=ty'; is_local=true; is_constant=false}) vs;
+      Stmt_VarDeclsNoInit (vs, ty', loc)
+  | Stmt_VarDecl (di, i, loc) ->
+      let (i', ity) = tc_expr env loc i in
+      let di' = tc_decl_item env loc ity di in
+      add_decl_item_vars env loc false di';
+      Stmt_VarDecl (di', i', loc)
+  | Stmt_ConstDecl (di, i, loc) ->
+      let (i', ity) = tc_expr env loc i in
+      let di' = tc_decl_item env loc ity di in
+      add_decl_item_vars env loc true di';
 
+      (* add integer constants to type environment *)
+      (match di' with
+      | DeclItem_Var (v, Some ty) ->
+          ( match ty with
+          | Type_Integer _ -> Env.addConstraint env loc (mk_eq_int (Expr_Var v) i')
+          | _ -> ()
+          )
+      | _ -> ());
+
+      Stmt_ConstDecl (di', i', loc)
+  | Stmt_Assign (l, r, loc) ->
+      let (r', rty) = tc_expr env loc r in
+      let l' = tc_lexpr env loc rty l in
+      if verbose then
+        Format.fprintf fmt "    - Typechecking %a <- %a : %a\n"
+          FMT.lexpr l' FMT.expr r' FMT.ty rty;
+      Stmt_Assign (l', r', loc)
+  | Stmt_TCall (f, tes, es, throws, loc) ->
+      let es', tys = List.split (tc_exprs env loc es) in
+      let fty = tc_apply env loc "procedure" f es' tys in
+      check_subtype_satisfies env loc type_unit fty.rty;
+      Stmt_TCall (fty.name, fty.parameters, es', throws, loc)
+  | Stmt_FunReturn (e, loc) ->
+      let rty =
+        match Env.getReturnType env with
+        | Some ty -> ty
+        | None -> raise (InternalError
+          (loc, "Stmt_FunReturn", (fun fmt -> FMT.stmt fmt x), __LOC__))
+      in
+      let e' = check_expr env loc rty e in
+      Stmt_FunReturn (e', loc)
+  | Stmt_ProcReturn loc ->
+      (match Env.getReturnType env with
+      | None -> ()
+      | Some (Type_Tuple []) -> ()
+      | _ -> raise (InternalError
+        (loc, "return type should be None", (fun fmt -> FMT.stmt fmt x), __LOC__)));
+      Stmt_ProcReturn loc
+  | Stmt_Assert (e, loc) ->
+      let e' = check_expr env loc type_bool e in
+      Stmt_Assert (e', loc)
+  | Stmt_Throw (e, loc) ->
+      let (e', ty') = tc_expr env loc e in
+      (* todo: check that ty' is an exception type *)
+      Stmt_Throw (e', loc)
+  | Stmt_Block (ss, loc) ->
+      let ss' = tc_stmts env loc ss in
+      Stmt_Block (ss', loc)
+  | Stmt_If (c, t, els, (e, el), loc) ->
+      let c' = check_expr env loc type_bool c in
+      let t' = tc_stmts env loc t in
+      let els' = List.map (tc_s_elsif env) els in
+      let e' = tc_stmts env el e in
+      Stmt_If (c', t', els', (e', el), loc)
+  | Stmt_Case (e, _, alts, odefault, loc) ->
+      let (e', ty') = tc_expr env loc e in
+      let alts' = List.map (tc_alt env ty') alts in
+      let odefault' =
+        Option.map (fun (b, bl) -> (tc_stmts env loc b, bl)) odefault
+      in
+      Stmt_Case (e', Some ty', alts', odefault', loc)
+  | Stmt_For (v, start, dir, stop, b, loc) ->
+      let start' = check_expr env loc type_integer start in
+      let stop' = check_expr env loc type_integer stop in
+      (* todo: we can calculate the range only if start and stop are immutable *)
+      let ty = ( match dir with
+               | Direction_Up -> Type_Integer (Some [Constraint_Range (start', stop')])
+               | Direction_Down -> Type_Integer (Some [Constraint_Range (stop', start')])
+               )
+      in
+      let b' =
+        Env.nest
+          (fun env' ->
+            Env.addLocalVar env' {name=v; loc; ty; is_local=true; is_constant=true};
+            tc_stmts env' loc b)
+          env
+      in
+      Stmt_For (v, start', dir, stop', b', loc)
+  | Stmt_While (c, b, loc) ->
+      let c' = check_expr env loc type_bool c in
+      let b' = tc_stmts env loc b in
+      Stmt_While (c', b', loc)
+  | Stmt_Repeat (b, c, pos, loc) ->
+      let b' = tc_stmts env loc b in
+      let c' = check_expr env loc type_bool c in
+      Stmt_Repeat (b', c', pos, loc)
+  | Stmt_Try (tb, pos, catchers, odefault, loc) ->
+      let tb' = tc_stmts env loc tb in
+      let catchers' = List.map (tc_catcher env loc) catchers in
+      let odefault' = Option.map (fun (b, bl) -> (tc_stmts env loc b, bl)) odefault in
+      Stmt_Try (tb', pos, catchers', odefault', loc)
 
 (****************************************************************)
 (** {2 Typecheck function definition}                           *)
 (****************************************************************)
 
 (** Typecheck function body (list of statements) *)
-let tc_body (env: Env.t) (loc: AST.l) (xs: AST.stmt list): AST.stmt list =
-    let xs' = tc_stmts env loc xs in
-    let imps = Env.getAllImplicits env in
-    let decls = declare_implicits loc imps in
-    if verbose && decls <> [] then Printf.printf "Implicit decls: %s %s" (pp_loc loc) (Utils.to_string (PP.pp_indented_block decls));
-    List.append decls xs'
+let tc_body = tc_stmts
+
+(** Typecheck function parameter *)
+let tc_parameter (env : Env.t) (loc : Loc.t)
+    ((arg, oty) : Ident.t * AST.ty option) : Ident.t * AST.ty option =
+  let ty' =
+    ( match oty with
+    | None -> Type_Integer (Some [Constraint_Single (Expr_Var arg)])
+    | Some ty -> tc_type env loc ty
+    )
+  in
+  Env.addLocalVar env {name=arg; loc; ty=ty'; is_local=true; is_constant=true};
+  (* function parameters are implicitly non-negative because bitvectors can't have negative length *)
+  Env.addConstraint env loc (mk_le_int zero (Expr_Var arg));
+  ( match ty' with
+  | Type_Integer (Some cs) -> Env.addConstraint env loc (constraint_ranges_to_expr (Expr_Var arg) cs)
+  | _ -> ()
+  );
+  (arg, Some ty')
 
 (** Typecheck function argument *)
-let tc_argument (env: Env.t) (loc: AST.l) ((ty, arg): (AST.ty * AST.ident)): (AST.ty * AST.ident) =
-    let ty' = tc_type env loc ty in
-    Env.addLocalVar env loc arg ty';
-    (ty', arg)
+let tc_argument
+    (env : Env.t)
+    (loc : Loc.t)
+    (ps : (Ident.t * AST.ty option) list)
+    ((arg, ty) : Ident.t * AST.ty)
+  : Ident.t * AST.ty
+  =
+  let ty' = tc_type env loc ty in
+  if not (List.mem_assoc arg ps) then begin
+    (* add to scope if it is not a parameter *)
+    Env.addLocalVar env {name=arg; loc; ty=ty'; is_local=true; is_constant=true}
+  end;
+  (arg, ty')
+
+let mangle_setter_name (f : Ident.t) (fty : AST.function_type) : Ident.t =
+  if fty.is_getter_setter then (
+    if Option.is_none fty.rty then
+      Ident.add_suffix f ~suffix:"write"
+    else
+      Ident.add_suffix f ~suffix:"read"
+  ) else (
+    f
+  )
 
 (** Typecheck list of function arguments *)
-let tc_arguments (env: Env.t) (loc: AST.l) (xs: (AST.ty * AST.ident) list): (AST.ty * AST.ident) list =
-    List.map (tc_argument env loc) xs
+(* todo: if this is a getter/setter check that if a setter function exists, it has a compatible type *)
+let tc_funtype (env : Env.t) (loc : Loc.t) (fty : AST.function_type) : AST.function_type =
+  let args = fty.args @ Option.to_list fty.setter_arg in
+  let rty = Option.value fty.rty ~default:type_unit in
 
-(** Typecheck setter procedure argument *)
-let tc_sformal (env: Env.t) (loc: AST.l) (x: sformal): sformal =
-    ( match x with
-    | Formal_In(ty,v) ->
-            let ty' = tc_type env loc ty in
-            Env.addLocalVar env loc v ty';
-            Formal_In(ty', v)
-    | Formal_InOut(ty,v) ->
-            let ty' = tc_type env loc ty in
-            Env.addLocalVar env loc v ty';
-            Formal_InOut(ty', v)
-    )
+  let globals = Env.globals env in
+  let is_not_global (x : Ident.t) = Option.is_none (GlobalEnv.getGlobalVar globals x) in
 
-(** Typecheck list of setter procedure arguments *)
-let tc_sformals (env: Env.t) (loc: AST.l) (xs: sformal list): sformal list =
-    List.map (tc_sformal env loc) xs
+  (* The implicit type parameters are based on the free variables of the function type. *)
+  let argty_fvs = fv_args args |> IdentSet.filter is_not_global in
+  let rty_fvs = fv_type rty |> IdentSet.filter is_not_global in
+
+  (* Type parameters in the return type cannot be synthesized directly
+   * and must either be an explicit parameter of the function or
+   * a free variable in one of the argument types.
+   *)
+  let unsynthesizable = (IdentSet.diff rty_fvs argty_fvs)
+                      |> IdentSet.filter (fun v -> not (List.mem_assoc v args))
+  in
+  if not (IdentSet.is_empty unsynthesizable) then begin
+    let msg = Format.asprintf "the width parameter(s) `%a` of the return type cannot be determined from the function arguments"
+                FMT.varnames (IdentSet.elements unsynthesizable)
+    in
+    raise (TypeError (loc, msg))
+  end;
+
+  (* todo: check that all explicit params occur in arg type *)
+
+  (* implicit parameters are sorted alphabetically for the sake of having a consistent order. *)
+  let implicit_parameters =
+    (IdentSet.union argty_fvs rty_fvs)
+    |> IdentSet.filter (fun v -> not (List.mem_assoc v fty.parameters))
+    |> Identset.to_sorted_list
+  in
+
+  (* calculate parameter type from any explicitly provided type and
+   * any constraints on any matching argument type
+   *)
+  let merge_tys (v : Ident.t) (explicit_type : ty option) (arg_ty : ty option) : ty option =
+    ( match (explicit_type, arg_ty) with
+    | (Some ty, _) -> Some ty (* an explicit type on the parameter wins *)
+    | (_, Some (Type_Integer (Some cs))) -> arg_ty (* explicit constraints on the arg are used if provided *)
+    | _ -> None
+      )
+  in
+
+  (* The type of any implicit or explicit parameters should match explicit argument if it exists *)
+  let typed_explicit_parameters = List.map (fun (v, oty) -> (v, merge_tys v oty (List.assoc_opt v args))) fty.parameters in
+  let typed_implicit_parameters = List.map (fun v -> (v, List.assoc_opt v args)) implicit_parameters in
+
+  (* Having inferred all the implicit parameters, we can finally typecheck the function type *)
+  let ps' = List.map (tc_parameter env loc) (typed_explicit_parameters @ typed_implicit_parameters) in
+  let args' = List.map (tc_argument env loc ps') fty.args in
+  let setter_arg' = Option.map (tc_argument env loc ps') fty.setter_arg in
+  let rty' = Option.map (tc_type env loc) fty.rty in
+  Env.setReturnType env (Option.value rty' ~default:type_unit);
+  { fty with
+    parameters=ps';
+    args=args';
+    setter_arg=setter_arg';
+    rty=rty'
+  }
 
 (** Add function definition to environment *)
-let addFunction (env: GlobalEnv.t) (loc: AST.l) (qid: AST.ident) (isArr: bool) (tvs: IdentSet.t) (args: (AST.ty * AST.ident) list) (rty: AST.ty): funtype =
-    let argtys   = List.map (fun (ty, _) -> ty) args in
-    let funs     = GlobalEnv.getFuns env qid in
-    let num_funs = List.length funs in
-    (match List.filter (isCompatibleFunction env isArr argtys) funs with
-    | [] -> (* not defined yet *)
-        (* ASL allows multiple functions to share the same name.
-         * The typechecker disambiguates functions for the benefit of other parts of the
-         * system by adding a unique tag to each ident.
-         * We use the number of functions that already have that name as the tag.
-         *)
-        let tag  = num_funs in
-        let qid' = addTag qid tag in
-        let fty: funtype = (qid', isArr, IdentSet.elements tvs, [], args, rty) in
-        GlobalEnv.addFuns env loc qid (fty :: funs);
-        fty
-    | [fty] -> (* already defined *)
-        fty
-    | ftys -> (* internal error: multiple definitions *)
-        failwith "addFunction"
-    )
-
-let addSetterFunction (env: GlobalEnv.t) (loc: AST.l) (qid: AST.ident) (tvs: IdentSet.t) (args: AST.sformal list) (vty: AST.ty): sfuntype =
-    let argtys   = List.map sformal_type args in
-    let funs     = GlobalEnv.getSetterFun env qid in
-    let num_funs = List.length funs in
-    (match List.filter (isCompatibleSetterFunction env argtys) funs with
-    | [] -> (* not defined yet *)
-        (* ASL allows multiple functions to share the same name.
-         * The typechecker disambiguates functions for the benefit of other parts of the
-         * system by adding a unique tag to each ident.
-         * We use the number of functions that already have that name as the tag.
-         *)
-        let tag  = num_funs in
-        let qid' = addTag qid tag in
-        let fty: sfuntype = (qid', IdentSet.elements tvs, [], args, vty) in
-        GlobalEnv.addSetterFuns env qid (fty :: funs);
-        fty
-    | [fty] -> (* already defined *)
-        fty
-    | ftys -> (* internal error: multiple definitions *)
-        failwith "addFunction"
-    )
-
-
-(****************************************************************)
-(** {2 Typecheck instruction}                                   *)
-(****************************************************************)
-
-(** Typecheck instruction encoding *)
-let tc_encoding (env: Env.t) (x: encoding): (encoding * ((AST.ident * AST.ty) list)) =
-    (match x with
-    | Encoding_Block (nm, iset, fields, opcode, guard, unpreds, b, loc) ->
-        GlobalEnv.addEncoding (Env.globals env) nm;
-        List.iter (fun (IField_Field (fnm, lo, wd)) ->
-            Env.addLocalVar env loc fnm (type_bits (Expr_LitInt (string_of_int wd)))
-        ) fields;
-        let guard' = check_expr env loc type_bool guard in
-        (* let (b', bs) = Env.nest_with_bindings (fun env' -> List.map (tc_stmt env') b) env in *)
-        let (b', bs) = Env.nest_with_bindings (fun env' ->
-            let b' = List.map (tc_stmt env') b in
-            let imps = Env.getAllImplicits env in
-            List.iter (fun (v, ty) -> Env.addLocalVar env' loc v ty) imps;
-            let decls = declare_implicits loc imps in
-            if verbose && decls <> [] then Printf.printf "Implicit decls: %s %s" (pp_loc loc) (Utils.to_string (PP.pp_indented_block decls));
-            List.append decls b'
-        ) env in
-        (Encoding_Block (nm, iset, fields, opcode, guard', unpreds, b', loc), bs)
-    )
-
-(** Typecheck bitslice of instruction opcode *)
-let tc_decode_slice (env: int Bindings.t) (loc: AST.l) (x: AST.decode_slice): (AST.decode_slice * int) =
-    (match x with
-    | DecoderSlice_Slice (lo, wd) -> (DecoderSlice_Slice(lo, wd), wd)
-    | DecoderSlice_FieldName f ->
-        let wd = (match Bindings.find_opt f env with
-        | Some wd -> wd
-        | None -> raise (UnknownObject (loc, "instruction field", pprint_ident f))
-        ) in
-        (DecoderSlice_FieldName f, wd)
-    | DecoderSlice_Concat fs ->
-        let wds = List.map (fun f -> Bindings.find f env) fs in
-        let sum xs = List.fold_left (fun a b -> a + b) 0 xs in
-        (DecoderSlice_Concat fs, sum wds)
-    )
-
-let check_width (loc: AST.l) (wd1: int) (wd2: int): unit =
-    if wd1 != wd2 then
-        raise (DoesNotMatch(loc, "width of field", string_of_int wd1, string_of_int wd2))
-
-(** Typecheck instruction decode pattern match *)
-let rec tc_decode_pattern (loc: AST.l) (wd: int) (x: decode_pattern): decode_pattern =
-    (match x with
-    | DecoderPattern_Bits b -> check_width loc wd (masklength b); x
-    | DecoderPattern_Mask m -> check_width loc wd (masklength m); x
-    | DecoderPattern_Wildcard _ -> x
-    | DecoderPattern_Not p ->
-            let p' = tc_decode_pattern loc wd p in
-            DecoderPattern_Not p'
-    )
-
-(** Typecheck instruction decode body *)
-let rec tc_decode_body (env: GlobalEnv.t) (x: decode_body): decode_body =
-    (match x with
-    | DecoderBody_UNPRED _ -> x
-    | DecoderBody_UNALLOC _ -> x
-    | DecoderBody_NOP _ -> x
-    | DecoderBody_Encoding (enc, loc) ->
-            if not (GlobalEnv.isEncoding env enc) then
-                raise (UnknownObject(loc, "encoding", pprint_ident enc));
-            x
-    | DecoderBody_Decoder (fs, case, loc) ->
-            let case'= tc_decode_case env loc fs case in
-            DecoderBody_Decoder (fs, case', loc)
-    )
-
-(** Typecheck instruction decode case alternative *)
-and tc_decode_alt (env: GlobalEnv.t) (loc: AST.l) (wds: int list) (x: decode_alt): decode_alt =
-    (match x with
-    | DecoderAlt_Alt (pats, body) ->
-        let pats' = List.map2 (tc_decode_pattern loc) wds pats in
-        let body' = tc_decode_body env body in
-        DecoderAlt_Alt (pats', body')
-    )
-
-(** Typecheck instruction decode case *)
-and tc_decode_case (env: GlobalEnv.t) (floc: AST.l) (fs: instr_field list) (x: decode_case): decode_case =
-    (match x with
-    | DecoderCase_Case (slices, alts, loc) ->
-        let fenv = List.fold_left (fun r (IField_Field (fnm, lo, wd)) ->
-            Bindings.add fnm wd r) Bindings.empty fs
+let addFunction (env : GlobalEnv.t) (loc : Loc.t) (qid : Ident.t) (fty : AST.function_type) : funtype =
+  let argtys = List.map (fun (_, ty) -> ty) fty.args in
+  let is_setter = Option.is_some fty.setter_arg in
+  let funs = if is_setter then GlobalEnv.getSetterFun env qid else GlobalEnv.getFuns env qid in
+  let num_funs = List.length funs in
+  match List.filter (isCompatibleFunction env loc fty.use_array_syntax argtys) funs with
+  | [] ->
+      (* not defined yet *)
+      (* ASL allows multiple functions to share the same name.
+       * The typechecker disambiguates functions for the benefit of other parts of the
+       * system by adding a unique tag to each ident.
+       * We use the number of functions that already have that name as the tag.
+       *)
+      let tag = num_funs in
+      let qid' = Ident.mk_fident_with_tag qid ~tag in
+      let rty = Option.value fty.rty ~default:type_unit in
+      let ovty = Option.map snd fty.setter_arg in
+      let fty : funtype = { funname=qid'; loc; isArray=fty.use_array_syntax; params=fty.parameters; atys=fty.args; ovty; rty } in
+      if is_setter then GlobalEnv.addSetterFuns env qid (fty :: funs) else GlobalEnv.addFuns env loc qid (fty :: funs);
+      fty
+  | [ fty ] ->
+      if fty.loc <> loc then begin
+        (* already defined *)
+        let msg = Format.asprintf "function `%a` was previously defined at `%a`"
+                    FMT.funname qid
+                    FMT.loc fty.loc
         in
-        let (slices', wds) = List.split (List.map (tc_decode_slice fenv loc) slices) in
-        let alts' = List.map (tc_decode_alt env loc wds) alts in
-        DecoderCase_Case (slices', alts', loc)
-    )
+        raise (TypeError (loc, msg))
+      end else begin
+        fty
+      end
+  | ftys ->
+      let msg = "multiple function definitions" in
+      raise
+        (InternalError (loc, msg, (fun fmt -> FMT.funname fmt qid), __LOC__))
 
 (****************************************************************)
 (** {2 Typecheck global declaration}                            *)
 (****************************************************************)
 
 (** Typecheck global declaration, extending environment as needed *)
-let tc_declaration (env: GlobalEnv.t) (d: AST.declaration): AST.declaration list =
-    ( match d with
-    | Decl_BuiltinType(qid, loc) ->
-            GlobalEnv.addType env loc qid (Type_Builtin(qid));
-            [d]
-    | Decl_Forward(qid, loc) ->
-            GlobalEnv.addType env loc qid Type_Forward;
-            [d]
-    | Decl_Record(qid, fs, loc) ->
-            let env' = Env.mkEnv env in
-            let fs' = List.map (fun (ty, f) ->
-                (tc_type env' loc ty, f)
-            ) fs
-            in
-            GlobalEnv.addType env loc qid (Type_Record(fs'));
-            [Decl_Record(qid, fs', loc)]
-    | Decl_Typedef(qid, ty, loc) ->
-            let ty' = tc_type (Env.mkEnv env) loc ty in
-            GlobalEnv.addType env loc qid (Type_Abbreviation(ty'));
-            [Decl_Typedef(qid, ty', loc)]
-    | Decl_Enum(qid, es, loc) ->
-            GlobalEnv.addType env loc qid (Type_Enumeration(es));
-            List.iter (fun e -> GlobalEnv.addGlobalVar env loc e (Type_Constructor(qid)) true) es;
-            let ty = Type_Constructor(qid) in
-            let cmp_args = [(ty, Ident "x"); (ty, Ident "y")] in
-            let eq = addFunction env loc (Ident "eq_enum") false IdentSet.empty cmp_args type_bool in
-            let ne = addFunction env loc (Ident "ne_enum") false IdentSet.empty cmp_args type_bool in
-            GlobalEnv.addOperators2 env loc Binop_Eq   [eq];
-            GlobalEnv.addOperators2 env loc Binop_NtEq [ne];
-            let deq = Decl_BuiltinFunction(ty, ft_id eq, [], loc) in
-            let dne = Decl_BuiltinFunction(ty, ft_id ne, [], loc) in
-            [d; deq; dne]
-    | Decl_Var(ty, qid, loc) ->
-            let ty' = tc_type (Env.mkEnv env) loc ty in
-            GlobalEnv.addGlobalVar env loc qid ty' false;
-            [Decl_Var(ty', qid, loc)]
-    | Decl_Const(ty, qid, i, loc) ->
-            let ty' = tc_type (Env.mkEnv env) loc ty in
-            let i'  = check_expr (Env.mkEnv env) loc ty' i in
-            GlobalEnv.addGlobalVar env loc qid ty' true;
-            GlobalEnv.addConstant env qid (simplify_expr i');
-            [Decl_Const(ty', qid, i', loc)]
-    | Decl_BuiltinFunction(rty, qid, atys, loc) ->
-            let locals = Env.mkEnv env in
-            let tvs = fv_funtype (qid, false, [], [], atys, rty) |> removeConsts env in
-            IdentSet.iter (fun tv -> Env.addLocalVar locals loc tv type_integer) tvs;
-            let rty'  = tc_type locals loc rty in
-            let atys' = tc_arguments locals loc atys in
-            let qid'  = ft_id (addFunction env loc qid false tvs atys' rty') in
-            [Decl_BuiltinFunction(rty', qid', atys', loc)]
-    | Decl_FunType(rty, qid, atys, loc) ->
-            let locals = Env.mkEnv env in
-            let tvs = fv_funtype (qid, false, [], [], atys, rty) |> removeConsts env in
-            IdentSet.iter (fun tv -> Env.addLocalVar locals loc tv type_integer) tvs;
-            let rty'  = tc_type      locals loc rty in
-            let atys' = tc_arguments locals loc atys in
-            let qid'  = ft_id (addFunction env loc qid false tvs atys' rty') in
-            [Decl_FunType(rty', qid', atys', loc)]
-    | Decl_FunDefn(rty, qid, atys, b, loc) ->
-            let locals = Env.mkEnv env in
-            let tvs = fv_funtype (qid, false, [], [], atys, rty) |> removeConsts env in
-            IdentSet.iter (fun tv -> Env.addLocalVar locals loc tv type_integer) tvs;
-            let rty'  = tc_type      locals loc rty in
-            let atys' = tc_arguments locals loc atys in
-            Env.setReturnType locals rty';
-            let b'    = tc_body locals loc b in
-            let qid'  = ft_id (addFunction env loc qid false tvs atys' rty') in
-            [Decl_FunDefn(rty', qid', atys', b', loc)]
-    | Decl_ProcType(qid, atys, loc) ->
-            let locals = Env.mkEnv env in
-            let tvs = fv_args atys |> removeConsts env in
-            IdentSet.iter (fun tv -> Env.addLocalVar locals loc tv type_integer) tvs;
-            let atys' = tc_arguments locals loc atys in
-            let qid'  = ft_id (addFunction env loc qid false tvs atys' type_unit) in
-            [Decl_ProcType(qid', atys', loc)]
-    | Decl_ProcDefn(qid, atys, b, loc) ->
-            let locals = Env.mkEnv env in
-            let tvs = fv_args atys |> removeConsts env in
-            IdentSet.iter (fun tv -> Env.addLocalVar locals loc tv type_integer) tvs;
-            let atys' = tc_arguments locals loc atys in
-            let b'    = tc_body locals loc b in
-            let qid'  = ft_id (addFunction env loc qid false tvs atys' type_unit) in
-            [Decl_ProcDefn(qid', atys', b', loc)]
-    | Decl_VarGetterType(rty, qid, loc) ->
-            let locals = Env.mkEnv env in
-            let tvs = fv_type rty |> removeConsts env in
-            IdentSet.iter (fun tv -> Env.addLocalVar locals loc tv type_integer) tvs;
-            let rty' = tc_type locals loc rty in
-            (* todo: check that if a setter function exists, it has a compatible type *)
-            let qid' = ft_id (addFunction env loc (addSuffix qid "read") false tvs [] rty') in
-            [Decl_VarGetterType(rty', qid', loc)]
-    | Decl_VarGetterDefn(rty, qid, b, loc) ->
-            let locals = Env.mkEnv env in
-            let tvs = fv_type rty |> removeConsts env in
-            IdentSet.iter (fun tv -> Env.addLocalVar locals loc tv type_integer) tvs;
-            let rty' = tc_type locals loc rty in
-            (* todo: check that if a setter function exists, it has a compatible type *)
-            let qid' = ft_id (addFunction env loc (addSuffix qid "read") false tvs [] rty') in
-            Env.setReturnType locals rty';
-            let b' = tc_body locals loc b in
-            [Decl_VarGetterDefn(rty', qid', b', loc)]
-    | Decl_ArrayGetterType(rty, qid, atys, loc) ->
-            let locals = Env.mkEnv env in
-            let tvs = fv_funtype (qid, false, [], [], atys, rty) |> removeConsts env in
-            IdentSet.iter (fun tv -> Env.addLocalVar locals loc tv type_integer) tvs;
-            let rty'  = tc_type      locals loc rty in
-            let atys' = tc_arguments locals loc atys in
-            let qid'  = ft_id (addFunction env loc (addSuffix qid "read") true tvs atys' rty') in
-            (* todo: check that if a setter function exists, it has a compatible type *)
-            [Decl_ArrayGetterType(rty', qid', atys', loc)]
-    | Decl_ArrayGetterDefn(rty, qid, atys, b, loc) ->
-            let locals = Env.mkEnv env in
-            let tvs = fv_funtype (qid, false, [], [], atys, rty) |> removeConsts env in
-            IdentSet.iter (fun tv -> Env.addLocalVar locals loc tv type_integer) tvs;
-            let rty'  = tc_type      locals loc rty in
-            let atys' = tc_arguments locals loc atys in
-            (* todo: check that if a setter function exists, it has a compatible type *)
-            Env.setReturnType locals rty';
-            let qid'  = ft_id (addFunction env loc (addSuffix qid "read") true tvs atys' rty') in
-            let b' = tc_body locals loc b in
-            [Decl_ArrayGetterDefn(rty', qid', atys', b', loc)]
-    | Decl_VarSetterType(qid, ty, v, loc) ->
-            let locals = Env.mkEnv env in
-            let tvs = fv_type ty |> removeConsts env in
-            IdentSet.iter (fun tv -> Env.addLocalVar locals loc tv type_integer) tvs;
-            let ty'   = tc_type locals loc ty in
-            Env.addLocalVar locals loc v ty';
-            (* todo: check that if a getter function exists, it has a compatible type *)
-            (* todo: this obscures the difference between "PC[]" and "PC" *)
-            let qid' = ft_id (addFunction env loc (addSuffix qid "write") false tvs [(ty', v)] type_unit) in
-            [Decl_VarSetterType(qid', ty', v, loc)]
-    | Decl_VarSetterDefn(qid, ty, v, b, loc) ->
-            let locals = Env.mkEnv env in
-            let tvs = fv_type ty |> removeConsts env in
-            IdentSet.iter (fun tv -> Env.addLocalVar locals loc tv type_integer) tvs;
-            let ty'   = tc_type locals loc ty in
-            Env.addLocalVar locals loc v ty';
-            (* todo: check that if a getter function exists, it has a compatible type *)
-            (* todo: this obscures the difference between "PC[]" and "PC" *)
-            let qid'  = ft_id (addFunction env loc (addSuffix qid "write") false tvs [(ty', v)] type_unit) in
-            let b' = tc_body locals loc b in
-            [Decl_VarSetterDefn(qid', ty', v, b', loc)]
-    | Decl_ArraySetterType(qid, atys, ty, v, loc) ->
-            let locals = Env.mkEnv env in
-            let tvs = IdentSet.union (fv_sformals atys) (fv_type ty) |> removeConsts env in
-            IdentSet.iter (fun tv -> Env.addLocalVar locals loc tv type_integer) tvs;
-            let atys' = tc_sformals locals loc atys in
-            let ty'   = tc_type     locals loc ty in
-            Env.addLocalVar locals loc v ty';
-            (* todo: check that if a getter function exists, it has a compatible type *)
-            let qid' = addSetterFunction env loc (addSuffix qid "set") tvs atys' ty' in
-            [Decl_ArraySetterType(sft_id qid', atys', ty', v, loc)]
-    | Decl_ArraySetterDefn(qid, atys, ty, v, b, loc) ->
-            let locals = Env.mkEnv env in
-            let tvs = IdentSet.union (fv_sformals atys) (fv_type ty) |> removeConsts env in
-            IdentSet.iter (fun tv -> Env.addLocalVar locals loc tv type_integer) tvs;
-            let atys' = tc_sformals locals loc atys in
-            let ty'   = tc_type     locals loc ty in
-            (* todo: should I use name mangling or define an enumeration to select
-             * which namespace to do lookup in?
-             *)
-            (* todo: check that if a getter function exists, it has a compatible type *)
-            let qid' = addSetterFunction env loc (addSuffix qid "set") tvs atys' ty' in
-            Env.addLocalVar locals loc v ty';
-            let b' = tc_body locals loc b in
-            [Decl_ArraySetterDefn(sft_id qid', atys', ty', v, b', loc)]
-    | Decl_InstructionDefn(nm, encs, opost, conditional, exec, loc) ->
-            let locals = Env.mkEnv env in
-            let (encs', vss) = List.split (List.map (tc_encoding locals) encs) in
+let tc_declaration (env : GlobalEnv.t) (d : AST.declaration) :
+    AST.declaration list =
+  match d with
+  | Decl_BuiltinType (qid, loc) ->
+      GlobalEnv.addType env loc qid (Type_Builtin qid);
+      [ d ]
+  | Decl_Forward (qid, loc) ->
+      GlobalEnv.addType env loc qid Type_Forward;
+      [ d ]
+  | Decl_Record (qid, ps, fs, loc) ->
+      let env' = Env.mkEnv env in
+      List.iter (fun p -> Env.addLocalVar env' {name=p; loc; ty=type_integer; is_local=true; is_constant=true}) ps;
 
-            (* todo: check consistency of bindings from different encodings *)
-            (* todo: ponder what to do when encodings don't all define the same variables *)
-            List.iter (fun vs -> List.iter (fun (v, ty) -> Env.addLocalVar locals loc v ty) vs) vss;
+      check_duplicate_field_names (fun (f, _) -> f) fs loc;
 
-            let (opost', pvs) = (match opost with
-                | Some b ->
-                    let (b', vs) = Env.nest_with_bindings (fun env' -> List.map (tc_stmt env') b) locals in
-                    (Some b', vs)
-                | None ->
-                    (None, []))
-            in
-            List.iter (fun (v, ty) -> Env.addLocalVar locals loc v ty) pvs;
+      let fs' = List.map (fun (f, ty) -> (f, tc_type env' loc ty)) fs in
+      GlobalEnv.addType env loc qid (Type_Record (ps, fs'));
+      [ Decl_Record (qid, ps, fs', loc) ]
+  | Decl_Exception (qid, fs, loc) ->
+      let env' = Env.mkEnv env in
 
-            let exec' = tc_body locals loc exec in
-            [Decl_InstructionDefn(nm, encs', opost', conditional, exec', loc)]
-    | Decl_DecoderDefn(nm, case, loc) ->
-            let case' = tc_decode_case env loc [] case in
-            [Decl_DecoderDefn(nm, case', loc)]
-    | Decl_Operator1(op, funs, loc) ->
-            let funs' = List.concat (List.map (fun f ->
-                let fs = GlobalEnv.getFuns env f in
-                if fs = [] then raise (UnknownObject(loc, "unary operator implementation", pprint_ident f));
-                fs
-            ) funs) in
-            GlobalEnv.addOperators1 env loc op funs';
-            [Decl_Operator1(op, List.map ft_id funs', loc)]
-    | Decl_Operator2(op, funs, loc) ->
-            let funs' = List.concat (List.map (fun f ->
-                let fs = GlobalEnv.getFuns env f in
-                if fs = [] then raise (UnknownObject(loc, "binary operator implementation", pprint_ident f));
-                fs
-            ) funs) in
-            GlobalEnv.addOperators2 env loc op funs';
-            [Decl_Operator2(op, List.map ft_id funs', loc)]
-    | Decl_NewEventDefn(qid, atys, loc) -> (* very similar to Decl_ProcType *)
-            let locals = Env.mkEnv env in
-            let tvs = fv_args atys |> removeConsts env in
-            IdentSet.iter (fun tv -> Env.addLocalVar locals loc tv type_integer) tvs;
-            let atys' = tc_arguments locals loc atys in
-            let qid'  = ft_id (addFunction env loc qid false tvs atys' type_unit) in
-            [Decl_NewEventDefn(qid', atys', loc)]
-    | Decl_EventClause(nm, b, loc) ->
-            (match GlobalEnv.getFuns env nm with
-            | [(_, _, _, _, atys, _) as ft] ->
-                let locals = Env.mkEnv env in
-                let tvs = fv_funtype ft |> removeConsts env in
-                IdentSet.iter (fun tv -> Env.addLocalVar locals loc tv type_integer) tvs;
-                let _ = tc_arguments locals loc atys in
-                let b' = tc_body locals loc b in
-                [Decl_EventClause(ft_id ft, b', loc)]
-            | [] ->
-                raise (UnknownObject(loc, "event", pprint_ident nm))
-            | fs  ->
-                reportChoices loc "event" (pprint_ident nm) [] fs;
-                raise (Ambiguous (loc, "event", pprint_ident nm))
-            )
-    | Decl_NewMapDefn(rty, qid, atys, b, loc) -> (* very similar to Decl_FunDefn *)
-            let locals = Env.mkEnv env in
-            let tvs = fv_funtype (qid, false, [], [], atys, rty) |> removeConsts env in
-            IdentSet.iter (fun tv -> Env.addLocalVar locals loc tv type_integer) tvs;
-            let rty'  = tc_type      locals loc rty in
-            Env.setReturnType locals rty';
-            let atys' = tc_arguments locals loc atys in
-            let qid'  = ft_id (addFunction env loc qid false tvs atys' rty') in
-            let b'    = tc_body locals loc b in
-            [Decl_NewMapDefn(rty', qid', atys', b', loc)]
-    | Decl_MapClause(nm, fs, oc, b, loc) ->
-            (match GlobalEnv.getFuns env nm with
-            | [((nm', _, _, _, atys, rty) as ft)] ->
-                let locals = Env.mkEnv env in
-                let tvs = fv_funtype ft |> removeConsts env in
-                IdentSet.iter (fun tv -> Env.addLocalVar locals loc tv type_integer) tvs;
-                let rty' = tc_type locals loc rty in
-                Env.setReturnType locals rty';
-                let _ = tc_arguments locals loc atys in
-                let tc_mapfield (MapField_Field (id, pat)) =
-                  match Env.getVar locals id with
-                  | Some (_, ty) ->
-                     (MapField_Field (id, tc_pattern locals loc ty pat))
-                  | None ->
-                     raise (UnknownObject(loc, "mapfield", pprint_ident id))
-                in
-                let fs' = List.map tc_mapfield fs in
-                let oc' = Utils.map_option (check_expr locals loc type_bool) oc in
-                let b' = tc_stmts locals loc b in
-                [Decl_MapClause(nm', fs', oc', b', loc)]
-            | [] ->
-                raise (UnknownObject(loc, "map", pprint_ident nm))
-            | fs  ->
-                reportChoices loc "map" (pprint_ident nm) [] fs;
-                raise (Ambiguous (loc, "map", pprint_ident nm))
-            )
-    | Decl_Config(ty, qid, i, loc) -> (* very similar to Decl_Const *)
-            let locals = Env.mkEnv env in
-            let ty' = tc_type locals loc ty in
-            let i'  = check_expr locals loc ty' i in
-            GlobalEnv.addGlobalVar env loc qid ty' true;
-            [Decl_Config(ty', qid, i', loc)]
-    )
+      check_duplicate_field_names (fun (f, _) -> f) fs loc;
+
+      let fs' = List.map (fun (f, ty) -> (f, tc_type env' loc ty)) fs in
+      GlobalEnv.addType env loc qid (Type_Exception fs');
+      [ Decl_Exception (qid, fs', loc) ]
+  | Decl_Typedef (qid, ps, ty, loc) ->
+      (* todo: check for cyclic dependency *)
+      let env' = Env.mkEnv env in
+      List.iter (fun p -> Env.addLocalVar env' {name=p; loc; ty=type_integer; is_local=true; is_constant=true}) ps;
+      let ty' = tc_type env' loc ty in
+      GlobalEnv.addType env loc qid (Type_Abbreviation (ps, ty'));
+      [ Decl_Typedef (qid, ps, ty', loc) ]
+  | Decl_Enum (qid, es, loc) ->
+      GlobalEnv.addType env loc qid (Type_Enumeration es);
+      let ty = Type_Constructor (qid, []) in
+      List.iter
+        (fun e ->
+           let v = { name=e; loc; ty; is_local=false; is_constant=true } in
+           GlobalEnv.addGlobalVar env v)
+        es;
+      let fty = { parameters = [];
+                  args = [ (Ident.mk_ident "x", ty); (Ident.mk_ident "y", ty) ];
+                  setter_arg = None;
+                  rty = Some type_bool;
+                  is_getter_setter = false;
+                  use_array_syntax = false;
+                  throws=NoThrow
+      } in
+      let eq = addFunction env loc eq_enum fty in
+      let ne = addFunction env loc ne_enum fty in
+      GlobalEnv.addOperators2 env loc Binop_Eq [ eq ];
+      GlobalEnv.addOperators2 env loc Binop_NtEq [ ne ];
+      let deq = Decl_BuiltinFunction (eq.funname, fty, loc) in
+      let dne = Decl_BuiltinFunction (ne.funname, fty, loc) in
+      [ d; deq; dne ]
+  | Decl_Var (qid, ty, loc) ->
+      let ty' = tc_type (Env.mkEnv env) loc ty in
+      let v = { name=qid; loc; ty=ty'; is_local=false; is_constant=false } in
+      GlobalEnv.addGlobalVar env v;
+      [ Decl_Var (qid, ty', loc) ]
+  | Decl_Const (qid, ty_opt, i, loc) ->
+      let locals = Env.mkEnv env in
+      let (i', ity) = tc_expr locals loc i in
+      let ty' = match ty_opt with
+        | None -> ity
+        | Some ty -> check_type locals loc ity ty
+      in
+      let v = { name=qid; loc; ty=ty'; is_local=false; is_constant=true } in
+      GlobalEnv.addGlobalVar env v;
+      GlobalEnv.addConstant env qid (simplify_expr i');
+      [ Decl_Const (qid, Some ty', i', loc) ]
+  | Decl_BuiltinFunction (qid, fty, loc) ->
+      let locals = Env.mkEnv env in
+      let fty' = tc_funtype locals loc fty in
+      let qid' = (addFunction env loc qid fty').funname in
+      [ Decl_BuiltinFunction (qid', fty', loc) ]
+  | Decl_FunType (qid, fty, loc) ->
+      let locals = Env.mkEnv env in
+      let fty' = tc_funtype locals loc fty in
+      let mangled = mangle_setter_name qid fty' in
+      let qid' = (addFunction env loc mangled fty').funname in
+      [ Decl_FunType (qid', fty', loc) ]
+  | Decl_FunDefn (qid, fty, b, loc) ->
+      let locals = Env.mkEnv env in
+      let fty' = tc_funtype locals loc fty in
+      let mangled = mangle_setter_name qid fty' in
+      let qid' = (addFunction env loc mangled fty').funname in
+      let b' = tc_body locals loc b in
+      [ Decl_FunDefn (qid', fty', b', loc) ]
+  | Decl_Operator1 (op, funs, loc) ->
+      let funs' =
+        List.concat
+          (List.map
+             (fun f ->
+               let fs = GlobalEnv.getFuns env f in
+               if fs = [] then
+                 raise
+                   (UnknownObject
+                      (loc, "unary operator implementation", Ident.to_string f));
+               fs)
+             funs)
+      in
+      GlobalEnv.addOperators1 env loc op funs';
+      [ Decl_Operator1 (op, List.map (fun f -> f.funname) funs', loc) ]
+  | Decl_Operator2 (op, funs, loc) ->
+      let funs' =
+        List.concat
+          (List.map
+             (fun f ->
+               let fs = GlobalEnv.getFuns env f in
+               if fs = [] then
+                 raise
+                   (UnknownObject
+                      (loc, "binary operator implementation", Ident.to_string f));
+               fs)
+             funs)
+      in
+      GlobalEnv.addOperators2 env loc op funs';
+      [ Decl_Operator2 (op, List.map (fun f -> f.funname) funs', loc) ]
+  | Decl_Config (qid, ty, i, loc) ->
+      (* very similar to Decl_Const *)
+      let locals = Env.mkEnv env in
+      let ty' = tc_type locals loc ty in
+      let i' = check_expr locals loc ty' i in
+      let v = { name=qid; loc; ty=ty'; is_local=false; is_constant=true } in
+      GlobalEnv.addGlobalVar env v;
+      [ Decl_Config (qid, ty', i', loc) ]
 
 (** Generate function prototype declarations.
 
     This allows function declarations within a translation unit to be
     placed in any order.
  *)
-let genPrototypes (ds: AST.declaration list): (AST.declaration list * AST.declaration list) =
-    let pre : (AST.declaration list) ref = ref [] in
-    let post : (AST.declaration list) ref = ref [] in
-    List.iter (fun d ->
-        (match d with
-        | Decl_FunDefn(rty, qid, atys, _, loc) ->
-                post := d :: !post;
-                pre := Decl_FunType(rty, qid, atys, loc) :: !pre
-        | Decl_ProcDefn(qid, atys, _, loc) ->
-                post := d :: !post;
-                pre := Decl_ProcType(qid, atys, loc) :: !pre
-        | Decl_VarGetterDefn(rty, qid, _, loc) ->
-                post := d :: !post;
-                pre := Decl_VarGetterType(rty, qid, loc) :: !pre
-        | Decl_ArrayGetterDefn(rty, qid, atys, _, loc) ->
-                post := d :: !post;
-                pre := Decl_ArrayGetterType(rty, qid, atys, loc) :: !pre
-        | Decl_VarSetterDefn(qid, ty, v, _, loc) ->
-                post := d :: !post;
-                pre := Decl_VarSetterType(qid, ty, v, loc) :: !pre
-        | Decl_ArraySetterDefn(qid, atys, ty, v, _, loc) ->
-                post := d :: !post;
-                pre := Decl_ArraySetterType(qid, atys, ty, v, loc) :: !pre
-        | Decl_NewEventDefn(qid, atys, loc) ->
-                post := d :: !post;
-                (* todo: replacing it with a function declaration is not
-                 * completely kosher *)
-                pre := Decl_ProcType(qid, atys, loc) :: !pre
-        | Decl_NewMapDefn(rty, qid, atys, b, loc) ->
-                post := d :: !post;
-                (* todo: replacing it with a function declaration is not
-                 * completely kosher *)
-                pre := Decl_FunType(rty, qid, atys, loc) :: !pre
-        | Decl_EventClause(nm, b, loc) ->
-                post := d :: !post;
-        | Decl_MapClause(nm, fs, oc, b, loc) ->
-                post := d :: !post;
-        | _ ->
-                pre := d :: !pre
-        )
-    ) ds;
-    (List.rev !pre, List.rev !post)
+let genPrototypes (ds : AST.declaration list) :
+    AST.declaration list * AST.declaration list =
+  let pre : AST.declaration list ref = ref [] in
+  let post : AST.declaration list ref = ref [] in
+  List.iter
+    (fun d ->
+      match d with
+      | Decl_FunDefn (qid, fty, _, loc) ->
+          post := d :: !post;
+          pre := Decl_FunType (qid, fty, loc) :: !pre
+      | _ -> pre := d :: !pre)
+    ds;
+  (List.rev !pre, List.rev !post)
 
 (** Overall typechecking environment shared by all invocations of typechecker *)
 let env0 = GlobalEnv.mkempty ()
 
 (** Typecheck a list of declarations - main entrypoint into typechecker *)
-let tc_declarations (isPrelude: bool) (ds: AST.declaration list): AST.declaration list =
-    if verbose then Printf.printf "  - Using Z3 %s\n" Z3.Version.to_string;
-    (* Process declarations, starting by moving all function definitions to the
-     * end of the list and replacing them with function prototypes.
-     * As long as the type/var decls are all sorted correctly, this
-     * is enough to handle functions that are used before being defined.
-     *
-     * Note that each declaration is evaluated in a separate local environment
-     * but that they share the same global environment
-     *)
-    let (pre, post) = if isPrelude then (ds, []) else genPrototypes ds in
-    if verbose then Printf.printf "  - Typechecking %d phase 1 declarations\n" (List.length pre);
-    let pre'  = List.map (tc_declaration env0) pre  in
-    let post' = List.map (tc_declaration env0) post in
-    if verbose then List.iter (fun ds -> List.iter (fun d -> Printf.printf "\nTypechecked %s\n" (Utils.to_string (PP.pp_declaration d))) ds) post';
-    if verbose then Printf.printf "  - Typechecking %d phase 2 declarations\n" (List.length post);
-    List.append (List.concat pre') (List.concat post')
+let tc_declarations (env : GlobalEnv.t) ~(isPrelude : bool) ~(sort_decls : bool)
+    (ds : AST.declaration list) : AST.declaration list option =
+  if verbose then Format.fprintf fmt "  - Using Z3 %s\n" Z3.Version.to_string;
+  (* Process declarations, starting by moving all function definitions to the
+   * end of the list and replacing them with function prototypes.
+   * As long as the type/var decls are all sorted correctly, this
+   * is enough to handle functions that are used before being defined.
+   *
+   * Note that each declaration is evaluated in a separate local environment
+   * but that they share the same global environment
+   *)
+  let pre, post = if isPrelude then (ds, []) else genPrototypes ds in
+  let pre = if sort_decls then List.rev (Asl_utils.topological_sort pre) else pre in
+  if verbose then
+    Format.fprintf fmt "  - Typechecking %d phase declarations\n"
+      (List.length pre);
+  let error_count = ref 0 in
+  let tc_decl env d =
+    ( try
+        tc_declaration env d
+    with
+    | UnknownObject _
+    | DoesNotMatch _
+    | IsNotA _
+    | Ambiguous _
+    | TypeError _
+      as exn
+    ->
+      if !error_count < !max_errors then begin
+        Error.print_exception exn;
+        error_count := !error_count + 1;
+        [d]
+      end else begin
+        raise exn
+      end
+    )
+  in
+
+  let pre' = List.map (tc_decl env) pre in
+  let post' = List.map (tc_decl env) post in
+
+  if !error_count != 0 then
+    None
+  else
+    Some ((List.concat pre') @ (List.concat post'))
 
 (****************************************************************
  * End
