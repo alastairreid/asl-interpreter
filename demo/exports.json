@@ -1,0 +1,15 @@
+{
+    "__comment": [
+        "Export the interface required by the simulator"
+    ],
+    "exports": [
+        "ASL_Reset",
+        "ASL_Step",
+        "ASL_IsHalted",
+        "ASL_ReadReg64",
+        "ASL_WriteReg64",
+        "ASL_WriteMemory8",
+        "PrintState"
+    ]
+}
+

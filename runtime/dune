@@ -1,0 +1,18 @@
+(rule
+  (deps (source_tree includes)
+        (source_tree lib)
+        (file Makefile))
+  (targets libASL.a)
+  (action
+    (no-infer
+      (progn
+        (run make BUILD_DIR=build)
+        (copy build/libASL.a libASL.a)))))
+
+(install
+ (section (site (asli runtime)))
+ (files libASL.a))
+
+(install
+  (section (site (asli runtime_include)))
+  (files (glob_files (include/asl/*.h* with_prefix asl))))

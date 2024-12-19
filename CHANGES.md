@@ -1,3 +1,15 @@
+1.0.0 (2024-12-19)
+------------------
+
+* Change ASLi to support most of ASL version 1.0 requiring significant
+  changes to the AST, lexer, parser and typechecker.
+* Cleanup the "CPU" API that ASLi expects an ISA to implement.
+* Add support for compiling ASL specifications to C by adding
+  many transformations and multiple runtimes.
+* Add a demo ISA to illustrate how to generate simulators from
+  an ASL specification.
+
+
 0.2.0 (2020-05-15)
 ------------------
 

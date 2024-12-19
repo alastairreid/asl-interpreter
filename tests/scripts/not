@@ -1,0 +1,11 @@
+#! /bin/sh
+# Execute the rest of the command line and invert the error code of the command 
+
+$@
+
+if [ $? -ne 0 ]
+then
+    exit 0
+else
+    exit 1
+fi

@@ -44,7 +44,6 @@
  * with minor change to allow it to be used with an arbitrary AST.
  ****************************************************************)
 
-
 (****************************************************************
  * Visit action
  *
@@ -54,22 +53,25 @@
 (** Different visiting actions. 'a will be instantiated with [expr], [stmt],
     etc. *)
 type 'a visitAction =
-    SkipChildren                        (** Do not visit the children. Return
+  | SkipChildren
+                                        (** Do not visit the children. Return
                                             the node as it is. *)
-  | DoChildren                          (** Continue with the children of this
+  | DoChildren
+                                        (** Continue with the children of this
                                             node. Rebuild the node on return
                                             if any of the children changes
                                             (use == test) *)
-  | ChangeTo of 'a                      (** Replace the expression with the
+  | ChangeTo of 'a
+                                        (** Replace the expression with the
                                             given one *)
-  | ChangeDoChildrenPost of 'a * ('a -> 'a) (** First consider that the entire
-                                           exp is replaced by the first
-                                           parameter. Then continue with
-                                           the children. On return rebuild
-                                           the node if any of the children
-                                           has changed and then apply the
-                                           function on the node *)
-
+  | ChangeDoChildrenPost of 'a * ('a -> 'a)
+                                        (** First consider that the entire
+                                            exp is replaced by the first
+                                            parameter. Then continue with
+                                            the children. On return rebuild
+                                            the node if any of the children
+                                            has changed and then apply the
+                                            function on the node *)
 
 (****************************************************************
  * Visitor engine
@@ -90,51 +92,47 @@ type 'a visitAction =
 
 (*** Define the visiting engine ****)
 (* visit all the nodes in an ASL tree *)
-let doVisit (vis: 'v)
-            (action: 'a visitAction)
-            (children: 'v -> 'a -> 'a)
-            (node: 'a) : 'a =
+let doVisit (vis : 'v) (action : 'a visitAction) (children : 'v -> 'a -> 'a)
+    (node : 'a) : 'a =
   match action with
-    SkipChildren -> node
+  | SkipChildren -> node
   | ChangeTo node' -> node'
   | DoChildren -> children vis node
-  | ChangeDoChildrenPost(node', f) -> f (children vis node')
+  | ChangeDoChildrenPost (node', f) -> f (children vis node')
 
 (* mapNoCopy is like map but avoid copying the list if the function does not
  * change the elements. *)
-let rec mapNoCopy (f: 'a -> 'a) = function
-    [] -> []
-  | (i :: resti) as li ->
+let rec mapNoCopy (f : 'a -> 'a) = function
+  | [] -> []
+  | i :: resti as li ->
       let i' = f i in
       let resti' = mapNoCopy f resti in
       if i' != i || resti' != resti then i' :: resti' else li
 
-let rec mapNoCopyList (f: 'a -> 'a list) = function
-    [] -> []
-  | (i :: resti) as li ->
+let rec mapNoCopyList (f : 'a -> 'a list) = function
+  | [] -> []
+  | i :: resti as li -> (
       let il' = f i in
       let resti' = mapNoCopyList f resti in
       match il' with
-        [i'] when i' == i && resti' == resti -> li
-      | _ -> il' @ resti'
+      | [ i' ] when i' == i && resti' == resti -> li
+      | _ -> il' @ resti')
 
 (* not part of original cil framework *)
-let mapOptionNoCopy (f: 'a -> 'a): ('a option -> 'a option) = function
+let mapOptionNoCopy (f : 'a -> 'a) : 'a option -> 'a option = function
   | None -> None
-  | (Some x) as ox ->
+  | Some x as ox ->
       let x' = f x in
       if x' == x then ox else Some x'
 
 (* A visitor for lists *)
-let doVisitList  (vis: 'v)
-                 (action: 'a list visitAction)
-                 (children: 'v -> 'a -> 'a)
-                 (node: 'a) : 'a list =
+let doVisitList (vis : 'v) (action : 'a list visitAction)
+    (children : 'v -> 'a -> 'a) (node : 'a) : 'a list =
   match action with
-    SkipChildren -> [node]
+  | SkipChildren -> [ node ]
   | ChangeTo nodes' -> nodes'
-  | DoChildren -> [children vis node]
-  | ChangeDoChildrenPost(nodes', f) ->
+  | DoChildren -> [ children vis node ]
+  | ChangeDoChildrenPost (nodes', f) ->
       f (mapNoCopy (fun n -> children vis n) nodes')
 
 (****************************************************************

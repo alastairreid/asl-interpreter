@@ -1,0 +1,6 @@
+:filter_reachable_from exports
+
+// :show --format=raw --output log.check_monomorphization.asl
+:check_monomorphization --verbose
+
+:quit
