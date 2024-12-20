@@ -61,6 +61,8 @@ as via
 
 ## Requirements and Building
 
+### On Ubuntu
+
 To build and run the ASL interpreter, you will need to install OCaml.
 The following commands are sufficient to install requirements and to build ASLi on Ubuntu systems.
 
@@ -85,6 +87,25 @@ installed using the following commands.
     chmod +x llvm.sh
     ./llvm.sh 16
 
+### On MacOS using Homebrew
+
+To run regression tests and/or use the C23 backend on Macs, you need to
+install clang-16.  Using a more recent version of clang such as clang-19 will
+not work because it limits the use of bit-precise integers to 128 bits.
+
+    brew install llvm@16
+    echo 'export PATH="/opt/homebrew/opt/llvm@16/bin:$PATH"' >> ~/.zshrc
+    sudo bash -c "sh <(curl -fsSL https://opam.ocaml.org/install.sh)"
+    opam update
+    opam init
+    eval $(opam env --switch=default)
+    pip3 install filecheck lit
+    opam init --no-setup --disable-sandboxing --compiler=4.14.20
+    opam install . --deps-only --with-test --with-doc --yes
+    eval $(opam env)
+    git submodule init
+    git submodule update
+    make build
 
 ## License and contribution
 
