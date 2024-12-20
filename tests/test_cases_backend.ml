@@ -125,11 +125,11 @@ let fun_decl : test_case list  =
 
     ( "definition",
       [ Backend_C; Backend_Verilog ],
-      "func F() => integer begin end" );
+      "func F() => integer begin return 0; end" );
 
     ( "definition with params",
       [ Backend_C; Backend_Verilog ],
-      "func F(x : integer, y : integer) => integer begin end" );
+      "func F(x : integer, y : integer) => integer begin return 0; end" );
   ]
 
 let proc_decl : test_case list  =
