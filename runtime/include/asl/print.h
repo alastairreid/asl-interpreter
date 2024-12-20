@@ -8,6 +8,7 @@
 #ifndef ASL_PRINT_H
 #define ASL_PRINT_H
 
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stdio.h>
 
@@ -70,11 +71,11 @@ ASL_print_int_hex(int n, bool add_size, ASL_int_t x)
         int64_t top = (int64_t)(x >> 64);
         int64_t bottom = (int64_t)x;
         if (top == 0 && bottom >= 0) {
-            printf("%lx", bottom);
+            printf("%" PRIx64, bottom);
         } else if (top == -1 && bottom < 0 && bottom != INT64_MIN) {
-            printf("%lx", -bottom);
+            printf("%" PRIx64, -bottom);
         } else {
-            printf("%08lx_%08lx", top, bottom);
+            printf("%08" PRIx64 "_%08" PRIx64, top, bottom);
         }
 #else
         if (x < 0) {
@@ -88,9 +89,9 @@ ASL_print_int_hex(int n, bool add_size, ASL_int_t x)
         if (x == INT64_MIN) {
                 printf("8000000000000000");
         } else if (x < 0) {
-                printf("%llx", (long long)-x);
+                printf("%" PRIx64, (long long)-x);
         } else {
-                printf("%llx", (long long)x);
+                printf("%" PRIx64, (long long)x);
         }
 #endif
 }
@@ -108,12 +109,12 @@ ASL_print_int_dec(int n, bool add_size, ASL_int_t x)
         int64_t top = (int64_t)(x >> 64);
         int64_t bottom = (int64_t)x;
         if (top == 0 && bottom >= 0) {
-                printf("%ld", bottom);
+                printf("%" PRId64, bottom);
         } else if (top == -1 && bottom < 0 && bottom != INT64_MIN) {
-                printf("%ld", -bottom);
+                printf("%" PRId64, -bottom);
         } else {
                 // despite the name, large numbers are printed in hex
-                printf("x%08lx_%08lx", top, bottom);
+                printf("x%08" PRIx64 "_%08" PRIx64, top, bottom);
         }
 #else
         if (x < 0) {
@@ -125,7 +126,7 @@ ASL_print_int_dec(int n, bool add_size, ASL_int_t x)
         if (x == INT64_MIN) {
                 printf("9223372036854775808");
         } else {
-                printf("%lld", (long long)x);
+                printf("%" PRId64, (long long)x);
         }
 #endif
 }
