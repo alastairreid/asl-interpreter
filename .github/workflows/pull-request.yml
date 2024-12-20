@@ -11,9 +11,7 @@ env:
 
 jobs:
   test:
-    runs-on: [intellabs-generic-runners, linux]
-    container:
-      image: amr-registry.caas.intel.com/owr/idf2/abi/lnx/tools/ubuntu22.04.03:latest
+    runs-on: ubuntu-latest
 
     steps:
       - name: Check out
@@ -23,14 +21,14 @@ jobs:
 
       - name: Install dependencies
         run: |
-          apt update
-          apt install -y libgmp-dev opam verilator pkg-config
+          sudo apt update
+          sudo apt-get install -y libgmp-dev opam pkg-config
 
           # install clang-16
-          apt install -y lsb-release wget software-properties-common gnupg
+          sudo apt install -y lsb-release wget software-properties-common gnupg
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
-          ./llvm.sh 16
+          sudo ./llvm.sh 16
 
           python3 -m pip install --no-deps --require-hashes --requirement requirements.txt
           opam init --no-setup --disable-sandboxing --compiler=4.14.2
