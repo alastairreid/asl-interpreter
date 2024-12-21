@@ -395,6 +395,7 @@ def compile_and_link(use_cxx, c_files, exe_file, include_directory, c_flags, ld_
         #     exit(1)
         # cc.append(f'-I{ac_types_dir}/include')
         cc.append('-lstdc++')
+        cc.append('-std=c++17')
     else:
         cc.append('-std=c2x')
     cc_cmd = cc + [
