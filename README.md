@@ -94,6 +94,7 @@ install clang-16.  Using a more recent version of clang such as clang-19 will
 not work because it limits the use of bit-precise integers to 128 bits.
 
     brew install llvm@16
+    brew install cmake
     echo 'export PATH="/opt/homebrew/opt/llvm@16/bin:$PATH"' >> ~/.zshrc
     sudo bash -c "sh <(curl -fsSL https://opam.ocaml.org/install.sh)"
     opam update
