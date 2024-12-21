@@ -19,6 +19,7 @@ default: $(TESTS_BIN)
 CXX = g++
 CPPFLAGS = -I$(GTEST_DIR)/googletest/include -I../include
 CXXFLAGS = -g -Wall -Werror
+CXXFLAGS += -std=c++17
 
 CC_FILES = integer_test.cc bits_test.cc ram_test.cc
 OBJ_FILES = $(CC_FILES:%.cc=$(OBJ_DIR)/%.o)
