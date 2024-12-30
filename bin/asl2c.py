@@ -399,6 +399,7 @@ def compile_and_link(use_cxx, c_files, exe_file, include_directory, c_flags, ld_
     else:
         cc.append('-std=c2x')
     cc_cmd = cc + [
+        "-Wno-parentheses-equality",
         f"-I{include_directory}",
         "-o", exe_file,
     ] + c_flags + c_files + ld_flags
