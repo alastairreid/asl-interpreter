@@ -19,19 +19,37 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install dependencies
+      - name: Install APT dependencies
         run: |
           sudo apt update
-          sudo apt-get install -y libgmp-dev opam pkg-config
+          sudo apt-get install -y libgmp-dev opam pkg-config lsb-release wget software-properties-common gnupg
 
-          # install clang-16
-          sudo apt install -y lsb-release wget software-properties-common gnupg
+      - name: Install Clang 16
+        run: |
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 16
 
-          python3 -m pip install --no-deps --require-hashes --requirement requirements.txt
+      - name: Install Python dependencies
+        run: python3 -m pip install --no-deps --require-hashes --requirement requirements.txt
+
+        # The Opam package manager used by ocaml recompiles everything from source
+        # Installing the z3 library is especially slow
+        # So we cache the binaries generated from the build
+        # Note that this does not check hashes of dependencies so we may need to delete
+        # the cache manually every now and then.
+      - name: Cache OCaml tools and libraries
+        id: cache-opam
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        with:
+          path: ~/work/asl-interpreter/asl-interpreter/.opam
+          key: opam
+
+      - name: Install OCaml tools and libraries
+        if: steps.cache-opam.outputs.cache-hit != 'true'
+        run: |
           opam init --no-setup --disable-sandboxing --compiler=4.14.2
+          opam env
           opam install . --deps-only --with-test --with-doc --yes
 
       - name: Build
