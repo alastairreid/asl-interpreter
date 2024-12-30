@@ -31,6 +31,15 @@ ASL_runtime_error(const char *msg)
         exit(1);
 }
 
+void
+ASL_assert(const char* loc, const char* expr, bool c)
+{
+        if (!c) {
+                fprintf(stderr, "%s: Evaluation error: assertion failure: %s\n\n", loc, expr);
+                exit(1);
+        }
+}
+
 #ifdef __cplusplus
 }
 #endif
