@@ -49,7 +49,7 @@ let print_exception (e : exn) : unit =
     Printf.printf "  %s: Evaluation error: %s\n" (Loc.to_string loc) msg
   | Value.Throw (loc, exc) ->
       let fmt = Format.std_formatter in
-      Format.fprintf fmt "Exception '%a' taken at %a\n"
+      Format.fprintf fmt "ASL error: uncaught exception '%a' taken at %a\n"
         Value.pp_value exc
         ASL_FMT.loc loc
   | Utils.InternalError (loc, s, pp, ml_loc) ->

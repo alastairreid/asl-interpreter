@@ -1244,7 +1244,10 @@ let mk_ffi_proto (fmt : PP.formatter) ((function_name, fty, loc) : (string * AST
 let mk_ffi_defn (fmt : PP.formatter) ((function_name, fty, loc) : (string * AST.function_type * Loc.t)) : unit =
     ffi_fun_header loc fmt function_name fty;
     Format.fprintf fmt "{@,";
+    PP.fprintf fmt "ASL_exception._exc.ASL_tag = ASL_no_exception;@,";
     Format.fprintf fmt "    ";
+    let ret : Ident.t = Ident.mk_ident "__r" in
+    let pp_ret (fmt : PP.formatter) : unit = ident fmt ret in
     let call (fmt : PP.formatter) : unit =
       Format.fprintf fmt "%a(%a)"
         ident (Ident.mk_fident function_name)
@@ -1252,11 +1255,22 @@ let mk_ffi_defn (fmt : PP.formatter) ((function_name, fty, loc) : (string * AST.
     in
     ( match fty.rty with
     | Some rty ->
-        Format.fprintf fmt "return ";
-        mk_ffi_to_C loc fmt rty call;
-        Format.fprintf fmt ";@,"
+        varty loc fmt ret rty;
+        Format.fprintf fmt " = ";
+        call fmt
     | None ->
         call fmt
+    );
+    Format.fprintf fmt ";@,";
+    PP.fprintf fmt "if (ASL_exception._exc.ASL_tag != ASL_no_exception) ASL_error(\"%s\", \"uncaught exception\");@,"
+      (String.escaped (Loc.to_string loc));
+    ( match fty.rty with
+    | Some rty ->
+        Format.fprintf fmt "return ";
+        mk_ffi_to_C loc fmt rty pp_ret;
+        Format.fprintf fmt ";@,"
+    | None ->
+        ()
     );
     Format.fprintf fmt "}@,"
 
