@@ -21,6 +21,11 @@ begin
     return x || y;
 end
 
+func Test_equiv(x : boolean, y : boolean) => boolean
+begin
+    return x <-> y;
+end
+
 func Test_eq(x : boolean, y : boolean) => boolean
 begin
     return x == y;
@@ -69,6 +74,15 @@ begin
     print(Test_or(TRUE, FALSE)); println();
     // CHECK: TRUE
     print(Test_or(TRUE, TRUE)); println();
+    // CHECK: TRUE
+
+    print(Test_equiv(FALSE, FALSE)); println();
+    // CHECK: TRUE
+    print(Test_equiv(FALSE, TRUE)); println();
+    // CHECK: FALSE
+    print(Test_equiv(TRUE, FALSE)); println();
+    // CHECK: FALSE
+    print(Test_equiv(TRUE, TRUE)); println();
     // CHECK: TRUE
 
     print(Test_eq(FALSE, FALSE)); println();
