@@ -3,7 +3,7 @@
 
 func main() => integer
 begin
-    print_string("Hello, world!");
+    print_str("Hello, world!");
     // CHECK: Hello, world!
 
     return 0;

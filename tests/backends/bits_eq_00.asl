@@ -8,13 +8,13 @@ end
 
 func main() => integer
 begin
-    print(FUT(8'x1, 8'x1); println();
+    print(FUT(8'x1, 8'x1)); println();
     // CHECK: TRUE
-    print(FUT(8'x1, 8'x2); println();
+    print(FUT(8'x1, 8'x2)); println();
     // CHECK: FALSE
-    print(FUT(8'x2, 8'x1); println();
+    print(FUT(8'x2, 8'x1)); println();
     // CHECK: FALSE
-    print(FUT(8'x2, 8'x2); println();
+    print(FUT(8'x2, 8'x2)); println();
     // CHECK: TRUE
 
     return 0;
