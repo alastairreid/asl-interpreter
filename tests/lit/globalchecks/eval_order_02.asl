@@ -1,4 +1,4 @@
-// RUN: not %asli --max-errors=10 --nobanner %s | %decolor | filecheck %s
+// RUN: not %asli --max-errors=10 --batchmode %s | filecheck %s
 // Copyright (C) 2023-2024 Intel Corporation
 
 var X : integer;

@@ -1,4 +1,4 @@
-// RUN: %asli --max-errors=10 --check-call-markers --nobanner %s
+// RUN: %asli --max-errors=10 --check-call-markers --batchmode %s
 // Copyright (C) 2023-2024 Intel Corporation
 
 type E of exception;
