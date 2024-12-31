@@ -395,8 +395,8 @@ let _ =
   Arg.parse options (fun s -> opt_filenames := !opt_filenames @ [ s ]) usage_msg
 
 let main () =
-  Ocolor_format.prettify_formatter Format.std_formatter;
   if not !opt_batchmode then begin
+    Ocolor_format.prettify_formatter Format.std_formatter;
     Ocolor_config.set_color_capability Ocolor_config.Color4
   end;
   let paths = Option.value (Sys.getenv_opt "ASL_PATH") ~default:"."
