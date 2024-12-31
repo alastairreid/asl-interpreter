@@ -390,7 +390,9 @@ let _ =
 
 let main () =
   Ocolor_format.prettify_formatter Format.std_formatter;
-  Ocolor_config.set_color_capability Ocolor_config.Color4;
+  if not !opt_batchmode then begin
+    Ocolor_config.set_color_capability Ocolor_config.Color4
+  end;
   let paths = Option.value (Sys.getenv_opt "ASL_PATH") ~default:"."
     |> String.split_on_char ':' in
   if !opt_print_version then Printf.printf "%s\n" version
