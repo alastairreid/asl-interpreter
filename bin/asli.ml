@@ -404,7 +404,7 @@ let main () =
   else if !opt_print_runtimedir then print_endline (String.concat ":" Sites.Sites.runtime)
   else if !opt_print_stdlibdir then print_endline (String.concat ":" Sites.Sites.stdlib)
   else begin
-    if !opt_show_banner then begin
+    if !opt_show_banner && not !opt_batchmode then begin
       List.iter print_endline banner;
       print_endline "\nType :? for help"
     end;
