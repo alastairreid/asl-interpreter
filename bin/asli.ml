@@ -29,9 +29,15 @@ let opt_verbose = ref false
 let opt_batchmode = ref false
 let opt_show_banner = ref true
 
+let history_file = "asl_history"
+
+let cleanup_and_exit (code : int) : 'a =
+  LNoise.history_save ~filename:history_file |> ignore;
+  exit code
+
 (* on error, optionally exit if in batchmode *)
 let error () : unit =
-  if !opt_batchmode then exit 1
+  if !opt_batchmode then cleanup_and_exit 1
 
 let projects : string list ref = ref []
 
@@ -121,7 +127,7 @@ let rec process_command (tcenv : TC.Env.t) (cpu : Cpu.cpu) (fname : string) (inp
           process_command tcenv cpu prj (input_line inchan)
         done
       with End_of_file -> close_in inchan)
-  | [ ":q" ] | [ ":quit" ] -> exit 0
+  | [ ":q" ] | [ ":quit" ] -> cleanup_and_exit 0
   | (cmd :: args) when String.starts_with ~prefix:":" cmd ->
      let old_show_params = !FMT.show_type_params in
      let old_resugar = !FMT.resugar_operators in
@@ -436,13 +442,14 @@ let main () =
       List.iter (process_command tcenv cpu "<argv>") !execs;
 
       if not !opt_batchmode then begin
-        LNoise.history_load ~filename:"asl_history" |> ignore;
+        LNoise.history_load ~filename:history_file |> ignore;
         LNoise.history_set ~max_length:100 |> ignore;
         repl tcenv cpu
-      end
+      end;
+      cleanup_and_exit 0
     ) with e -> begin
       Error.print_exception e;
-      exit 1
+      cleanup_and_exit 1
     end
   end
 
