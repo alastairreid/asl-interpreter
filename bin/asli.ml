@@ -32,7 +32,9 @@ let opt_show_banner = ref true
 let history_file = "asl_history"
 
 let cleanup_and_exit (code : int) : 'a =
-  LNoise.history_save ~filename:history_file |> ignore;
+  if not !opt_batchmode then begin
+    LNoise.history_save ~filename:history_file |> ignore
+  end;
   exit code
 
 (* on error, optionally exit if in batchmode *)
