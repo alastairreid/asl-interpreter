@@ -63,7 +63,13 @@ runtime_test:
 lit_test: build
 	env PATH="`pwd`/tests/scripts:${PATH}" ${LIT} tests/lit -v
 
-BACKENDS = interpreter c23 ac fallback
+WIDE_BITINT_SUPPORTED := `$(MAKE) -C runtime/test wide_bitint_supported`
+
+ifeq (1, $(WIDE_BITINT_SUPPORTED))
+BACKENDS := interpreter c23 ac fallback
+else
+BACKENDS := interpreter ac fallback
+endif
 
 test_backends: ${addprefix test_backend_, ${BACKENDS}}
 

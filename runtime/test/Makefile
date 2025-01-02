@@ -45,3 +45,10 @@ $(TESTS_BIN): gtest $(OBJ_FILES)
 	$(info CXX     $(@F))
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(OBJ_FILES) -L$(BUILD_DIR)/.. -lASL -L$(GTEST_BUILD_DIR)/lib -lgtest -lgtest_main -o $@
 	$(TESTS_BIN) --gtest_brief
+
+# Test for whether C compiler supports _BitInt(129) or wider
+.PHONY: wide_bitint_supported
+wide_bitint_supported: bitint_maxwidth.c
+	@ $(CC) -std=c2x $< -o bitint_maxwidth
+	@ test `./bitint_maxwidth` -le 128; echo $$?
+	@ $(RM) bitint_maxwidth
