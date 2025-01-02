@@ -587,7 +587,7 @@ and eval_stmt (env : Env.t) (x : AST.stmt) : unit =
             else eval v alts'
       in
       eval (eval_expr loc env e) alts
-  | Stmt_For (v, start, dir, stop, b, loc) ->
+  | Stmt_For (v, ty, start, dir, stop, b, loc) ->
       let start' = eval_expr loc env start in
       let stop' = eval_expr loc env stop in
       let rec eval i =
@@ -602,8 +602,8 @@ and eval_stmt (env : Env.t) (x : AST.stmt) : unit =
               eval_stmts env' b);
           let i' =
             match dir with
-            | Direction_Up -> eval_add_int loc i (VInt Z.one)
-            | Direction_Down -> eval_sub_int loc i (VInt Z.one)
+            | Direction_Up -> eval_inc loc i
+            | Direction_Down -> eval_dec loc i
           in
           eval i')
       in

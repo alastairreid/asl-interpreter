@@ -1227,13 +1227,11 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
   | Stmt_ConstDecl (DeclItem_Wildcard _, i, loc) ->
       make_cast fmt (fun _ -> kw_void fmt) (fun _ -> expr loc fmt i);
       semicolon fmt
-  | Stmt_For (v, f, dir, t, b, loc) ->
+  | Stmt_For (v, ty, f, dir, t, b, loc) ->
       kw_for fmt;
       nbsp fmt;
       parens fmt (fun _ ->
-          kw_asl_int fmt;
-          nbsp fmt;
-          varname fmt v;
+          varty loc fmt v ty;
           nbsp fmt;
           eq fmt;
           nbsp fmt;

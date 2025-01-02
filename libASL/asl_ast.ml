@@ -156,7 +156,7 @@ and stmt =
  | Stmt_VarDeclsNoInit of Ident.t list * ty * Loc.t
  | Stmt_If of expr * stmt list * s_elsif list * (stmt list * Loc.t) * Loc.t
  | Stmt_Case of expr * ty option * alt list * (stmt list * Loc.t) option * Loc.t
- | Stmt_For of Ident.t * expr * direction * expr * stmt list * Loc.t
+ | Stmt_For of Ident.t * ty * expr * direction * expr * stmt list * Loc.t
  | Stmt_While of expr * stmt list * Loc.t
  | Stmt_Repeat of stmt list * expr * Loc.pos * Loc.t
  | Stmt_Try of stmt list * Loc.pos * catcher list * (stmt list * Loc.t) option * Loc.t

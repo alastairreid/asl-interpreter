@@ -75,6 +75,8 @@ val insert_bits' : Loc.t -> value -> int -> int -> value -> value
 
 val eval_eq : Loc.t -> value -> value -> bool
 val eval_leq : Loc.t -> value -> value -> bool
+val eval_inc : Loc.t -> value -> value
+val eval_dec : Loc.t -> value -> value
 val eval_eq_int : Loc.t -> value -> value -> bool
 val eval_eq_bits : Loc.t -> value -> value -> bool
 val eval_inmask : Loc.t -> value -> value -> bool

@@ -446,13 +446,14 @@ and visit_stmt (vis : aslVisitor) (x : stmt) : stmt list =
         let ob' = mapOptionNoCopy (fun (b, bl) -> (visit_stmts vis b, bl)) ob in
         if e == e' && oty == oty' && alts == alts' && ob == ob' then x
         else Stmt_Case (e', oty', alts', ob', loc)
-    | Stmt_For (v, f, dir, t, b, loc) ->
+    | Stmt_For (v, ty, f, dir, t, b, loc) ->
         let v' = visit_lvar vis v in
+        let ty' = visit_type vis ty in
         let f' = visit_expr vis f in
         let t' = visit_expr vis t in
         let b' = with_locals vis [v] (visit_stmts vis) b in
-        if v == v' && f == f' && t == t' && b == b' then x
-        else Stmt_For (v', f', dir, t', b', loc)
+        if v == v' && ty == ty' && f == f' && t == t' && b == b' then x
+        else Stmt_For (v', ty', f', dir, t', b', loc)
     | Stmt_While (c, b, loc) ->
         let c' = visit_expr vis c in
         let b' = visit_stmts vis b in

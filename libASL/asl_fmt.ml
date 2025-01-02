@@ -754,11 +754,15 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
                 fmt ob);
           cut fmt;
           kw_end fmt)
-  | Stmt_For (v, f, dir, t, b, loc) ->
+  | Stmt_For (v, typ, f, dir, t, b, loc) ->
       comments_before fmt loc;
       kw_for fmt;
       nbsp fmt;
       varname fmt v;
+      nbsp fmt;
+      colon fmt;
+      nbsp fmt;
+      ty fmt typ;
       nbsp fmt;
       eq fmt;
       nbsp fmt;

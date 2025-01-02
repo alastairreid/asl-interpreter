@@ -2408,14 +2408,17 @@ and tc_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
         Option.map (fun (b, bl) -> (tc_stmts env loc b, bl)) odefault
       in
       [Stmt_Case (e', Some ty', alts', odefault', loc)]
-  | Stmt_For (v, start, dir, stop, b, loc) ->
-      let start' = check_expr env loc type_integer start in
-      let stop' = check_expr env loc type_integer stop in
+  | Stmt_For (v, ty, start, dir, stop, b, loc) ->
+      let ty' = tc_type env loc ty in
+      let start' = check_expr env loc ty start in
+      let stop' = check_expr env loc ty stop in
       (* todo: we can calculate the range only if start and stop are immutable *)
-      let ty = ( match dir with
-               | Direction_Up -> Type_Integer (Some [Constraint_Range (start', stop')])
-               | Direction_Down -> Type_Integer (Some [Constraint_Range (stop', start')])
-               )
+      let ty'' =
+        ( match (ty', dir) with
+        | (Type_Integer(None), Direction_Up) -> Type_Integer (Some [Constraint_Range (start', stop')])
+        | (Type_Integer(None), Direction_Down) -> Type_Integer (Some [Constraint_Range (stop', start')])
+        | _ -> ty'
+        )
       in
       let b' =
         Env.nest
@@ -2424,7 +2427,7 @@ and tc_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
             tc_stmts env' loc b)
           env
       in
-      [Stmt_For (v, start', dir, stop', b', loc)]
+    [Stmt_For (v, ty'', start', dir, stop', b', loc)]
   | Stmt_While (c, b, loc) ->
       let c' = check_expr env loc type_bool c in
       let b' = tc_stmts env loc b in
