@@ -75,6 +75,10 @@ module Runtime : RT.RuntimeLib = struct
       PP.fprintf fmt "((%a)0x%swb)"
         ty_sint n
         (Z.format "%x" x)
+    else if Z.equal x (min_sintN n) then
+      PP.fprintf fmt "((%a)(-0x%swb) - 1wb)"
+        ty_sint n
+        (Z.format "%x" (Z.sub Z.minus_one x))
     else (* negative values *)
       PP.fprintf fmt "((%a)-0x%swb)"
         ty_sint n
