@@ -12,7 +12,7 @@ let expr : test_case list =
   [
     ( "bitslice lowd (> 64b)",
       [ Backend_C; Backend_Verilog ],
-      "func F(x : bits(129)) => bits(65) begin return x[4 +: 65]; end" );
+      "func F(x : bits(127)) => bits(65) begin return x[4 +: 65]; end" );
 
     ( "literal int",
       [ Backend_C; Backend_Verilog ],
