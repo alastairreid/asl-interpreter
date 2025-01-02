@@ -922,10 +922,9 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
   | Stmt_ConstDecl (DeclItem_Wildcard _, i, loc) ->
       PP.fprintf fmt "(void)%a;"
         (expr loc) i
-  | Stmt_For (v, f, dir, t, b, loc) ->
-      PP.fprintf fmt  "for (%a %a = %a; %a %s %a; %s%a) {%a@,}"
-          (fun fmt _ -> Runtime.ty_int fmt) ()
-          ident v
+  | Stmt_For (v, ty, f, dir, t, b, loc) ->
+      PP.fprintf fmt  "for (%a = %a; %a %s %a; %s%a) {%a@,}"
+          (fun fmt _ -> varty loc fmt v ty) ()
           (expr loc) f
 
           ident v

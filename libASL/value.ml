@@ -797,6 +797,7 @@ let rec eval_eq (loc : Loc.t) (x : value) (y : value) : bool =
   | VBool x', VBool y' -> prim_eq_bool x' y'
   | VEnum x', VEnum y' -> snd x' = snd y'
   | VInt x', VInt y' -> prim_eq_int x' y'
+  | VIntN x', VIntN y' -> prim_eq_sintN x' y'
   | VReal x', VReal y' -> prim_eq_real x' y'
   | VBits x', VBits y' -> prim_eq_bits x' y'
   | VString x', VString y' -> String.equal x' y'
@@ -811,7 +812,22 @@ let rec eval_eq (loc : Loc.t) (x : value) (y : value) : bool =
 let eval_leq (loc : Loc.t) (x : value) (y : value) : bool =
   match (x, y) with
   | VInt x', VInt y' -> prim_le_int x' y'
-  | _ -> raise (EvalError (loc, "integer expected + string_of_value x"))
+  | VIntN x', VIntN y' -> prim_le_sintN x' y'
+  | _ -> raise (EvalError (loc, "integer or __sint(N) expected " ^ string_of_value x ))
+
+let eval_inc (loc : Loc.t) (x : value) : value =
+  ( match x with
+  | VInt x' -> VInt (prim_add_int x' Z.one)
+  | VIntN x' -> VIntN (prim_add_sintN x' (mksintN x'.n Z.one))
+  | _ -> raise (EvalError (loc, "integer or __sint(N) expected " ^ string_of_value x ))
+  )
+
+let eval_dec (loc : Loc.t) (x : value) : value =
+  ( match x with
+  | VInt x' -> VInt (prim_sub_int x' Z.one)
+  | VIntN x' -> VIntN (prim_sub_sintN x' (mksintN x'.n Z.one))
+  | _ -> raise (EvalError (loc, "integer or __sint(N) expected " ^ string_of_value x ))
+  )
 
 let eval_eq_int (loc : Loc.t) (x : value) (y : value) : bool =
   prim_eq_int (to_integer loc x) (to_integer loc y)

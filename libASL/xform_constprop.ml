@@ -561,7 +561,8 @@ and xform_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
         )
       | _ -> [ Stmt_Case (e', oty, alts', odefault', loc) ]
       )
-  | Stmt_For (v, start, dir, stop, b, loc) -> (
+  | Stmt_For (v, ty, start, dir, stop, b, loc) -> (
+      let ty' = xform_ty env ty in
       let start' = xform_expr env start in
       let stop' = xform_expr env stop in
       match (value_of_constant env start', value_of_constant env stop') with
@@ -580,8 +581,8 @@ and xform_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
               in
               let i' =
                 match dir with
-                | Direction_Up -> Value.eval_add_int loc i Value.int_one
-                | Direction_Down -> Value.eval_sub_int loc i Value.int_one
+                | Direction_Up -> Value.eval_inc loc i
+                | Direction_Down -> Value.eval_dec loc i
               in
               Stmt_Block (b', loc) :: eval i'
             else []
@@ -592,7 +593,7 @@ and xform_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
               Env.addLocalVar env' v Values.bottom;
               xform_stmts env' b)
           in
-          [ Stmt_For (v, start', dir, stop', b', loc) ])
+          [ Stmt_For (v, ty', start', dir, stop', b', loc) ])
     | Stmt_While(c, b, loc) ->
           let (c', b') = Env.fixpoint env  (fun env' ->
               let c' = xform_expr env' c in

@@ -478,8 +478,8 @@ apattern:
 | p = expr { Pat_Single(p) }
 
 repetitive_stmt:
-| FOR v = ident EQ f = expr dir = direction t = expr DO b = block END
-    { Stmt_For(v, f, dir, t, b, Range($symbolstartpos, $endpos)) }
+| FOR v = ident ty_opt = ty_opt EQ f = expr dir = direction t = expr DO b = block END
+    { Stmt_For(v, Option.value ty_opt ~default:(Type_Integer(None)), f, dir, t, b, Range($symbolstartpos, $endpos)) }
 | WHILE c = expr DO b = block END
     { Stmt_While(c, b, Range($symbolstartpos, $endpos)) }
 | REPEAT b = block UNTIL c = expr SEMICOLON pos = pos

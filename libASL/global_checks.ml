@@ -131,7 +131,7 @@ let rec canthrow_stmt (x : AST.stmt) : status =
       let rb = Option.fold ~none:ok ~some:(fun (b, _) -> canthrow_stmts b) ob in
       status_seq r
         (List.fold_left status_merge rb rs)
-  | Stmt_For (v, f, dir, t, b, loc) ->
+  | Stmt_For (v, ty, f, dir, t, b, loc) ->
           (status_seq (canthrow_expr f)
           (status_seq (canthrow_expr t)
                       (canthrow_stmts b)))
