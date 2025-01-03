@@ -20,14 +20,14 @@ extern "C" {
 void
 ASL_error(const char* loc, const char* msg)
 {
-        fprintf(stderr, "%s: ASL error: %s\n\n", loc, msg);
+        printf("%s: ASL error: %s\n\n", loc, msg);
         exit(1);
 }
 
 void
 ASL_runtime_error(const char *msg)
 {
-        fprintf(stderr, "Runtime error: %s\n", msg);
+        printf("Runtime error: %s\n", msg);
         exit(1);
 }
 
@@ -35,7 +35,7 @@ void
 ASL_assert(const char* loc, const char* expr, bool c)
 {
         if (!c) {
-                fprintf(stderr, "%s: Evaluation error: assertion failure: %s\n\n", loc, expr);
+                printf("%s: Evaluation error: assertion failure: %s\n\n", loc, expr);
                 exit(1);
         }
 }
