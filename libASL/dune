@@ -28,6 +28,7 @@
    backend_c
    backend_c_new
    backend_cpp
+   backend_mlir
    bin_file
    builtin_idents
    commands
