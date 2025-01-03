@@ -215,9 +215,13 @@ def report(x):
     if verbose:
         print(x)
 
+# Run command (printing command first if verbose) and abort if command fails
+# (The assumption is that the command printed a useful/meaningful error message already)
 def run(cmd):
     report(" ".join(cmd))
-    subprocess.run(cmd, check=True)
+    r = subprocess.run(cmd)
+    if r.returncode != 0:
+        exit(r.returncode)
 
 ################################################################
 # Compile/link flags
