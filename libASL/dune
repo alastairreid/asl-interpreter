@@ -26,6 +26,7 @@
    asl_utils
    asl_visitor
    backend_c
+   backend_mlir
    bin_file
    builtin_idents
    commands
