@@ -17,43 +17,44 @@ ASL2C    = ../_build/default/bin/asl2c.py
 # GNU as.)
 ################################################################
 
-HAVE_GNU_AS := `as --version | grep -c clang`
+HAVE_GNU_AS := `as --version | grep -q 'GNU assembler'`
+
+REPORT_NOT_GAS = "Unable to build ELF file to use in demo: GNU 'as' required - skipping demo"
 
 ################################################################
 # Build a test program using the demo ISA
 ################################################################
 
 clean::
-	$(RM) test.s test.o test.elf
+	$(RM) test.o test.elf
 
-test.s : test.S assembly.s
+# run preprocessor on test.S using default rule
+test.s: test.S assembly.s
 
 test.o: test.s
-	as test.s -o test.o
+	@ if ${HAVE_GNU_AS}; then \
+	as test.s -o test.o; \
+	else echo ${REPORT_NOT_GAS}; fi
 
 test.elf: test.o
-	ld test.o -o test.elf
-	nm test.elf
+	@ if ${HAVE_GNU_AS}; then \
+	ld test.o -o test.elf; \
+	nm test.elf; \
+	else echo ${REPORT_NOT_GAS}; fi
 
 ################################################################
 # Run demo on interpreter
 ################################################################
 
-ifneq '1' '${HAVE_GNU_AS}'
-
-test demo:
-	@ echo "Unable to build ELF file to use in demo"
-	@ echo "Skipping demo"
-
-else
-
 test: test.elf test.prj
-	env ASL_PATH="${ASL_PATH}" ${ASLI} --nobanner --batchmode demo.asl --project test.prj | filecheck test.prj
+	@ if ${HAVE_GNU_AS}; then \
+	env ASL_PATH="${ASL_PATH}" ${ASLI} --nobanner --batchmode demo.asl --project test.prj | filecheck test.prj ; \
+	else echo ${REPORT_NOT_GAS}; fi
 
 demo: test.elf
-	env ASL_PATH="${ASL_PATH}" ${ASLI} --batchmode demo.asl --project test.prj
-
-endif
+	@ if ${HAVE_GNU_AS}; then \
+	env ASL_PATH="${ASL_PATH}" ${ASLI} --batchmode demo.asl --project test.prj ; \
+	else echo ${REPORT_NOT_GAS}; fi
 
 ################################################################
 # Build simulator using C backend
@@ -70,25 +71,21 @@ CC=clang-16 -std=c2x
 .PRECIOUS: simulator_%
 
 simulator_% : simulator.c exports.json demo.asl
-	$(ASL2C) --basename=sim --intermediates=log --backend=$* > sim.prj
-	env ASL_PATH="${ASL_PATH}" $(ASLI) --nobanner --batchmode --project=sim.prj --configuration=exports.json demo.asl
-	$(CC) ${CFLAGS} simulator.c -o $@ ${LDFLAGS}
-
-ifneq '1' '${HAVE_GNU_AS}'
-
-test_% demo_%:
-	@ echo "Unable to build ELF file to use in test_$* and demo_$*"
-	@ echo "Skipping test_$* and demo_$*"
-
-else
+	@ if ${HAVE_GNU_AS}; then \
+	$(ASL2C) --basename=sim --intermediates=log --backend=$* > sim.prj ; \
+	env ASL_PATH="${ASL_PATH}" $(ASLI) --nobanner --batchmode --project=sim.prj --configuration=exports.json demo.asl ; \
+	$(CC) ${CFLAGS} simulator.c -o $@ ${LDFLAGS} ; \
+	else echo ${REPORT_NOT_GAS}; fi
 
 test_% : simulator_% test.elf test.prj
-	./simulator_$* test.elf --steps=20 | filecheck test.prj
+	@ if ${HAVE_GNU_AS}; then \
+	./simulator_$* test.elf --steps=20 | filecheck test.prj ; \
+	else echo ${REPORT_NOT_GAS}; fi
 
 demo_% : simulator_% test.elf test.prj
-	./simulator_$* test.elf --steps=20
-
-endif
+	@ if ${HAVE_GNU_AS}; then \
+	./simulator_$* test.elf --steps=20; \
+	else echo ${REPORT_NOT_GAS}; fi
 
 clean ::
 	$(RM) sim.prj
