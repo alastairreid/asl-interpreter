@@ -12,6 +12,14 @@ ASLI     = ../_build/default/bin/asli.exe
 ASL2C    = ../_build/default/bin/asl2c.py
 
 ################################################################
+# Test whether we have GNU as or clang emulating as
+# (We can only build an elf file and run the test if we have
+# GNU as.)
+################################################################
+
+HAVE_GNU_AS := `as --version | grep -c clang`
+
+################################################################
 # Build a test program using the demo ISA
 ################################################################
 
@@ -31,11 +39,21 @@ test.elf: test.o
 # Run demo on interpreter
 ################################################################
 
+ifneq '1' '${HAVE_GNU_AS}'
+
+test demo:
+	@ echo "Unable to build ELF file to use in demo"
+	@ echo "Skipping demo"
+
+else
+
 test: test.elf test.prj
 	env ASL_PATH="${ASL_PATH}" ${ASLI} --nobanner --batchmode demo.asl --project test.prj | filecheck test.prj
 
 demo: test.elf
 	env ASL_PATH="${ASL_PATH}" ${ASLI} --batchmode demo.asl --project test.prj
+
+endif
 
 ################################################################
 # Build simulator using C backend
@@ -56,11 +74,21 @@ simulator_% : simulator.c exports.json demo.asl
 	env ASL_PATH="${ASL_PATH}" $(ASLI) --nobanner --batchmode --project=sim.prj --configuration=exports.json demo.asl
 	$(CC) ${CFLAGS} simulator.c -o $@ ${LDFLAGS}
 
+ifneq '1' '${HAVE_GNU_AS}'
+
+test_% demo_%:
+	@ echo "Unable to build ELF file to use in test_$* and demo_$*"
+	@ echo "Skipping test_$* and demo_$*"
+
+else
+
 test_% : simulator_% test.elf test.prj
 	./simulator_$* test.elf --steps=20 | filecheck test.prj
 
 demo_% : simulator_% test.elf test.prj
 	./simulator_$* test.elf --steps=20
+
+endif
 
 clean ::
 	$(RM) sim.prj
