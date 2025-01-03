@@ -1,4 +1,4 @@
-// RUN: not %aslrun %s |& filecheck %s
+// RUN: not %aslrun %s | filecheck %s
 // Copyright (C) 2023-2024 Intel Corporation
 
 func FUT(x : bits(4)) => bits(4)
