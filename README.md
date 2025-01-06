@@ -1,5 +1,6 @@
 # ASL Interpreter
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/IntelLabs/asl-interpreter/badge)](https://scorecard.dev/viewer/?uri=github.com/IntelLabs/asl-interpreter)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/9891/badge)](https://www.bestpractices.dev/projects/9891)
 [![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
 ## Overview
