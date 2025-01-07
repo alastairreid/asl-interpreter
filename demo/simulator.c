@@ -2,7 +2,7 @@
  * An example simulator harness for use when compiling an ISA
  * specification to C code.
  *
- * Copyright (C) 2023-2024 Intel Corporation
+ * Copyright (C) 2023-2025 Intel Corporation
  ****************************************************************/
 
 #include <assert.h>

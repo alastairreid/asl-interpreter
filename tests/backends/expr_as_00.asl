@@ -1,5 +1,5 @@
 // RUN: %aslrun %s | filecheck %s
-// Copyright (C) 2023-2024 Intel Corporation
+// Copyright (C) 2023-2025 Intel Corporation
 
 func Test1(x : integer) => integer {0..255}
 begin

@@ -2,7 +2,7 @@
  * ASL interactive frontend
  *
  * Copyright Arm Limited (c) 2017-2019
- * Copyright (C) 2022-2024 Intel Corporation
+ * Copyright (C) 2022-2025 Intel Corporation
  * SPDX-Licence-Identifier: BSD-3-Clause
  ****************************************************************)
 
@@ -386,7 +386,7 @@ let banner =
     {|            _____  _       _                                       |};
     {|    /\     / ____|| |     (_)   ASL interpreter                    |};
     {|   /  \   | (___  | |      _    Copyright Arm Limited (c) 2017-2019|};
-    {|  / /\ \   \___ \ | |     | |   Copyright (C) 2022-2024 Intel Corporation|};
+    {|  / /\ \   \___ \ | |     | |   Copyright (C) 2022-2025 Intel Corporation|};
     {| / ____ \  ____) || |____ | |                                      |};
     {|/_/    \_\|_____/ |______||_|   |} ^ version;
   ]

@@ -2,7 +2,7 @@
 // Runtime library for ASL's C backend to support tracking
 // validity masks
 //
-// Copyright (C) 2024-2024 Intel Corporation
+// Copyright (C) 2024-2025 Intel Corporation
 // SPDX-Licence-Identifier: BSD-3-Clause
 ////////////////////////////////////////////////////////////////
 

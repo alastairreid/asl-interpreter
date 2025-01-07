@@ -1,5 +1,5 @@
 // RUN: %aslrun %s | filecheck %s
-// Copyright (C) 2023-2024 Intel Corporation
+// Copyright (C) 2023-2025 Intel Corporation
 
 func FUT4(x : bits(4)) => __sint(4)
 begin

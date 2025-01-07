@@ -205,7 +205,7 @@ statements and expressions.
                 _____  _       _
         /\     / ____|| |     (_)   ASL interpreter
        /  \   | (___  | |      _    Copyright Arm Limited (c) 2017-2019
-      / /\ \   \___ \ | |     | |   Copyright (C) 2022-2024 Intel Corporation
+      / /\ \   \___ \ | |     | |   Copyright (C) 2022-2025 Intel Corporation
      / ____ \  ____) || |____ | |
     /_/    \_\|_____/ |______||_|   ASLi 1.0.0
 

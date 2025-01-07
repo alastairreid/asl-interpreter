@@ -1,6 +1,6 @@
 // RUN: %aslrun %s | filecheck %s
 // REQUIRES: !c23 || wide_bitint
-// Copyright (C) 2023-2024 Intel Corporation
+// Copyright (C) 2023-2025 Intel Corporation
 
 func Test_70_140(x : bits(70)) => bits(140)
 begin

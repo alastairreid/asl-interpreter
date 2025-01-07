@@ -1,5 +1,5 @@
 // RUN: %aslrun %s | filecheck %s
-// Copyright (C) 2023-2024 Intel Corporation
+// Copyright (C) 2023-2025 Intel Corporation
 
 func Test1(x : bits(3)) => bits(8)
 begin

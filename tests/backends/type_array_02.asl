@@ -1,5 +1,5 @@
 // RUN: %aslrun %s | filecheck %s
-// Copyright (C) 2023-2024 Intel Corporation
+// Copyright (C) 2023-2025 Intel Corporation
 
 let R : array [3] of bits(32) = array(32'x3, 32'x4, 32'x5);
 

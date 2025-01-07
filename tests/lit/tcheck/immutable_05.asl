@@ -1,5 +1,5 @@
 // RUN: %asli --batchmode %s
-// Copyright (C) 2023-2024 Intel Corporation
+// Copyright (C) 2023-2025 Intel Corporation
 
 func F()
 begin

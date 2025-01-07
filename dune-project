@@ -5,7 +5,7 @@
 (version 1.0.0)
 
 ; Copyright Arm Limited (c) 2017-2019
-; Copyright (C) 2022-2024 Intel Corporation
+; Copyright (C) 2022-2025 Intel Corporation
 ; SPDX-Licence-Identifier: BSD-3-Clause
 
 (using menhir 2.0)
@@ -13,7 +13,11 @@
 (package
   (name asli)
   (synopsis "Interpreter for Architecture Specification Language (ASL)")
-  (description "\| Interpreter for the language ASL that Arm and Intel use to write their ISA specifications.
+  (description "\| Architecture Specification Language (ASL) is an executable language for writing
+               "\| clear, precise specifications of Instruction Set Architectures (ISAs).
+               "\|
+               "\| The ASL interpreter (ASLi) is an implementation of ASL that can execute ASL
+               "\| specifications either in an interpreter or by compiling via C code.
                "\|
                "\| Currently supports reading/typechecking the specification,
                "\| interactive execution of ASL statements and expressions,
@@ -44,10 +48,10 @@
 
 (license BSD-3-Clause)
 (authors "Alastair Reid")
-(maintainers "Alastair Reid <alastair.d.reid@gmail.com>")
-(source (github alastairreid/asl-interpreter))
-(bug_reports "https://github.com/alastairreid/asl-interpreter/issues")
-(homepage "https://github.com/alastairreid/asl-interpreter")
+(maintainers "Alastair Reid <alastair.reid@intel.com>")
+(source (github IntelLabs/asl-interpreter))
+(bug_reports "https://github.com/IntelLabs/asl-interpreter/issues")
+(homepage "https://github.com/IntelLabs/asl-interpreter")
 ; (documentation ...)
 
 (generate_opam_files true)

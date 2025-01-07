@@ -1,5 +1,5 @@
 // RUN: not %asli --max-errors=10 --check-call-markers --batchmode %s | filecheck %s
-// Copyright (C) 2023-2024 Intel Corporation
+// Copyright (C) 2023-2025 Intel Corporation
 
 type E of exception;
 

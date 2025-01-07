@@ -2,7 +2,7 @@
 // A simple 64-bit processor spec for use as a demo.
 // (This is not intended to match any actual processor)
 //
-// Copyright (C) 2023-2024 Intel Corporation
+// Copyright (C) 2023-2025 Intel Corporation
 /////////////////////////////////////////////////////////////////
 
 /////////////////////////////////////////////////////////////////

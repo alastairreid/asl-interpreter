@@ -4,7 +4,7 @@
 // Note: these functions can (and usually are) overridden in the linker
 // command line by providing .o files that override both functions.
 //
-// Copyright (C) 2022-2024 Intel Corporation
+// Copyright (C) 2022-2025 Intel Corporation
 // SPDX-Licence-Identifier: BSD-3-Clause
 ////////////////////////////////////////////////////////////////
 

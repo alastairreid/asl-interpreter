@@ -5,7 +5,7 @@
  * - Slice_HiLo to Slice_LoWd
  * - Slice_Single to Slice_LoWd
  *
- * Copyright (C) 2023-2024 Intel Corporation
+ * Copyright (C) 2023-2025 Intel Corporation
  * SPDX-Licence-Identifier: BSD-3-Clause
  ****************************************************************)
 

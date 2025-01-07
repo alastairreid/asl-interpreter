@@ -1,5 +1,5 @@
 // RUN: %asli --batchmode %s
-// Copyright (C) 2023-2024 Intel Corporation
+// Copyright (C) 2023-2025 Intel Corporation
 
 // Correct type parameters: N can be synthesized from the type of x
 func F1{N : integer}(x : bits(N)) => boolean;

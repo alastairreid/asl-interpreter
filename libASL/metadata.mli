@@ -1,7 +1,7 @@
 (****************************************************************
  * Metadata generator
  *
- * Copyright Intel (c) 2023-2024
+ * Copyright (C) 2023-2025 Intel Corporation
  * SPDX-Licence-Identifier: BSD-3-Clause
  ****************************************************************)
 

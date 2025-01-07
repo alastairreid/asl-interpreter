@@ -1,5 +1,5 @@
 // RUN: %asli --batchmode --configuration=%S/config.json --project=%S/asli.prj %s | filecheck %s
-// Copyright (C) 2024-2024 Intel Corporation
+// Copyright (C) 2024-2025 Intel Corporation
 
 func C(x : bits(N)) => integer
 begin

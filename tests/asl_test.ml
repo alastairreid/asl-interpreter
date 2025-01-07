@@ -2,7 +2,7 @@
  * Test ASL evaluator
  *
  * Copyright Arm Limited (c) 2017-2020
- * Copyright (C) 2022-2024 Intel Corporation
+ * Copyright (C) 2022-2025 Intel Corporation
  * SPDX-Licence-Identifier: BSD-3-Clause
  ****************************************************************)
 

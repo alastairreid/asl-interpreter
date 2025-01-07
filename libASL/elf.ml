@@ -4,7 +4,7 @@
  * Currently only handles little-endian, 64-bit
  *
  * Copyright Alastair Reid (c) 2019-2020
- * Copyright (C) 2024-2024 Intel Corporation
+ * Copyright (C) 2024-2025 Intel Corporation
  * SPDX-Licence-Identifier: BSD-3-Clause
  ****************************************************************)
 
