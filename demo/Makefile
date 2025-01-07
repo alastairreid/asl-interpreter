@@ -70,10 +70,10 @@ CC=clang-16 -std=c2x
 
 .PRECIOUS: simulator_%
 
-simulator_% : simulator.c exports.json demo.asl
+simulator_% : simulator.c config.json demo.asl
 	@ if ${HAVE_GNU_AS}; then \
-	$(ASL2C) --basename=sim --intermediates=log --backend=$* > sim.prj ; \
-	env ASL_PATH="${ASL_PATH}" $(ASLI) --nobanner --batchmode --project=sim.prj --configuration=exports.json demo.asl ; \
+	$(ASL2C) --basename=sim --intermediates=log --split-state --backend=$* > sim.prj ; \
+	env ASL_PATH="${ASL_PATH}" $(ASLI) --nobanner --batchmode --project=sim.prj --configuration=config.json demo.asl ; \
 	$(CC) ${CFLAGS} simulator.c -o $@ ${LDFLAGS} ; \
 	else echo ${REPORT_NOT_GAS}; fi
 
