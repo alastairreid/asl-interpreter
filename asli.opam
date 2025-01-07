@@ -3,7 +3,11 @@ opam-version: "2.0"
 version: "1.0.0"
 synopsis: "Interpreter for Architecture Specification Language (ASL)"
 description: """
-Interpreter for the language ASL that Arm and Intel use to write their ISA specifications.
+Architecture Specification Language (ASL) is an executable language for writing
+clear, precise specifications of Instruction Set Architectures (ISAs).
+
+The ASL interpreter (ASLi) is an implementation of ASL that can execute ASL
+specifications either in an interpreter or by compiling via C code.
 
 Currently supports reading/typechecking the specification,
 interactive execution of ASL statements and expressions,
@@ -14,11 +18,11 @@ Experimentally includes support for generating C code
 that can be used to execute binaries faster and can be
 linked with other C/C++ libraries.
 """
-maintainer: ["Alastair Reid <alastair.d.reid@gmail.com>"]
+maintainer: ["Alastair Reid <alastair.reid@intel.com>"]
 authors: ["Alastair Reid"]
 license: "BSD-3-Clause"
-homepage: "https://github.com/alastairreid/asl-interpreter"
-bug-reports: "https://github.com/alastairreid/asl-interpreter/issues"
+homepage: "https://github.com/IntelLabs/asl-interpreter"
+bug-reports: "https://github.com/IntelLabs/asl-interpreter/issues"
 depends: [
   "dune" {>= "3.11"}
   "alcotest" {with-test}
@@ -48,4 +52,4 @@ build: [
   ]
   ["dune" "install" "-p" name "--create-install-files" name]
 ]
-dev-repo: "git+https://github.com/alastairreid/asl-interpreter.git"
+dev-repo: "git+https://github.com/IntelLabs/asl-interpreter.git"
