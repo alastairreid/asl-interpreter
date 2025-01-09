@@ -360,12 +360,12 @@ def mk_filenames(backend, working_directory, basename):
 def generate_project(project_file, script):
     with open(project_file, "w") as f:
         print(script, file=f)
-    report(f"# Generated project {project_file}\n")
+    report(f"# Generated project {project_file}")
 
 def generate_exports(export_file):
     with open(export_file, "w") as f:
         print("{\"exports\": [\"main\"]}\n", file=f)
-    report(f"# Generated export configuration file {export_file}\n")
+    report(f"# Generated export configuration file {export_file}")
 
 def generate_c(asli, asl_files, project_file, exports_file):
     asli_cmd = [
@@ -450,7 +450,7 @@ def main() -> int:
     parser.add_argument("--instrument-unknown", help="instrument assignments of UNKNOWN", action=argparse.BooleanOptionalAction)
     parser.add_argument("--wrap-variables", help="wrap global variables into functions", action=argparse.BooleanOptionalAction)
     parser.add_argument("-O0", help="perform minimal set of transformations", action=argparse.BooleanOptionalAction)
-    parser.add_argument("--backend", help="select backend (default: orig)", choices=['ac', 'c23', 'interpreter', 'fallback', 'orig'], default='orig')
+    parser.add_argument("--backend", help="select backend (default: orig)", choices=['ac', 'c23', 'interpreter', 'fallback', 'mlir', 'orig'], default='orig')
     parser.add_argument("--print-c-flags", help="print the C flags needed to use the selected ASL C runtime", action=argparse.BooleanOptionalAction)
     parser.add_argument("--print-ld-flags", help="print the Linker flags needed to use the selected ASL C runtime", action=argparse.BooleanOptionalAction)
     parser.add_argument("--build", help="compile and link the ASL code", action='store_true')
@@ -494,6 +494,32 @@ def main() -> int:
         ]
         asli_cmd.extend(args.asl_files)
         run(asli_cmd)
+    elif args.run and args.backend == "mlir":
+        working_directory = make_working_dir(args.working_dir, prefix="asltest.")
+        exports_file = f"{working_directory}/exports.json"
+        mlir_file = f"{working_directory}/asl.mlir"
+        asli_cmd = [
+            asli,
+            "--batchmode",
+            f"--configuration={exports_file}",
+            "--exec=:filter_reachable_from exports",
+            "--exec=:generate_mlir",
+            "--exec=:quit",
+        ]
+        asli_cmd.extend(args.asl_files)
+        generate_exports(exports_file)
+        asl_xdsl_dir = os.environ.get('ASL_XDSL_DIR')
+        if asl_xdsl_dir is None:
+            print("Error: ASL_XDSL_DIR environment variable must point at the xdsl_asl checkout")
+        with open(mlir_file, "w") as f:
+            r1 = subprocess.run(asli_cmd, stdout=f)
+            if r1.returncode != 0:
+                exit(r1.returncode)
+        print(f"# Generated {mlir_file}")
+        mlir_cmd = ["uvx", f"--from={asl_xdsl_dir}", "asl-opt", "--target=exec", mlir_file]
+        run(mlir_cmd) 
+        print(f"# Ran {mlir_file}")
+        if not args.save_temps: shutil.rmtree(working_directory)
     else:
         working_directory = make_working_dir(args.working_dir, prefix="asltest.")
         report(f"# In temporary directory {working_directory}")
