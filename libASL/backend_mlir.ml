@@ -35,8 +35,23 @@ let varident (fmt : PP.formatter) (x : Ident.t) : unit =
   else
     PP.fprintf fmt "%%%s" (Ident.name x)
 
+(* A temporary workaround: convert an asl.bool to i1 so that we can use scf.if *)
+let bool_to_i1 = Ident.mk_fident "bool_to_i1"
+let i1 = Ident.mk_ident "i1"
+
+let bool_to_i1_fty : AST.function_type = {
+  parameters = [];
+  args = [ (Ident.mk_ident "x", Asl_utils.type_bool) ];
+  setter_arg = None;
+  rty = Some (Type_Constructor (i1, []));
+  is_getter_setter = false;
+  use_array_syntax = false;
+  throws=NoThrow
+}
+
 (* set of all primitive operation names - these will be preceded by asl. *)
 let primitive_operations = Identset.IdentSet.of_list [
+  bool_to_i1;
   Builtin_idents.not_bool;
   Builtin_idents.neg_int;
   Builtin_idents.not_bits;
@@ -423,7 +438,8 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
       end
   | Stmt_If (c, t, [], (e, _), loc) ->
       let c' = expr loc fmt c in
-      PP.fprintf fmt "scf.if %a {" varident c';
+      let c'' = prim_apply loc fmt bool_to_i1 [] [Expr_Var c'] in 
+      PP.fprintf fmt "scf.if %a{" varident c'';
       indented_block fmt t;
       PP.fprintf fmt "scf.yield";
       PP.fprintf fmt "@,} else {";
@@ -491,6 +507,7 @@ let _ =
       | _ -> ()
       )
     ) decls;
+    funtypes := Identset.Bindings.add bool_to_i1 bool_to_i1_fty !funtypes;
 
     Identset.IdentSet.iter (fun f -> 
       ( match Identset.Bindings.find_opt f !funtypes with
