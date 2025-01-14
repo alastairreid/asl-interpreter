@@ -431,7 +431,7 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
   | Stmt_FunReturn (e, loc) ->
       let t = expr loc fmt e in
       PP.fprintf fmt "asl.return %a : %a@."
-        ident t
+        varident t
         (pp_type loc) !return_type
   | Stmt_ProcReturn loc ->
       PP.fprintf fmt "asl.return@."
