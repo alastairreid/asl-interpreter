@@ -35,31 +35,13 @@ let varident (fmt : PP.formatter) (x : Ident.t) : unit =
   else
     PP.fprintf fmt "%%%s" (Ident.name x)
 
-(* A temporary workaround: convert an asl.bool to i1 so that we can use scf.if *)
-let bool_to_i1 = Ident.mk_fident "bool_to_i1"
-let i1 = Ident.mk_ident "i1"
-
-let bool_to_i1_fty : AST.function_type = {
-  parameters = [];
-  args = [ (Ident.mk_ident "x", Asl_utils.type_bool) ];
-  setter_arg = None;
-  rty = Some (Type_Constructor (i1, []));
-  is_getter_setter = false;
-  use_array_syntax = false;
-  throws=NoThrow
-}
-
 (* set of all primitive operation names - these will be preceded by asl. *)
 let primitive_operations = Identset.IdentSet.of_list [
-  bool_to_i1;
   Builtin_idents.not_bool;
   Builtin_idents.neg_int;
   Builtin_idents.not_bits;
   Builtin_idents.zeros_bits;
   Builtin_idents.ones_bits;
-  Builtin_idents.and_bool;
-  Builtin_idents.or_bool;
-  Builtin_idents.implies_bool;
   Builtin_idents.eq_enum;
   Builtin_idents.eq_int;
   Builtin_idents.le_int;
@@ -206,6 +188,12 @@ let valueLit (loc : Loc.t) (fmt : PP.formatter) (x : Value.value) : unit =
   | _ -> raise (InternalError (loc, "valueLit", (fun fmt -> Value.pp_value fmt x), __LOC__))
   )
 
+let mk_bool_const (fmt : PP.formatter) (x : bool) : Ident.t =
+  let t = locals#fresh in
+  let x' = if x then 1 else 0 in
+  PP.fprintf fmt "%a = arith.constant %d : i1@," varident t x';
+  t
+
 (* Todo: the following is a hack that can only cope with a few simple kinds of expression
  * that appear in types but this is definitely not sufficient to express all ASL types.
  *
@@ -312,6 +300,34 @@ and funtype (loc : Loc.t) (fmt : PP.formatter) (x : AST.function_type) : unit =
     (commasep (pp_arg_type loc)) x.args
     (pp_return_type loc) x.rty
 
+and mk_binop (loc : Loc.t) (fmt : PP.formatter) (op : string) (x : AST.expr) (y : AST.expr) : Ident.t =
+  let x' = expr loc fmt x in
+  let y' = expr loc fmt y in
+  let t = locals#fresh in
+  PP.fprintf fmt "%s %a %a"
+    op
+    varident x'
+    varident y';
+  t
+
+and mk_ite (loc : Loc.t) (fmt : PP.formatter) (c : AST.expr) (mk_then : 'a -> Ident.t) (mk_else : 'b -> Ident.t) : Ident.t =
+  let c' = expr loc fmt c in
+  let t = locals#fresh in
+  PP.fprintf fmt "%a = scf.if %a {"
+    varident t
+    varident c';
+  indented fmt (fun _ ->
+    let x' = mk_then () in
+    PP.fprintf fmt "scf.yield %a" varident x'
+  );
+  PP.fprintf fmt "@,} else {";
+  indented fmt (fun _ ->
+    let y' = mk_then () in
+    PP.fprintf fmt "scf.yield %a" varident y'
+  );
+  PP.fprintf fmt "@,}@,";
+  t
+
 and expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : Ident.t =
   ( match x with
   | Expr_Lit v ->
@@ -327,9 +343,32 @@ and expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : Ident.t =
         (Z.to_string v)
         (Z.to_string wd);
       t
+  | Expr_Var v when Ident.equal v Builtin_idents.false_ident ->
+      mk_bool_const fmt false
+  | Expr_Var v when Ident.equal v Builtin_idents.true_ident ->
+      mk_bool_const fmt true
   | Expr_Var v ->
       (* todo: if v is a global, it needs to be copied into a local *)
       v
+  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.and_bool ->
+      mk_ite loc fmt
+        x
+        (fun _ -> expr loc fmt y)
+        (fun _ -> mk_bool_const fmt false)
+  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.or_bool ->
+      mk_ite loc fmt
+        x
+        (fun _ -> mk_bool_const fmt true)
+        (fun _ -> expr loc fmt y)
+  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.implies_bool ->
+      mk_ite loc fmt
+        x
+        (fun _ -> expr loc fmt y)
+        (fun _ -> mk_bool_const fmt true)
+  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.in_list f [Builtin_idents.eq_bool; Builtin_idents.equiv_bool] ->
+      mk_binop loc fmt "arith.cmp_i eq," x y
+  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.ne_bool ->
+      mk_binop loc fmt "arith.cmp_i ne," x y
   | Expr_TApply (f, ps, args, throws) ->
       if Identset.IdentSet.mem f primitive_operations then begin
         prim_apply loc fmt f ps args
@@ -358,7 +397,7 @@ and pp_type (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : unit =
   ( match x with
   | Type_Bits (e, _) -> PP.fprintf fmt "!asl.bits<%a>" (simple_expr loc) e
   | Type_Constructor (tc, []) when tc = Builtin_idents.boolean_ident ->
-      PP.fprintf fmt "!asl.bool"
+      PP.fprintf fmt "i1"
   | Type_Constructor (tc, []) when tc = Builtin_idents.real_ident ->
       PP.fprintf fmt "!asl.real"
   | Type_Constructor (tc, []) when tc = Builtin_idents.string_ident ->
@@ -443,8 +482,7 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
       end
   | Stmt_If (c, t, [], (e, _), loc) ->
       let c' = expr loc fmt c in
-      let c'' = prim_apply loc fmt bool_to_i1 [] [Expr_Var c'] in 
-      PP.fprintf fmt "scf.if %a{" varident c'';
+      PP.fprintf fmt "scf.if %a{" varident c';
       indented_block fmt t;
       PP.fprintf fmt "scf.yield";
       PP.fprintf fmt "@,} else {";
@@ -512,7 +550,6 @@ let _ =
       | _ -> ()
       )
     ) decls;
-    funtypes := Identset.Bindings.add bool_to_i1 bool_to_i1_fty !funtypes;
 
     Identset.IdentSet.iter (fun f -> 
       ( match Identset.Bindings.find_opt f !funtypes with
