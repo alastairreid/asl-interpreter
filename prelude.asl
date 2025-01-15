@@ -76,7 +76,7 @@ __builtin func asl_sub_bits{N}(x : bits(N), y : bits(N)) => bits(N);
 __builtin func asl_mul_bits{N}(x : bits(N), y : bits(N)) => bits(N);
 __builtin func asl_and_bits{N}(x : bits(N), y : bits(N)) => bits(N);
 __builtin func asl_or_bits{N}(x : bits(N), y : bits(N)) => bits(N);
-__builtin func asl_eor_bits{N}(x : bits(N), y : bits(N)) => bits(N);
+__builtin func asl_xor_bits{N}(x : bits(N), y : bits(N)) => bits(N);
 __builtin func asl_not_bits{N}(x : bits(N)) => bits(N);
 __builtin func asl_zeros_bits(N : integer) => bits(N);
 __builtin func asl_ones_bits(N : integer) => bits(N);
@@ -329,7 +329,7 @@ __operator2 MOD   = asl_frem_int, asl_frem_bits_int;
 
 __operator2 AND   = asl_and_bits;
 __operator2 OR    = asl_or_bits;
-__operator2 EOR   = asl_eor_bits;
+__operator2 EOR   = asl_xor_bits;
 __operator1 NOT   = asl_not_bits;
 
 func asl_append_str_bool(x : string, y : boolean) => string
