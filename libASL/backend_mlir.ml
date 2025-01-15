@@ -383,6 +383,7 @@ and expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : Ident.t =
       raise (Error.Unimplemented (loc, "expression", pp))
   )
 
+(*
 and constraint_range (loc : Loc.t) (fmt : PP.formatter) (x : AST.constraint_range) : unit =
   ( match x with
   | Constraint_Single e -> simple_expr loc fmt e
@@ -391,10 +392,14 @@ and constraint_range (loc : Loc.t) (fmt : PP.formatter) (x : AST.constraint_rang
         (simple_expr loc) lo
         (simple_expr loc) hi
   )
+*)
 
 and constraints (loc : Loc.t) (fmt : PP.formatter) (x : AST.constraint_range list) : unit =
+  (* todo: For now, we ignore constraints
   PP.fprintf fmt "<%a>"
     (commasep (constraint_range loc)) x
+  *)
+  ()
 
 and pp_type (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : unit =
   ( match x with
