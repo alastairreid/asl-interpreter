@@ -152,7 +152,8 @@ let primitive_operations = Identset.IdentSet.of_list [
   Builtin_idents.print_sintN_dec;
   Builtin_idents.print_sintN_hex;
   Builtin_idents.asl_extract_bits;
-  Builtin_idents.asl_extract_int
+  Builtin_idents.asl_extract_int;
+  Builtin_idents.print_bits_hex
 ]
  
 let standard_functions = Identset.IdentSet.of_list [
@@ -164,7 +165,6 @@ let standard_functions = Identset.IdentSet.of_list [
   Builtin_idents.print_int_dec;
   Builtin_idents.print_char;
   Builtin_idents.print_str;
-  Builtin_idents.print_bits_hex;
   Builtin_idents.print_bits
 ]
 
@@ -227,16 +227,19 @@ let parameters (loc : Loc.t) (fmt : PP.formatter) (ps : AST.expr list) : unit =
       (simple_exprs loc) ps
   end
 
+let instantiate_funtype (ps : AST.expr list) (fty : AST.function_type) : AST.function_type =
+  let env = Identset.mk_bindings (List.map2 (fun (p, _) ty -> (p, ty)) fty.parameters ps) in
+  Asl_utils.subst_funtype env fty
+
 let rec prim_apply (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (ps : AST.expr list) (args : AST.expr list) : Ident.t =
   let avs = List.map (expr loc fmt) args in
   let fty = Identset.Bindings.find f !funtypes in
   let t = locals#fresh in
-  PP.fprintf fmt "%a = %a%a %a : %a@,"
+  PP.fprintf fmt "%a = %a %a : %a@,"
     varident t
     prim_name f
-    (parameters loc) ps
     (commasep varident) avs
-    (prim_funtype loc) fty;
+    (prim_funtype loc) (instantiate_funtype ps fty);
   t
 
 and user_apply (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (ps : AST.expr list) (args : AST.expr list) : Ident.t =
@@ -248,7 +251,7 @@ and user_apply (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (ps : AST.expr l
     ident f
     (parameters loc) ps
     (commasep varident) avs
-    (funtype loc) fty;
+    (funtype loc) (instantiate_funtype ps fty);
   t
 
 and formal_param (loc : Loc.t) (fmt : PP.formatter) (x : (Ident.t * AST.ty option)) : unit =
@@ -450,11 +453,10 @@ let return_type = ref (AST.Type_Tuple [])
 let prim_call (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (ps : AST.expr list) (args : AST.expr list) : unit =
   let avs = List.map (expr loc fmt) args in
   let fty = Identset.Bindings.find f !funtypes in
-  PP.fprintf fmt "%a%a %a : %a@,"
+  PP.fprintf fmt "%a %a : %a@,"
     prim_name f
-    (parameters loc) ps
     (commasep varident) avs
-    (prim_funtype loc) fty
+    (prim_funtype loc) (instantiate_funtype ps fty)
 
 let user_call (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (ps : AST.expr list) (args : AST.expr list) : unit =
   let avs = List.map (expr loc fmt) args in
@@ -463,7 +465,7 @@ let user_call (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (ps : AST.expr li
     ident f
     (parameters loc) ps
     (commasep varident) avs
-    (funtype loc) fty
+    (funtype loc) (instantiate_funtype ps fty)
 
 let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
   ( match x with

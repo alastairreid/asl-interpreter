@@ -210,6 +210,7 @@ val subst_lexpr : AST.expr Bindings.t -> AST.lexpr -> AST.lexpr
 val subst_var : AST.expr Bindings.t -> Asl_visitor.access_kind -> Ident.t -> Ident.t
 val subst_slice : AST.expr Bindings.t -> AST.slice -> AST.slice
 val subst_type : AST.expr Bindings.t -> AST.ty -> AST.ty
+val subst_funtype : AST.expr Bindings.t -> AST.function_type -> AST.function_type
 val subst_decl_item : AST.expr Bindings.t -> AST.decl_item -> AST.decl_item
 
 (** More flexible substitution class - takes a function instead
