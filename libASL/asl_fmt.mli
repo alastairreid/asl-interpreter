@@ -109,7 +109,6 @@ val kw_else : formatter -> unit
 val kw_elsif : formatter -> unit
 val kw_enumeration : formatter -> unit
 val kw_end : formatter -> unit
-val kw_eor : formatter -> unit
 val kw_for : formatter -> unit
 val kw_func : formatter -> unit
 val kw_getter : formatter -> unit
@@ -145,6 +144,7 @@ val kw_until : formatter -> unit
 val kw_var : formatter -> unit
 val kw_when : formatter -> unit
 val kw_while : formatter -> unit
+val kw_xor : formatter -> unit
 
 (*****************************************
  * End

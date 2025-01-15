@@ -76,7 +76,7 @@ __builtin func asl_sub_bits{N}(x : bits(N), y : bits(N)) => bits(N);
 __builtin func asl_mul_bits{N}(x : bits(N), y : bits(N)) => bits(N);
 __builtin func asl_and_bits{N}(x : bits(N), y : bits(N)) => bits(N);
 __builtin func asl_or_bits{N}(x : bits(N), y : bits(N)) => bits(N);
-__builtin func asl_eor_bits{N}(x : bits(N), y : bits(N)) => bits(N);
+__builtin func asl_xor_bits{N}(x : bits(N), y : bits(N)) => bits(N);
 __builtin func asl_not_bits{N}(x : bits(N)) => bits(N);
 __builtin func asl_zeros_bits(N : integer) => bits(N);
 __builtin func asl_ones_bits(N : integer) => bits(N);
@@ -329,7 +329,8 @@ __operator2 MOD   = asl_frem_int, asl_frem_bits_int;
 
 __operator2 AND   = asl_and_bits;
 __operator2 OR    = asl_or_bits;
-__operator2 EOR   = asl_eor_bits;
+__operator2 EOR   = asl_xor_bits; // deprecated synonym for XOR
+__operator2 XOR   = asl_xor_bits;
 __operator1 NOT   = asl_not_bits;
 
 func asl_append_str_bool(x : string, y : boolean) => string
@@ -631,7 +632,7 @@ end
 // bits following the leading bit, that are equal to it.
 func CountLeadingSignBits(x : bits(N)) => integer {0 .. N}
 begin
-    return CountLeadingZeroBits(x[N-1:1] EOR x[N-2:0]);
+    return CountLeadingZeroBits(x[N-1:1] XOR x[N-2:0]);
 end
 
 // Treating input as an integer, align down to nearest multiple of 2^y.
@@ -690,7 +691,7 @@ func IsParityEven(x : bits(N)) => boolean
 begin
     var r : bit = '0';
     for i = 0 to N - 1 do
-        r = r EOR x[i];
+        r = r XOR x[i];
     end
     return r == '0';
 end
@@ -699,7 +700,7 @@ func IsParityOdd(x : bits(N)) => boolean
 begin
     var r : bit = '0';
     for i = 0 to N - 1 do
-        r = r EOR x[i];
+        r = r XOR x[i];
     end
     return r == '1';
 end

@@ -41,7 +41,7 @@ binop =
  | Binop_BoolIff
  | Binop_BoolImplies
  | Binop_BitOr
- | Binop_BitEor
+ | Binop_BitXor
  | Binop_BitAnd
  | Binop_Append
  | Binop_DUMMY
@@ -208,7 +208,7 @@ let associativeOperators: binop list =
     ; Binop_BoolAnd
     ; Binop_BoolOr
     ; Binop_BitOr
-    ; Binop_BitEor
+    ; Binop_BitXor
     ; Binop_BitAnd
     ; Binop_Append
     ]
@@ -246,7 +246,7 @@ let miscOperators: binop list =
     ; Binop_ShiftL
     ; Binop_ShiftR
     ; Binop_BitOr
-    ; Binop_BitEor
+    ; Binop_BitXor
     ; Binop_BitAnd
     ]
 

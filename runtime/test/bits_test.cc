@@ -73,11 +73,11 @@ TEST_F(Bits64, CvtIntBits)
     EXPECT_EQ(6ULL, ASL_cvt_int_bits_64(width, -2LL));
 }
 
-TEST_F(Bits64, Eor)
+TEST_F(Bits64, Xor)
 {
-    EXPECT_EQ(zeros, ASL_eor_bits_64(64, zeros, zeros));
-    EXPECT_EQ(zeros, ASL_eor_bits_64(64,  ones,  ones));
-    EXPECT_EQ( ones, ASL_eor_bits_64(64, zeros,  ones));
+    EXPECT_EQ(zeros, ASL_xor_bits_64(64, zeros, zeros));
+    EXPECT_EQ(zeros, ASL_xor_bits_64(64,  ones,  ones));
+    EXPECT_EQ( ones, ASL_xor_bits_64(64, zeros,  ones));
 }
 
 TEST_F(Bits64, Eq)

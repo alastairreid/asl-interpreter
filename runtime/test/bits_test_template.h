@@ -89,11 +89,11 @@ TEST_F(ASL_CC_INDIR(Bits, N), CvtIntBits)
     EXPECT_EQ(r, ASL_cvt_int_bits(N, width, -1LL));
 }
 
-TEST_F(ASL_CC_INDIR(Bits, N), Eor)
+TEST_F(ASL_CC_INDIR(Bits, N), Xor)
 {
-    EXPECT_EQ(zeros, ASL_eor_bits(N, N, zeros, zeros));
-    EXPECT_EQ(zeros, ASL_eor_bits(N, N,  ones,  ones));
-    EXPECT_EQ( ones, ASL_eor_bits(N, N, zeros,  ones));
+    EXPECT_EQ(zeros, ASL_xor_bits(N, N, zeros, zeros));
+    EXPECT_EQ(zeros, ASL_xor_bits(N, N,  ones,  ones));
+    EXPECT_EQ( ones, ASL_xor_bits(N, N, zeros,  ones));
 }
 
 TEST_F(ASL_CC_INDIR(Bits, N), Eq)

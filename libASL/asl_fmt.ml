@@ -102,7 +102,6 @@ let star (fmt : PP.formatter) : unit = delimiter fmt "*"
 let kw_and (fmt : PP.formatter) : unit = delimiter fmt "AND"
 let kw_div_exact (fmt : PP.formatter) : unit = delimiter fmt "DIV"
 let kw_divrm (fmt : PP.formatter) : unit = delimiter fmt "DIVRM"
-let kw_eor (fmt : PP.formatter) : unit = delimiter fmt "EOR"
 let kw_in (fmt : PP.formatter) : unit = delimiter fmt "IN"
 let kw_mod (fmt : PP.formatter) : unit = delimiter fmt "MOD"
 let kw_not (fmt : PP.formatter) : unit = delimiter fmt "NOT"
@@ -154,6 +153,7 @@ let kw_var (fmt : PP.formatter) : unit = keyword fmt "var"
 let kw_when (fmt : PP.formatter) : unit = keyword fmt "when"
 let kw_where (fmt : PP.formatter) : unit = keyword fmt "where"
 let kw_while (fmt : PP.formatter) : unit = keyword fmt "while"
+let kw_xor (fmt : PP.formatter) : unit = delimiter fmt "XOR"
 
 type comment = Lexing.position * Lexing.position * string
 
@@ -260,7 +260,7 @@ let binop (fmt : PP.formatter) (x : AST.binop) : unit =
   | Binop_BoolIff -> lt_minus_gt fmt
   | Binop_BoolImplies -> minus_minus_gt fmt
   | Binop_BitOr -> kw_or fmt
-  | Binop_BitEor -> kw_eor fmt
+  | Binop_BitXor -> kw_xor fmt
   | Binop_BitAnd -> kw_and fmt
   | Binop_Append -> plus_plus fmt
   | Binop_DUMMY ->

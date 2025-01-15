@@ -76,7 +76,7 @@ ASL_cvt_int_bits_64(int width, ASL_int_t x)
 }
 
 ASL_bits64_t
-ASL_eor_bits_64(int width, ASL_bits64_t x, ASL_bits64_t y)
+ASL_xor_bits_64(int width, ASL_bits64_t x, ASL_bits64_t y)
 {
         return x ^ y;
 }

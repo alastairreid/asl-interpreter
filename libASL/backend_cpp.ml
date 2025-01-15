@@ -826,7 +826,7 @@ and funcall (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (tes : AST.expr lis
   | _ when Ident.equal f ne_bits -> binop loc fmt "!=" args
   | _ when Ident.equal f mul_bits -> binop loc fmt "*" args
   | _ when Ident.equal f or_bits -> binop loc fmt "|" args
-  | _ when Ident.equal f eor_bits -> binop loc fmt "^" args
+  | _ when Ident.equal f xor_bits -> binop loc fmt "^" args
   | _ when Ident.equal f lsl_bits -> binop loc fmt "<<" args
   | _ when Ident.equal f lsr_bits -> binop loc fmt ">>" args
   | _ when Ident.equal f add_bits -> binop loc fmt "+" args

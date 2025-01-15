@@ -106,7 +106,7 @@ module type RuntimeLib = sig
   val mul_bits : PP.formatter -> int -> rt_expr -> rt_expr -> unit
   val and_bits : PP.formatter -> int -> rt_expr -> rt_expr -> unit
   val or_bits  : PP.formatter -> int -> rt_expr -> rt_expr -> unit
-  val eor_bits : PP.formatter -> int -> rt_expr -> rt_expr -> unit
+  val xor_bits : PP.formatter -> int -> rt_expr -> rt_expr -> unit
   val not_bits : PP.formatter -> int -> rt_expr -> unit
   val lsl_bits : PP.formatter -> int -> rt_expr -> rt_expr -> unit
   val lsr_bits : PP.formatter -> int -> rt_expr -> rt_expr -> unit

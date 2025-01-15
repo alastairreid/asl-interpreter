@@ -47,7 +47,6 @@ let string_of_token (t : Asl_parser.token) : string =
   | ENUMERATION -> "enum"
   | EXCEPTION -> "exception"
   | EOF -> "eof"
-  | EOR -> "eor"
   | EQ -> "eq"
   | EQ_EQ -> "eqeq"
   | EQ_GT -> "eqgt"
@@ -112,6 +111,7 @@ let string_of_token (t : Asl_parser.token) : string =
   | WHEN -> "when"
   | WHERE -> "where"
   | WHILE -> "while"
+  | XOR -> "xor"
 
 let print_position outx lexbuf =
   let pos = lexbuf.lex_curr_p in

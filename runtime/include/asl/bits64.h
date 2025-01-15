@@ -85,10 +85,10 @@ ASL_int_t ASL_cvt_bits_uint_64(int width, ASL_bits64_t x);
 
 ASL_bits64_t ASL_cvt_int_bits_64(int width, ASL_int_t x);
 
-#define ASL_eor_bits(sizeof_x, n, x, y) \
-        ASL_CC(ASL_eor_bits_, sizeof_x)(n, x, y)
+#define ASL_xor_bits(sizeof_x, n, x, y) \
+        ASL_CC(ASL_xor_bits_, sizeof_x)(n, x, y)
 
-ASL_bits64_t ASL_eor_bits_64(int width, ASL_bits64_t x, ASL_bits64_t y);
+ASL_bits64_t ASL_xor_bits_64(int width, ASL_bits64_t x, ASL_bits64_t y);
 
 #define ASL_eq_bits(sizeof_x, n, x, y) \
         ASL_CC(ASL_eq_bits_, sizeof_x)(n, x, y)

@@ -715,7 +715,7 @@ and funcall (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (tes : AST.expr lis
         ]
   | [ x; n ] when Ident.equal f cvt_int_bits ->
       apply_bits_builtin loc fmt (fun _ -> fn_extern fmt f) [ n ] [ n; x ]
-  | _ when Ident.in_list f [ eor_bits; eq_bits ] ->
+  | _ when Ident.in_list f [ xor_bits; eq_bits ] ->
       let n = List.hd tes in
       apply_bits_builtin loc fmt (fun _ -> fn_extern fmt f) [ n ] (n :: args)
   | [ w; _ ] when Ident.equal f Builtin_idents.mk_mask ->

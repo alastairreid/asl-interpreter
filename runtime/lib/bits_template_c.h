@@ -105,7 +105,7 @@ ASL_eq_bits(N, int width, ASL_BITS_TYPE x, ASL_BITS_TYPE y)
 }
 
 ASL_BITS_TYPE
-ASL_eor_bits(N, int width, ASL_BITS_TYPE x, ASL_BITS_TYPE y)
+ASL_xor_bits(N, int width, ASL_BITS_TYPE x, ASL_BITS_TYPE y)
 {
         for (int i = 0; i < ASL_BITS_LIMBS_64; ++i)
              x.u64[i] ^= y.u64[i];

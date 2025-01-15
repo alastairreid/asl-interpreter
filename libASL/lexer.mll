@@ -15,7 +15,7 @@ let keywords : (string * Asl_parser.token) list = [
     ("AND",                    AND);
     ("DIV",                    DIV);
     ("DIVRM",                  DIVRM);
-    ("EOR",                    EOR);
+    ("EOR",                    XOR);
     ("IN",                     IN);
     ("MOD",                    MOD);
     ("NOT",                    NOT);
@@ -23,7 +23,7 @@ let keywords : (string * Asl_parser.token) list = [
     ("QUOT",                   QUOT);
     ("REM",                    REM);
     ("UNKNOWN",                UNKNOWN);
-    ("XOR",                    EOR);
+    ("XOR",                    XOR);
     ("__assert",               UNDERSCORE_UNDERSCORE_ASSERT);
     ("__builtin",              UNDERSCORE_UNDERSCORE_BUILTIN);
     ("__in",                   UNDERSCORE_UNDERSCORE_IN);

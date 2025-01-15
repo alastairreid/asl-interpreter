@@ -117,7 +117,6 @@ let type_unknown = Type_Constructor (Ident.mk_ident "<type_unknown>", [])
 %token DIV  (* DIV *)
 %token DIVRM  (* DIVRM *)
 %token EQ_EQ  (* == *)
-%token EOR  (* EOR *)
 %token GT  (* > *)
 %token GT_EQ  (* >= *)
 %token GT_GT  (* >> *)
@@ -136,6 +135,7 @@ let type_unknown = Type_Constructor (Ident.mk_ident "<type_unknown>", [])
 %token REM  (* REM *)
 %token SLASH  (* / *)
 %token STAR  (* * *)
+%token XOR  (* XOR *)
 
 (* unop tokens *)
 %token BANG  (* ! *)
@@ -543,7 +543,7 @@ binop:
 | LT_MINUS_GT { Binop_BoolIff }
 | MINUS_MINUS_GT { Binop_BoolImplies }
 | OR { Binop_BitOr }
-| EOR { Binop_BitEor }
+| XOR { Binop_BitXor }
 | AND { Binop_BitAnd }
 | PLUS_PLUS { Binop_Append }
 

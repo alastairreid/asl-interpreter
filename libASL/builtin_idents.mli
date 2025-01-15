@@ -72,7 +72,7 @@ val sub_real : Ident.t
 val cvt_bits_sint : Ident.t
 val cvt_bits_uint : Ident.t
 val cvt_int_bits : Ident.t
-val eor_bits : Ident.t
+val xor_bits : Ident.t
 val frem_bits_int : Ident.t
 val notin_mask : Ident.t
 val asr_bits : Ident.t

@@ -501,7 +501,7 @@ and funcall (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (tes : AST.expr lis
   | ([n],   [x;y]) when Ident.equal f mul_bits -> Runtime.mul_bits fmt n (mk_expr loc x) (mk_expr loc y)
   | ([n],   [x;y]) when Ident.equal f and_bits -> Runtime.and_bits fmt n (mk_expr loc x) (mk_expr loc y)
   | ([n],   [x;y]) when Ident.equal f or_bits -> Runtime.or_bits fmt n (mk_expr loc x) (mk_expr loc y)
-  | ([n],   [x;y]) when Ident.equal f eor_bits -> Runtime.eor_bits fmt n (mk_expr loc x) (mk_expr loc y)
+  | ([n],   [x;y]) when Ident.equal f xor_bits -> Runtime.xor_bits fmt n (mk_expr loc x) (mk_expr loc y)
   | ([n],   [x])   when Ident.equal f not_bits -> Runtime.not_bits fmt n (mk_expr loc x)
   | ([n],   [x;y]) when Ident.equal f lsl_bits -> Runtime.lsl_bits fmt n (mk_expr loc x) (mk_expr loc y)
   | ([n],   [x;y]) when Ident.equal f lsr_bits -> Runtime.lsr_bits fmt n (mk_expr loc x) (mk_expr loc y)

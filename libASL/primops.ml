@@ -189,7 +189,7 @@ let prim_and_bits (x : bitvector) (y : bitvector) : bitvector =
 let prim_or_bits (x : bitvector) (y : bitvector) : bitvector =
   mkBits x.n (Z.logor x.v y.v)
 
-let prim_eor_bits (x : bitvector) (y : bitvector) : bitvector =
+let prim_xor_bits (x : bitvector) (y : bitvector) : bitvector =
   mkBits x.n (Z.logxor x.v y.v)
 
 let prim_not_bits (x : bitvector) : bitvector = mkBits x.n (Z.lognot x.v)

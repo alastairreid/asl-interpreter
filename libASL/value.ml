@@ -609,8 +609,8 @@ let eval_prim (f : Ident.t) (tvs : value list) (vs : value list) : value option 
       Some (VBits (prim_and_bits x y))
   | [ VInt n ], [ VBits x; VBits y ] when Ident.equal f or_bits ->
       Some (VBits (prim_or_bits x y))
-  | [ VInt n ], [ VBits x; VBits y ] when Ident.equal f eor_bits ->
-      Some (VBits (prim_eor_bits x y))
+  | [ VInt n ], [ VBits x; VBits y ] when Ident.equal f xor_bits ->
+      Some (VBits (prim_xor_bits x y))
   | [ VInt n ], [ VBits x ] when Ident.equal f not_bits ->
       Some (VBits (prim_not_bits x))
   | [ VInt n ], [_] when Ident.equal f zeros_bits ->
