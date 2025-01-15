@@ -209,6 +209,12 @@ let mk_bool_const (fmt : PP.formatter) (x : bool) : Ident.t =
 let simple_expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
   ( match x with
   | Expr_Lit (VInt v) -> PP.pp_print_string fmt (Z.to_string v)
+  | Expr_TApply (f, [], [Expr_Lit (VInt x); Expr_Lit (VInt y)], _) when Ident.equal f Builtin_idents.add_int ->
+    (* hack to handle append primop *)
+    PP.pp_print_string fmt (Z.to_string (Z.add x y))
+  | Expr_TApply (f, [], [Expr_Lit (VInt x); Expr_Lit (VInt y)], _) when Ident.equal f Builtin_idents.mul_int ->
+    (* hack to handle replicate primop *)
+    PP.pp_print_string fmt (Z.to_string (Z.mul x y))
   | Expr_Var v -> varident fmt v
   | _ ->
       let msg = Format.asprintf "simple_expr: overly complex expression" in
@@ -338,6 +344,19 @@ and expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : Ident.t =
       PP.fprintf fmt "%a = %a@,"
         ident t
         (valueLit loc) v;
+      t
+  | Expr_Slices (Type_Bits (Expr_Lit (VInt m), _), x, [Slice_LoWd (lo, (Expr_Lit (VInt n) as wd))]) ->
+      let x' = expr loc fmt x in
+      let lo' = expr loc fmt lo in
+      let wd' = expr loc fmt wd in
+      let t = locals#fresh in
+      PP.fprintf fmt "%a = asl.get_slice %a, %a, %a : (!asl.bits<%s>, !asl.int, !asl.int) -> !asl.bits<%s> {attr_dict}@,"
+        varident t
+        varident x'
+        varident lo'
+        varident wd'
+        (Z.to_string m)
+        (Z.to_string n);
       t
   | Expr_Slices (Type_Integer _, Expr_Lit (VInt v), [Slice_LoWd (lo, Expr_Lit (VInt wd))]) when lo = Asl_utils.zero ->
       let t = locals#fresh in
