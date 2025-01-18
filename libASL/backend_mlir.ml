@@ -317,7 +317,7 @@ let funtype (loc : Loc.t) (fmt : PP.formatter) (x : AST.function_type) : unit =
     (commasep (pp_arg_type loc)) x.args
     (pp_return_type loc) x.rty
 
-type environment = (Ident.t * AST.ty) ScopeStack.t
+type environment = AST.ty ScopeStack.t
 
 let rec prim_apply (loc : Loc.t) (env : environment) (fmt : PP.formatter) (f : Ident.t) (ps : AST.expr list) (args : AST.expr list) : Ident.t =
   let avs = List.map (expr loc env fmt) args in
@@ -445,30 +445,6 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       raise (Error.Unimplemented (loc, "expression", pp))
   )
 
-let declitem (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.decl_item) =
-  ( match x with
-  | DeclItem_Var (v, Some t) ->
-      PP.fprintf fmt "%a : %a;@,"
-        ident v
-        (pp_type loc) t
-  | _ ->
-      let pp fmt = FMT.decl_item fmt x in
-      raise (Error.Unimplemented (loc, "declitem", pp))
-  )
-
-let decl (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
-  ( match x with
-  | Stmt_VarDeclsNoInit (vs, t, loc) ->
-      List.iter (fun v ->
-        PP.fprintf fmt "%a : %a;@,"
-        ident v
-        (pp_type loc) t
-      )
-      vs
-  | Stmt_VarDecl (di, i, loc) | Stmt_ConstDecl (di, i, loc) -> declitem loc env fmt di
-  | _ -> ()
-  )
-
 let return_type = ref (AST.Type_Tuple [])
 
 let prim_call (loc : Loc.t) (env : environment) (fmt : PP.formatter) (f : Ident.t) (ps : AST.expr list) (args : AST.expr list) : unit =
@@ -528,8 +504,8 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
 and indented_block (env : environment) (fmt : PP.formatter) (xs : AST.stmt list) : unit =
   if xs <> [] then begin
     indented fmt (fun _ ->
-      map fmt (decl env fmt) xs;
-      cutsep (stmt env) fmt xs)
+      ScopeStack.nest env (fun env' ->
+        cutsep (stmt env) fmt xs))
   end
 
 let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declaration) : unit =
@@ -544,7 +520,9 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
         -> ()
       | Decl_FunDefn (f, fty, b, loc) ->
           locals#reset;
-          let env = ScopeStack.empty () in
+          let env : environment = ScopeStack.empty () in
+          List.iter (fun (v, oty) -> ScopeStack.add env v (Option.get oty)) fty.parameters;
+          List.iter (fun (v, ty) -> ScopeStack.add env v ty) fty.args;
           PP.fprintf fmt "asl.func @%a%a(%a) -> %a {"
             ident f
             (formal_params loc) fty.parameters
