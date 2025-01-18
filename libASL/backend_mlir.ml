@@ -237,190 +237,10 @@ let instantiate_funtype (ps : AST.expr list) (fty : AST.function_type) : AST.fun
   let env = Identset.mk_bindings (List.map2 (fun (p, _) ty -> (p, ty)) fty.parameters ps) in
   Asl_utils.subst_funtype env fty
 
-let rec prim_apply (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (ps : AST.expr list) (args : AST.expr list) : Ident.t =
-  let avs = List.map (expr loc fmt) args in
-  let fty = Identset.Bindings.find f !funtypes in
-  let t = locals#fresh in
-  PP.fprintf fmt "%a = %a %a : %a@,"
-    varident t
-    prim_name f
-    (commasep varident) avs
-    (prim_funtype loc) (instantiate_funtype ps fty);
-  t
-
-and user_apply (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (ps : AST.expr list) (args : AST.expr list) : Ident.t =
-  let avs = List.map (expr loc fmt) args in
-  let fty = Identset.Bindings.find f !funtypes in
-  let t = locals#fresh in
-  PP.fprintf fmt "%a = asl.call @%a%a(%a) : %a@,"
-    varident t
-    ident f
-    (parameters loc) ps
-    (commasep varident) avs
-    (funtype loc) (instantiate_funtype ps fty);
-  t
-
-and formal_param (loc : Loc.t) (fmt : PP.formatter) (x : (Ident.t * AST.ty option)) : unit =
-  let (v, ot) = x in
-  (* Note: formal parameters are assumed to be integer (with no constraints) *)
-  PP.fprintf fmt "%a"
-    varident v
-
-and formal_params (loc : Loc.t) (fmt : PP.formatter) (xs : (Ident.t * AST.ty option) list) : unit =
-  if List.is_empty xs then begin
-    ()
-  end else begin
-    PP.fprintf fmt "<%a>"
-      (commasep (formal_param loc)) xs
-  end
-
-and formal_arg (loc : Loc.t) (fmt : PP.formatter) (x : (Ident.t * AST.ty)) : unit =
-  let (v, t) = x in
-  PP.fprintf fmt "%a : %a"
-    varident v
-    (pp_type loc) t
-
-and pp_arg_type (loc : Loc.t) (fmt : PP.formatter) (x : (Ident.t * AST.ty)) : unit =
-  let (_, t) = x in
-  PP.fprintf fmt "%a"
-    (pp_type loc) t
-
-and pp_arg_types (loc : Loc.t) (fmt : PP.formatter) (xs : (Ident.t * AST.ty) list) : unit =
-  ( match xs with
-  | [] -> ()
-  | [x] -> pp_arg_type loc fmt x
-  | _ -> PP.fprintf fmt "(%a)" (commasep (pp_arg_type loc)) xs
-  )
-
-and pp_return_type (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty option) : unit =
-  PP.pp_print_option
-    ~none:(fun fmt _ -> PP.fprintf fmt "()")
-    (fun fmt t -> pp_type loc fmt t)
-    fmt
-    x
-
-and prim_funtype (loc : Loc.t) (fmt : PP.formatter) (x : AST.function_type) : unit =
-  PP.fprintf fmt "%a -> %a"
-    (pp_arg_types loc) x.args
-    (pp_return_type loc) x.rty
-
-and funtype (loc : Loc.t) (fmt : PP.formatter) (x : AST.function_type) : unit =
-  PP.fprintf fmt "(%a) -> %a"
-    (commasep (pp_arg_type loc)) x.args
-    (pp_return_type loc) x.rty
-
-and mk_binop (loc : Loc.t) (fmt : PP.formatter) (op : string) (x : AST.expr) (y : AST.expr) : Ident.t =
-  let x' = expr loc fmt x in
-  let y' = expr loc fmt y in
-  let t = locals#fresh in
-  PP.fprintf fmt "%s %a %a"
-    op
-    varident x'
-    varident y';
-  t
-
-and mk_ite (loc : Loc.t) (fmt : PP.formatter) (c : AST.expr) (mk_then : 'a -> Ident.t) (mk_else : 'b -> Ident.t) : Ident.t =
-  let c' = expr loc fmt c in
-  let t = locals#fresh in
-  PP.fprintf fmt "%a = scf.if %a {"
-    varident t
-    varident c';
-  indented fmt (fun _ ->
-    let x' = mk_then () in
-    PP.fprintf fmt "scf.yield %a" varident x'
-  );
-  PP.fprintf fmt "@,} else {";
-  indented fmt (fun _ ->
-    let y' = mk_then () in
-    PP.fprintf fmt "scf.yield %a" varident y'
-  );
-  PP.fprintf fmt "@,}@,";
-  t
-
-and expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : Ident.t =
-  ( match x with
-  | Expr_Lit v ->
-      let t = locals#fresh in
-      PP.fprintf fmt "%a = %a@,"
-        ident t
-        (valueLit loc) v;
-      t
-  | Expr_Slices (Type_Bits (Expr_Lit (VInt m), _), x, [Slice_LoWd (lo, (Expr_Lit (VInt n) as wd))]) ->
-      let x' = expr loc fmt x in
-      let lo' = expr loc fmt lo in
-      let wd' = expr loc fmt wd in
-      let t = locals#fresh in
-      PP.fprintf fmt "%a = asl.get_slice %a, %a, %a : (!asl.bits<%s>, !asl.int, !asl.int) -> !asl.bits<%s> {attr_dict}@,"
-        varident t
-        varident x'
-        varident lo'
-        varident wd'
-        (Z.to_string m)
-        (Z.to_string n);
-      t
-  | Expr_Slices (Type_Integer _, Expr_Lit (VInt v), [Slice_LoWd (lo, Expr_Lit (VInt wd))]) when lo = Asl_utils.zero ->
-      let t = locals#fresh in
-      PP.fprintf fmt "%a = asl.constant_bits %s : !asl.bits<%s> {attr_dict}@,"
-        ident t
-        (Z.to_string v)
-        (Z.to_string wd);
-      t
-  | Expr_Var v when Ident.equal v Builtin_idents.false_ident ->
-      mk_bool_const fmt false
-  | Expr_Var v when Ident.equal v Builtin_idents.true_ident ->
-      mk_bool_const fmt true
-  | Expr_Var v ->
-      (* todo: if v is a global, it needs to be copied into a local *)
-      v
-  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.and_bool ->
-      mk_ite loc fmt
-        x
-        (fun _ -> expr loc fmt y)
-        (fun _ -> mk_bool_const fmt false)
-  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.or_bool ->
-      mk_ite loc fmt
-        x
-        (fun _ -> mk_bool_const fmt true)
-        (fun _ -> expr loc fmt y)
-  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.implies_bool ->
-      mk_ite loc fmt
-        x
-        (fun _ -> expr loc fmt y)
-        (fun _ -> mk_bool_const fmt true)
-  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.in_list f [Builtin_idents.eq_bool; Builtin_idents.equiv_bool] ->
-      mk_binop loc fmt "arith.cmp_i eq," x y
-  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.ne_bool ->
-      mk_binop loc fmt "arith.cmp_i ne," x y
-  | Expr_TApply (f, ps, args, throws) ->
-      if Identset.IdentSet.mem f primitive_operations then begin
-        prim_apply loc fmt f ps args
-      end else begin
-        user_apply loc fmt f ps args
-      end
-  | _ ->
-      let pp fmt = FMT.expr fmt x in
-      raise (Error.Unimplemented (loc, "expression", pp))
-  )
-
-(*
-and constraint_range (loc : Loc.t) (fmt : PP.formatter) (x : AST.constraint_range) : unit =
-  ( match x with
-  | Constraint_Single e -> simple_expr loc fmt e
-  | Constraint_Range (lo, hi) ->
-      PP.fprintf fmt "%a:%a"
-        (simple_expr loc) lo
-        (simple_expr loc) hi
-  )
-*)
-
-and constraints (loc : Loc.t) (fmt : PP.formatter) (x : AST.constraint_range list) : unit =
-  (* todo: For now, we ignore constraints
-  PP.fprintf fmt "<%a>"
-    (commasep (constraint_range loc)) x
-  *)
+let constraints (loc : Loc.t) (fmt : PP.formatter) (x : AST.constraint_range list) : unit =
   ()
 
-and pp_type (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : unit =
+let rec pp_type (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : unit =
   ( match x with
   | Type_Bits (e, _) -> PP.fprintf fmt "!asl.bits<%a>" (simple_expr loc) e
   | Type_Constructor (tc, []) when tc = Builtin_idents.boolean_ident ->
@@ -448,7 +268,184 @@ and pp_type (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : unit =
       raise (Error.Unimplemented (loc, "type", pp))
   )
       
-let declitem (loc : Loc.t) (fmt : PP.formatter) (x : AST.decl_item) =
+let formal_param (loc : Loc.t) (fmt : PP.formatter) (x : (Ident.t * AST.ty option)) : unit =
+  let (v, ot) = x in
+  (* Note: formal parameters are assumed to be integer (with no constraints) *)
+  PP.fprintf fmt "%a"
+    varident v
+
+let formal_params (loc : Loc.t) (fmt : PP.formatter) (xs : (Ident.t * AST.ty option) list) : unit =
+  if List.is_empty xs then begin
+    ()
+  end else begin
+    PP.fprintf fmt "<%a>"
+      (commasep (formal_param loc)) xs
+  end
+
+let formal_arg (loc : Loc.t) (fmt : PP.formatter) (x : (Ident.t * AST.ty)) : unit =
+  let (v, t) = x in
+  PP.fprintf fmt "%a : %a"
+    varident v
+    (pp_type loc) t
+
+let pp_arg_type (loc : Loc.t) (fmt : PP.formatter) (x : (Ident.t * AST.ty)) : unit =
+  let (_, t) = x in
+  PP.fprintf fmt "%a"
+    (pp_type loc) t
+
+let pp_arg_types (loc : Loc.t) (fmt : PP.formatter) (xs : (Ident.t * AST.ty) list) : unit =
+  ( match xs with
+  | [] -> ()
+  | [x] -> pp_arg_type loc fmt x
+  | _ -> PP.fprintf fmt "(%a)" (commasep (pp_arg_type loc)) xs
+  )
+
+let pp_return_type (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty option) : unit =
+  PP.pp_print_option
+    ~none:(fun fmt _ -> PP.fprintf fmt "()")
+    (fun fmt t -> pp_type loc fmt t)
+    fmt
+    x
+
+let prim_funtype (loc : Loc.t) (fmt : PP.formatter) (x : AST.function_type) : unit =
+  PP.fprintf fmt "%a -> %a"
+    (pp_arg_types loc) x.args
+    (pp_return_type loc) x.rty
+
+let funtype (loc : Loc.t) (fmt : PP.formatter) (x : AST.function_type) : unit =
+  PP.fprintf fmt "(%a) -> %a"
+    (commasep (pp_arg_type loc)) x.args
+    (pp_return_type loc) x.rty
+
+type environment = (Ident.t * AST.ty) ScopeStack.t
+
+let rec prim_apply (loc : Loc.t) (env : environment) (fmt : PP.formatter) (f : Ident.t) (ps : AST.expr list) (args : AST.expr list) : Ident.t =
+  let avs = List.map (expr loc env fmt) args in
+  let fty = Identset.Bindings.find f !funtypes in
+  let t = locals#fresh in
+  PP.fprintf fmt "%a = %a %a : %a@,"
+    varident t
+    prim_name f
+    (commasep varident) avs
+    (prim_funtype loc) (instantiate_funtype ps fty);
+  t
+
+and user_apply (loc : Loc.t) (env : environment) (fmt : PP.formatter) (f : Ident.t) (ps : AST.expr list) (args : AST.expr list) : Ident.t =
+  let avs = List.map (expr loc env fmt) args in
+  let fty = Identset.Bindings.find f !funtypes in
+  let t = locals#fresh in
+  PP.fprintf fmt "%a = asl.call @%a%a(%a) : %a@,"
+    varident t
+    ident f
+    (parameters loc) ps
+    (commasep varident) avs
+    (funtype loc) (instantiate_funtype ps fty);
+  t
+
+and mk_binop (loc : Loc.t) (env : environment) (fmt : PP.formatter) (op : string) (x : AST.expr) (y : AST.expr) : Ident.t =
+  let x' = expr loc env fmt x in
+  let y' = expr loc env fmt y in
+  let t = locals#fresh in
+  PP.fprintf fmt "%s %a %a"
+    op
+    varident x'
+    varident y';
+  t
+
+and mk_ite (loc : Loc.t) (env : environment) (fmt : PP.formatter) (c : AST.expr) (mk_then : 'a -> Ident.t) (mk_else : 'b -> Ident.t) : Ident.t =
+  let c' = expr loc env fmt c in
+  let t = locals#fresh in
+  PP.fprintf fmt "%a = scf.if %a {"
+    varident t
+    varident c';
+  indented fmt (fun _ ->
+    let x' = mk_then () in
+    PP.fprintf fmt "scf.yield %a" varident x'
+  );
+  PP.fprintf fmt "@,} else {";
+  indented fmt (fun _ ->
+    let y' = mk_else () in
+    PP.fprintf fmt "scf.yield %a" varident y'
+  );
+  PP.fprintf fmt "@,}@,";
+  t
+
+and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) : Ident.t =
+  ( match x with
+  | Expr_Lit v ->
+      let t = locals#fresh in
+      PP.fprintf fmt "%a = %a@,"
+        ident t
+        (valueLit loc) v;
+      t
+  | Expr_Slices (Type_Bits (Expr_Lit (VInt m), _), x, [Slice_LoWd (lo, (Expr_Lit (VInt n) as wd))]) ->
+      let x' = expr loc env fmt x in
+      let lo' = expr loc env fmt lo in
+      let wd' = expr loc env fmt wd in
+      let t = locals#fresh in
+      PP.fprintf fmt "%a = asl.get_slice %a, %a, %a : (!asl.bits<%s>, !asl.int, !asl.int) -> !asl.bits<%s> {attr_dict}@,"
+        varident t
+        varident x'
+        varident lo'
+        varident wd'
+        (Z.to_string m)
+        (Z.to_string n);
+      t
+  | Expr_Slices (Type_Integer _, Expr_Lit (VInt v), [Slice_LoWd (lo, Expr_Lit (VInt wd))]) when lo = Asl_utils.zero ->
+      let t = locals#fresh in
+      PP.fprintf fmt "%a = asl.constant_bits %s : !asl.bits<%s> {attr_dict}@,"
+        ident t
+        (Z.to_string v)
+        (Z.to_string wd);
+      t
+  | Expr_Var v when Ident.equal v Builtin_idents.false_ident ->
+      mk_bool_const fmt false
+  | Expr_Var v when Ident.equal v Builtin_idents.true_ident ->
+      mk_bool_const fmt true
+  | Expr_Var v ->
+      (* todo: if v is a global, it needs to be copied into a local *)
+      v
+  | Expr_If (c, t, [], e) ->
+      mk_ite loc env fmt
+        c
+        (fun _ -> expr loc env fmt t)
+        (fun _ -> expr loc env fmt e)
+  | Expr_If (c, t, AST.E_Elsif_Cond (c', t')::els, e) ->
+      mk_ite loc env fmt
+        c
+        (fun _ -> expr loc env fmt t)
+        (fun _ -> expr loc env fmt (Expr_If (c', t', els, e)))
+  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.and_bool ->
+      mk_ite loc env fmt
+        x
+        (fun _ -> expr loc env fmt y)
+        (fun _ -> mk_bool_const fmt false)
+  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.or_bool ->
+      mk_ite loc env fmt
+        x
+        (fun _ -> mk_bool_const fmt true)
+        (fun _ -> expr loc env fmt y)
+  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.implies_bool ->
+      mk_ite loc env fmt
+        x
+        (fun _ -> expr loc env fmt y)
+        (fun _ -> mk_bool_const fmt true)
+  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.in_list f [Builtin_idents.eq_bool; Builtin_idents.equiv_bool] ->
+      mk_binop loc env fmt "arith.cmp_i eq," x y
+  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.ne_bool ->
+      mk_binop loc env fmt "arith.cmp_i ne," x y
+  | Expr_TApply (f, ps, args, throws) ->
+      if Identset.IdentSet.mem f primitive_operations then begin
+        prim_apply loc env fmt f ps args
+      end else begin
+        user_apply loc env fmt f ps args
+      end
+  | _ ->
+      let pp fmt = FMT.expr fmt x in
+      raise (Error.Unimplemented (loc, "expression", pp))
+  )
+
+let declitem (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.decl_item) =
   ( match x with
   | DeclItem_Var (v, Some t) ->
       PP.fprintf fmt "%a : %a;@,"
@@ -459,7 +456,7 @@ let declitem (loc : Loc.t) (fmt : PP.formatter) (x : AST.decl_item) =
       raise (Error.Unimplemented (loc, "declitem", pp))
   )
 
-let decl (fmt : PP.formatter) (x : AST.stmt) : unit =
+let decl (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
   ( match x with
   | Stmt_VarDeclsNoInit (vs, t, loc) ->
       List.iter (fun v ->
@@ -468,22 +465,22 @@ let decl (fmt : PP.formatter) (x : AST.stmt) : unit =
         (pp_type loc) t
       )
       vs
-  | Stmt_VarDecl (di, i, loc) | Stmt_ConstDecl (di, i, loc) -> declitem loc fmt di
+  | Stmt_VarDecl (di, i, loc) | Stmt_ConstDecl (di, i, loc) -> declitem loc env fmt di
   | _ -> ()
   )
 
 let return_type = ref (AST.Type_Tuple [])
 
-let prim_call (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (ps : AST.expr list) (args : AST.expr list) : unit =
-  let avs = List.map (expr loc fmt) args in
+let prim_call (loc : Loc.t) (env : environment) (fmt : PP.formatter) (f : Ident.t) (ps : AST.expr list) (args : AST.expr list) : unit =
+  let avs = List.map (expr loc env fmt) args in
   let fty = Identset.Bindings.find f !funtypes in
   PP.fprintf fmt "%a %a : %a@,"
     prim_name f
     (commasep varident) avs
     (prim_funtype loc) (instantiate_funtype ps fty)
 
-let user_call (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (ps : AST.expr list) (args : AST.expr list) : unit =
-  let avs = List.map (expr loc fmt) args in
+let user_call (loc : Loc.t) (env : environment) (fmt : PP.formatter) (f : Ident.t) (ps : AST.expr list) (args : AST.expr list) : unit =
+  let avs = List.map (expr loc env fmt) args in
   let fty = Identset.Bindings.find f !funtypes in
   PP.fprintf fmt "asl.call @%a%a(%a) : %a@,"
     ident f
@@ -491,28 +488,36 @@ let user_call (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (ps : AST.expr li
     (commasep varident) avs
     (funtype loc) (instantiate_funtype ps fty)
 
-let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
+let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
   ( match x with
+  | Stmt_Block (ss, loc) ->
+      cutsep (stmt env) fmt ss
   | Stmt_FunReturn (e, loc) ->
-      let t = expr loc fmt e in
+      let t = expr loc env fmt e in
       PP.fprintf fmt "asl.return %a : %a@."
         varident t
         (pp_type loc) !return_type
   | Stmt_ProcReturn loc ->
       PP.fprintf fmt "asl.return@."
+  | Stmt_Assert (e, loc) ->
+      let t = expr loc env fmt e in
+      PP.fprintf fmt "asl.assert \"%s\", \"%s\", %a@."
+        (String.escaped (Loc.to_string loc))
+        (String.escaped (Utils.to_string2 (Fun.flip FMT.expr e)))
+        varident t
   | Stmt_TCall (f, ps, args, throws, loc) ->
       if Identset.IdentSet.mem f primitive_operations then begin
-        prim_call loc fmt f ps args
+        prim_call loc env fmt f ps args
       end else begin
-        user_call loc fmt f ps args
+        user_call loc env fmt f ps args
       end
   | Stmt_If (c, t, [], (e, _), loc) ->
-      let c' = expr loc fmt c in
+      let c' = expr loc env fmt c in
       PP.fprintf fmt "scf.if %a{" varident c';
-      indented_block fmt t;
+      indented_block env fmt t;
       PP.fprintf fmt "scf.yield";
       PP.fprintf fmt "@,} else {";
-      indented_block fmt e;
+      indented_block env fmt e;
       PP.fprintf fmt "scf.yield";
       PP.fprintf fmt "@,}@,@,"
   | _ ->
@@ -520,11 +525,11 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
       raise (Error.Unimplemented (Loc.Unknown, "statement", pp))
   )
 
-and indented_block (fmt : PP.formatter) (xs : AST.stmt list) : unit =
+and indented_block (env : environment) (fmt : PP.formatter) (xs : AST.stmt list) : unit =
   if xs <> [] then begin
     indented fmt (fun _ ->
-      map fmt (decl fmt) xs;
-      cutsep stmt fmt xs)
+      map fmt (decl env fmt) xs;
+      cutsep (stmt env) fmt xs)
   end
 
 let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declaration) : unit =
@@ -539,13 +544,14 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
         -> ()
       | Decl_FunDefn (f, fty, b, loc) ->
           locals#reset;
+          let env = ScopeStack.empty () in
           PP.fprintf fmt "asl.func @%a%a(%a) -> %a {"
             ident f
             (formal_params loc) fty.parameters
             (commasep (formal_arg loc)) fty.args
             (pp_return_type loc) fty.rty;
           return_type := Option.value ~default:(AST.Type_Tuple []) fty.rty;
-          indented_block fmt b;
+          indented_block env fmt b;
           if Option.is_none fty.rty then PP.fprintf fmt "asl.return@.";
           PP.fprintf fmt "}@.@."
       | _ ->
