@@ -336,7 +336,12 @@ let funtype (loc : Loc.t) (fmt : PP.formatter) (x : AST.function_type) : unit =
     (commasep (pp_arg_type loc)) x.args
     (pp_return_type loc) x.rty
 
-type environment = AST.ty ScopeStack.t
+(* the environment tracks the following about local variables
+ * - for mutable variables, what SSA variable holds its current value
+ * - their type
+ *)
+
+type environment = (Ident.t option * AST.ty) ScopeStack.t
 
 let rec prim_apply (loc : Loc.t) (env : environment) (fmt : PP.formatter) (f : Ident.t) (ps : AST.expr list) (args : AST.expr list) : (Ident.t * AST.ty) =
   let avs = List.map (fun arg -> fst (expr loc env fmt arg)) args in
@@ -408,6 +413,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       let v = locals#fresh in
       PP.fprintf fmt "%a = " ident v;
       let t = valueLit loc fmt l in
+      PP.fprintf fmt "@,";
       (v, t)
   | Expr_Slices (Type_Bits (Expr_Lit (VInt m), _), x, [Slice_LoWd (lo, (Expr_Lit (VInt n) as wd))]) ->
       let (x', _) = expr loc env fmt x in
@@ -435,7 +441,11 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       mk_bool_const fmt true
   | Expr_Var v ->
       (* todo: if v is a global, it needs to be copied into a local *)
-      (v, Option.get (ScopeStack.get env v))
+      ( match ScopeStack.get env v with
+      | None -> raise (InternalError (loc, "Expr_Var", (fun fmt -> Ident.pp fmt v), __LOC__))
+      | Some (None, ty) -> (v, ty) (* immutable variable *)
+      | Some (Some v', ty) -> (v', ty)
+      )
   | Expr_If (c, t, [], e) ->
       mk_ite loc env fmt
         c
@@ -497,6 +507,30 @@ let user_call (loc : Loc.t) (env : environment) (fmt : PP.formatter) (f : Ident.
 
 let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
   ( match x with
+  | Stmt_ConstDecl (DeclItem_Var (v, _), i, loc) ->
+      let (i', ty) = expr loc env fmt i in
+      PP.fprintf fmt "%a = asl.copy %a : %a@,"
+        varident v
+        varident i'
+        (pp_type loc) ty;
+      ignore (ScopeStack.set env v (None, ty))
+  | Stmt_ConstDecl (DeclItem_Wildcard _, i, loc) ->
+      ignore (expr loc env fmt i)
+  | Stmt_VarDecl (DeclItem_Var (v, _), i, loc) ->
+      let (i', ty) = expr loc env fmt i in
+      PP.fprintf fmt "%a = asl.copy %a : %a@,"
+        varident v
+        varident i'
+        (pp_type loc) ty;
+      ignore (ScopeStack.add env v (Some v, ty))
+  | Stmt_VarDecl (DeclItem_Wildcard _, i, loc) ->
+      ignore (expr loc env fmt i)
+  | Stmt_Assign (LExpr_Var v, rhs, loc) ->
+      let (rhs', ty) = expr loc env fmt rhs in
+      (* todo: check that v is mutable *)
+      ignore (ScopeStack.add env v (Some rhs', ty))
+  | Stmt_Assign (LExpr_Wildcard, rhs, loc) ->
+      ignore (expr loc env fmt rhs)
   | Stmt_Block (ss, loc) ->
       cutsep (stmt env) fmt ss
   | Stmt_FunReturn (e, loc) ->
@@ -552,8 +586,8 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
       | Decl_FunDefn (f, fty, b, loc) ->
           locals#reset;
           let env : environment = ScopeStack.empty () in
-          List.iter (fun (v, oty) -> ScopeStack.add env v (Option.get oty)) fty.parameters;
-          List.iter (fun (v, ty) -> ScopeStack.add env v ty) fty.args;
+          List.iter (fun (v, oty) -> ScopeStack.add env v (None, Option.get oty)) fty.parameters;
+          List.iter (fun (v, ty) -> ScopeStack.add env v (None, ty)) fty.args;
           PP.fprintf fmt "asl.func @%a%a(%a) -> %a {"
             ident f
             (formal_params loc) fty.parameters
