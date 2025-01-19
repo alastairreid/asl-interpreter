@@ -3,15 +3,15 @@
 
 func Test(x : integer) => integer
 begin
-    var - = x + 1;
-    - = x - 1;
-    return x;
+    var y = x;
+    y = x + 1;
+    return y;
 end
 
 func main() => integer
 begin
     print_int_dec(Test(3)); println();
-    // CHECK: 3
+    // CHECK: 4
 
     return 0;
 end
