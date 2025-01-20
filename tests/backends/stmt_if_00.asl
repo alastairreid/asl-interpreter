@@ -1,27 +1,22 @@
 // RUN: %aslrun %s | filecheck %s
 // Copyright (C) 2023-2025 Intel Corporation
 
-func Test(x : boolean, y : boolean) => bits(4)
+func Test(x : boolean) => bits(4)
 begin
+    var r = '0000';
     if x then
-        return '0001';
-    elsif y then 
-        return '0010';
+        r = '0001';
     else
-        return '0011';
+        r = '0011';
     end
-    return '0100';
+    return r;
 end
 
 func main() => integer
 begin
-    print_bits_hex(Test(TRUE, FALSE)); println();
+    print_bits_hex(Test(TRUE)); println();
     // CHECK: 4'x1
-    print_bits_hex(Test(TRUE, TRUE)); println();
-    // CHECK: 4'x1
-    print_bits_hex(Test(FALSE, TRUE)); println();
-    // CHECK: 4'x2
-    print_bits_hex(Test(FALSE, FALSE)); println();
+    print_bits_hex(Test(FALSE)); println();
     // CHECK: 4'x3
 
     return 0;

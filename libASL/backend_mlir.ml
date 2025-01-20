@@ -553,14 +553,61 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
         user_call loc env fmt f ps args
       end
   | Stmt_If (c, t, [], (e, _), loc) ->
+      (* Since ASL code tends to have few mutable vars, we use all mutable vars as
+       * an approximation of the set of variables modified by this if.
+       *)
+      let mutables =
+        ScopeStack.bindings env
+        |> List.concat_map (List.filter_map (fun (v, (b, ty)) ->
+             if Option.is_some b then (
+               let v' = locals#fresh in
+               Some (v, v', ty)
+             ) else (
+               None
+             )))
+      in
+      let (mutable_vars, fresh_vars, mutable_types) = Utils.split3 mutables in
+      let get_mutbind (v : Ident.t) : Ident.t =
+        ( match ScopeStack.get env v with
+        | Some (Some v', _) -> v'
+        | _ -> raise (InternalError (loc, "mk_ite", (fun fmt -> Ident.pp fmt v), __LOC__))
+        )
+      in
       let (c', _) = expr loc env fmt c in
-      PP.fprintf fmt "scf.if %a{" varident c';
+      if not (List.is_empty fresh_vars) then begin
+        PP.fprintf fmt "%a = "
+          (commasep varident) fresh_vars
+      end;
+      PP.fprintf fmt "scf.if %a " varident c';
+      if not (List.is_empty mutable_types) then begin
+        PP.fprintf fmt "-> (%a) "
+          (commasep (pp_type loc)) mutable_types
+      end;
+      PP.fprintf fmt "{";
       indented_block env fmt t;
-      PP.fprintf fmt "scf.yield";
+      if List.is_empty mutable_vars then begin
+        PP.fprintf fmt "scf.yield";
+      end else begin
+        let mutable_vars' = List.map get_mutbind mutable_vars in
+        PP.fprintf fmt "scf.yield %a : %a"
+          (commasep varident) mutable_vars'
+          (commasep (pp_type loc)) mutable_types
+      end;
       PP.fprintf fmt "@,} else {";
       indented_block env fmt e;
-      PP.fprintf fmt "scf.yield";
-      PP.fprintf fmt "@,}@,@,"
+      if List.is_empty mutable_vars then begin
+        PP.fprintf fmt "scf.yield";
+      end else begin
+        let mutable_vars' = List.map get_mutbind mutable_vars in
+        PP.fprintf fmt "scf.yield %a : %a"
+          (commasep varident) mutable_vars'
+          (commasep (pp_type loc)) mutable_types
+      end;
+      PP.fprintf fmt "@,}@,@,";
+      List.iter (fun (v, v', ty) ->
+          ignore (ScopeStack.add env v (Some v', ty))
+        )
+        mutables
   | _ ->
       let pp fmt = FMT.stmt fmt x in
       raise (Error.Unimplemented (Loc.Unknown, "statement", pp))
