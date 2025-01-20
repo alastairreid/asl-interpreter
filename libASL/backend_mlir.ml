@@ -570,7 +570,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
       let get_mutbind (v : Ident.t) : Ident.t =
         ( match ScopeStack.get env v with
         | Some (Some v', _) -> v'
-        | _ -> raise (InternalError (loc, "mk_ite", (fun fmt -> Ident.pp fmt v), __LOC__))
+        | _ -> raise (InternalError (loc, "Stmt_If", (fun fmt -> Ident.pp fmt v), __LOC__))
         )
       in
       let (c', _) = expr loc env fmt c in
@@ -608,52 +608,68 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
           ignore (ScopeStack.add env v (Some v', ty))
         )
         mutables
-  | Stmt_For (ix, from, Direction_Up, to, b, loc) ->
+  | Stmt_For (ix, efrom, Direction_Up, eto, b, loc) ->
       (* Since ASL code tends to have few mutable vars, we use all mutable vars as
        * an approximation of the set of variables modified by this if.
        *)
-      let mutables =
-        ScopeStack.bindings env
-        |> List.concat_map (List.filter_map (fun (v, (b, ty)) ->
-             if Option.is_some b then (
-               let v' = locals#fresh in
-               Some (v, v', ty)
-             ) else (
-               None
-             )))
-      in
-      let (mutable_vars, fresh_vars, mutable_types) = Utils.split3 mutables in
       let get_mutbind (v : Ident.t) : Ident.t =
         ( match ScopeStack.get env v with
         | Some (Some v', _) -> v'
-        | _ -> raise (InternalError (loc, "mk_ite", (fun fmt -> Ident.pp fmt v), __LOC__))
+        | _ -> raise (InternalError (loc, "Stmt_For", (fun fmt -> Ident.pp fmt v), __LOC__))
         )
       in
-      let (from', _) = expr loc env fmt from in
-      let (to', _) = expr loc env fmt to in
-      if not (List.is_empty fresh_vars) then begin
-        PP.fprintf fmt "%a = "
-          (commasep varident) fresh_vars
-      end;
+      let mutables =
+        ScopeStack.bindings env
+        |> List.concat_map (List.filter_map (fun (v, (ob, ty)) ->
+             ( match ob with
+             | Some current ->
+                 let loopv = locals#fresh in
+                 let finalv = locals#fresh in
+                 Some (v, current, loopv, finalv, ty)
+             | None ->
+                 None
+             )))
+      in
+      let (from', _) = expr loc env fmt efrom in
+      let (to', _) = expr loc env fmt eto in
       let step = locals#fresh in
-      PP.fprintf fmt "%a = asl.constant_int 1 {attr_dict}" varident step;
+      PP.fprintf fmt "%a = asl.constant_int 1 {attr_dict}@," varident step;
+      if not (List.is_empty mutables) then begin
+        PP.fprintf fmt "%a = "
+          (commasep varident) (List.map (fun (_, _, _, finalv, _) -> finalv) mutables)
+      end;
+      (* todo: deal with mismatch in index type *)
       PP.fprintf fmt "scf.for %a = %a to %a step %a"
         varident ix
         varident from'
         varident to'
         varident step;
-      if not (List.is_empty fresh_vars) then begin
-        PP.fprintf fmt "iter_args(";
-        commasep (fun (v, v', _) -> PP.fprintf fmt "%a = %a"
-          varident v
-          varident v'
+      if not (List.is_empty mutables) then begin
+        PP.fprintf fmt " iter_args (";
+        commasep (fun fmt (v, current, loopv, _, _) -> PP.fprintf fmt "%a = %a"
+            varident loopv
+            varident current)
           fmt
           mutables;
-        PP.fprintf fmt ") -> %a"
-          (commasep (pp_type loc)) mutable_types
+        PP.fprintf fmt ") -> (%a)"
+          (commasep (pp_type loc)) (List.map (fun (_, _, _, _, ty) -> ty) mutables)
       end;
-      PP.fprintf fmt " {";
-      
+      PP.fprintf fmt "{";
+      ScopeStack.nest env (fun env' ->
+        ignore (ScopeStack.add env' ix (None, Asl_utils.type_integer));
+        indented_block env' fmt b);
+      if List.is_empty mutables then begin
+        PP.fprintf fmt "scf.yield";
+      end else begin
+        PP.fprintf fmt "scf.yield %a : %a"
+          (commasep varident) (List.map (fun (v, _, _, _, _) -> get_mutbind v) mutables)
+          (commasep (pp_type loc)) (List.map (fun (_, _, _, _, ty) -> ty) mutables)
+      end;
+      PP.fprintf fmt "@,}@,@,";
+      List.iter (fun (v, _, _, finalv, ty) ->
+          ignore (ScopeStack.add env v (Some finalv, ty))
+        )
+        mutables
   | _ ->
       let pp fmt = FMT.stmt fmt x in
       raise (Error.Unimplemented (Loc.Unknown, "statement", pp))
