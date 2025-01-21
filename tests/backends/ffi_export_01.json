@@ -1,0 +1,24 @@
+{
+    "__comment": [
+        "Export the interface required by ffi_export_01.c"
+    ],
+    "exports": [
+        "E",
+        "FFI_bits8",
+        "FFI_bits16",
+        "FFI_bits32",
+        "FFI_bits64",
+        "FFI_bits17",
+        "FFI_bits65",
+        "FFI_bits127",
+        "FFI_bits128",
+        "FFI_string",
+        "FFI_E",
+        "FFI_boolean",
+        "FFI_integer",
+        "FFI_int_bool"
+    ],
+    "imports": [
+        "FFI_test_exports"
+    ]
+}
