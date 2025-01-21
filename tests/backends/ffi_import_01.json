@@ -1,0 +1,23 @@
+{
+    "__comment": [
+        "Import the interface required by ffi_import_01.asl"
+    ],
+    "exports": [
+        "E"
+    ],
+    "imports": [
+        "FFI_null_bits8",
+        "FFI_null_bits16",
+        "FFI_null_bits32",
+        "FFI_null_bits64",
+        "FFI_null_bits17",
+        "FFI_null_bits65",
+        "FFI_null_bits127",
+        "FFI_null_bits128",
+        "FFI_null_string",
+        "FFI_null_E",
+        "FFI_null_boolean",
+        "FFI_null_integer",
+        "FFI_int_bool"
+    ]
+}
