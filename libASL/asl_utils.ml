@@ -1086,6 +1086,34 @@ let mk_cvt_int_bits (n : AST.expr) (x : AST.expr) : AST.expr =
   Expr_TApply (cvt_int_bits, [ n ], [ x; n ], NoThrow)
 
 (****************************************************************)
+(** {2 Let expressions and statements}                          *)
+(****************************************************************)
+
+(** Construct nested let-expressions from a list of bindings
+ *
+ *     mk_let_exprs [(x, tx, ex); (y, ty, ey)] e
+ *   =
+ *     let x:tx = ex in (let y:ty = ey in e)
+ *)
+let rec mk_let_exprs (bindings : (Ident.t * AST.ty * AST.expr) list) (e : AST.expr) : AST.expr =
+  ( match bindings with
+  | [] -> e
+  | ((v, ty, e') :: bs) -> AST.Expr_Let(v, ty, e', mk_let_exprs bs e)
+  )
+
+(** Construct assignments from a list of bindings
+ *
+ *     mk_assigns loc [(x, tx, ex); (y, ty, ey)]
+ *   =
+ *     let x : tx = ex;
+ *     let y : ty = ey;
+ *)
+let mk_assigns (loc : Loc.t) (bindings : (Ident.t * AST.ty * AST.expr) list) : AST.stmt list =
+  List.map (fun (v, ty, e) ->
+    AST.Stmt_ConstDecl (DeclItem_Var (v, Some ty), e, loc))
+    bindings
+
+(****************************************************************)
 (** {2 Safe expressions}                                        *)
 (****************************************************************)
 

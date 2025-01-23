@@ -15,18 +15,6 @@ open Asl_utils
 
 let assign_var = new Asl_utils.nameSupply "__l"
 
-(* Construct nested let-expressions from a list of bindings
- *
- *     mk_lets [(x, tx, ex); (y, ty, ey)] e
- *   =
- *     let x:tx = ex in (let y:ty = ey in e)
- *)
-let rec mk_let_exprs (bindings : (Ident.t * AST.ty * AST.expr) list) (e : AST.expr) : AST.expr =
-  ( match bindings with
-  | [] -> e
-  | ((v, ty, e') :: bs) -> AST.Expr_Let(v, ty, e', mk_let_exprs bs e)
-  )
-
 class lower_class = object (self)
     inherit Asl_visitor.nopAslVisitor
 
