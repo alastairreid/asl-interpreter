@@ -374,6 +374,27 @@ val mk_ors : AST.expr list -> AST.expr
 val mk_cvt_int_bits : AST.expr -> AST.expr -> AST.expr
 
 (****************************************************************)
+(** {2 Let expressions}                                         *)
+(****************************************************************)
+
+(** Construct nested let-expressions from a list of bindings
+ *
+ *     mk_let_exprs [(x, tx, ex); (y, ty, ey)] e
+ *   =
+ *     let x:tx = ex in (let y:ty = ey in e)
+ *)
+val mk_let_exprs : (Ident.t * AST.ty * AST.expr) list -> AST.expr -> AST.expr
+
+(** Construct assignments from a list of bindings
+ *
+ *     mk_assigns loc [(x, tx, ex); (y, ty, ey)]
+ *   =
+ *     let x : tx = ex;
+ *     let y : ty = ey;
+ *)
+val mk_assigns : Loc.t -> (Ident.t * AST.ty * AST.expr) list -> AST.stmt list
+
+(****************************************************************)
 (** {2 Safe expressions}                                        *)
 (****************************************************************)
 
