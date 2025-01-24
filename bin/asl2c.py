@@ -121,6 +121,15 @@ base_script = """
 // todo: explain why this needs to be repeated
 :xform_bittuples
 
+// Lift let-expressions as high as possible out of an expression
+// e.g., F(G(let t = 1 in H(t))) -> let t = 1 in F(G(H(t)))
+// (This makes later transformations work better if, for example,
+// they should match against "G(H(..))")
+//
+// Note that source code is not expected to contain let-expressions.
+// They only exist to make some transformations easier to write.
+:xform_hoist_lets
+
 // Convert bitslice operations like "x[i] = '1';" to a combination
 // of AND/OR and shift operations like "x = x OR (1 << i);"
 // This works better after constant propagation/monomorphization.
