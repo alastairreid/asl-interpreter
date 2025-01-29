@@ -63,14 +63,17 @@ runtime_test:
 lit_test: build
 	env PATH="`pwd`/tests/scripts:${PATH}" ${LIT} tests/lit -v
 
+TEST_ENV += AC_TYPES_DIR="`pwd`/runtime/external/ac_types"
+TEST_ENV += SC_TYPES_DIR="`pwd`/runtime/external/systemc/build-install"
+
 WIDE_BITINT_SUPPORTED := `$(MAKE) -C runtime/test wide_bitint_supported`
 
-BACKENDS := interpreter c23 ac fallback
+BACKENDS = interpreter c23 ac fallback sc
 
 test_backends: ${addprefix test_backend_, ${BACKENDS}}
 
 test_backend_%: build
-	env PATH="${CURDIR}/tests/scripts:$${PATH}" AC_TYPES_DIR="`pwd`/runtime/external/ac_types" ASL_BACKEND=$* ${LIT} tests/backends -v
+	env PATH="${CURDIR}/tests/scripts:$${PATH}" ${TEST_ENV} ASL_BACKEND=$* ${LIT} tests/backends -v
 
 
 test_demos: ${addprefix test_demo_, $(filter-out interpreter ac, ${BACKENDS})}
@@ -83,6 +86,16 @@ test_demo_interpreter : build
 
 demo_interpreter : build
 	$(MAKE) -C demo demo
+
+build_systemc:
+	test -f runtime/external/systemc/build-install/lib/libsystemc.a || \
+	( mkdir -p runtime/external/systemc/build && \
+	mkdir -p runtime/external/systemc/build-install && \
+	cmake runtime/external/systemc/ -B runtime/external/systemc/build -DCMAKE_INSTALL_PREFIX=runtime/external/systemc/build-install -DCMAKE_CXX_STANDARD=17 -DBUILD_SHARED_LIBS=OFF && \
+	cmake --build runtime/external/systemc/build && \
+	cmake --install runtime/external/systemc/build )
+
+test_backend_sc: build_systemc
 
 ################################################################
 # End

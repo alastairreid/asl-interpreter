@@ -10,8 +10,9 @@
 #include "asl/error.h"
 #include "asl/ram.h"
 #include <sstream>
-#include <ac_int.h>
 
+#if defined(ASL_AC)
+#include <ac_int.h>
 
 namespace asl
 {
@@ -26,6 +27,13 @@ namespace asl
 }
 
 typedef ac_int<128,true> ASL_int_t;
+#endif // ASL_AC
+
+#if defined(ASL_SC)
+#include <systemc.h>
+
+typedef sc_bigint<128> ASL_int_t;
+#endif // ASL_SC
 
 static inline void
 ASL_print_int_dec(ASL_int_t x)
@@ -50,6 +58,7 @@ ASL_print_int_hex(ASL_int_t x)
     }
 }
 
+#if defined(ASL_AC)
 template <int N>
 static inline void
 ASL_print_bits_hex(ac_int<N,false> x)
@@ -72,6 +81,25 @@ ASL_print_bits_hex(ac_int<N,false> x)
         std::cout << '0';
     }
 }
+#endif // ASL_AC
+
+#if defined(ASL_SC)
+namespace asl
+{
+    template <typename T, int num_bits>
+    inline T sc_bit_fill(const int (&x)[(num_bits + 31)/32])
+    {
+        T r = 0;
+        for (int i = 0; i+31 < num_bits; i += 32) {
+            r.range(i+31, i) = x[i/32];
+        }
+        if (num_bits % 32) {
+            r.range(num_bits-1, 32*(num_bits / 32)) = x[num_bits/32];
+        }
+        return r;
+    }
+}
+#endif // ASL_SC
 
 static inline void
 ASL_print_char(ASL_int_t x)

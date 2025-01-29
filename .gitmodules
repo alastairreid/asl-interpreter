@@ -1,6 +1,9 @@
 [submodule "ac_types"]
 	path = runtime/external/ac_types
 	url = https://github.com/hlslibs/ac_types.git
+[submodule "systemc"]
+	path = runtime/external/systemc
+	url = https://github.com/accellera-official/systemc.git
 [submodule "runtime/external/googletest"]
 	path = runtime/external/googletest
 	url = https://github.com/google/googletest.git

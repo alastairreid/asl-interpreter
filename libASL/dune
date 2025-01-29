@@ -52,6 +52,7 @@
    runtime_c23
    runtime_ac
    runtime_fallback
+   runtime_sc
    scope
    scopeStack
    tcheck
