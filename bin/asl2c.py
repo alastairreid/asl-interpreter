@@ -133,7 +133,7 @@ base_script = """
 // Convert bitslice operations like "x[i] = '1';" to a combination
 // of AND/OR and shift operations like "x = x OR (1 << i);"
 // This works better after constant propagation/monomorphization.
-:xform_bitslices
+:xform_bitslices {suppress_bitslice_xform}
 
 // Any case statement that does not correspond to what the C language
 // supports is converted to an if statement.
@@ -324,6 +324,8 @@ def mk_script(args, output_directory):
         'generate_c':  generate_c,
         'num_c_files': args.num_c_files,
         'output_dir':  output_directory,
+        'split_state': "",
+        'suppress_bitslice_xform': "",
         'track_valid': "",
         'wrap_variables': "",
     }
@@ -333,6 +335,11 @@ def mk_script(args, output_directory):
         substitutions['auto_case_split'] = '--no-auto-case-split'
     else:
         substitutions['auto_case_split'] = '--auto-case-split'
+    if not args.line_info:
+        substitutions['line_info'] = '--no-line-info'
+    else:
+        substitutions['line_info'] = '--line-info'
+    if args.backend in ["ac", "sc"]: substitutions['suppress_bitslice_xform'] = "--notransform"
 
     script = base_script.format(**substitutions)
 
