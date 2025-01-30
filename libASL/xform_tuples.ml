@@ -7,8 +7,13 @@
 
 module AST = Asl_ast
 
+let returnTypePrefix = "__Return"
+
 let mkReturnTypeName (f : Ident.t) : Ident.t =
-  Ident.add_prefix f ~prefix:"__Return"
+  Ident.add_prefix f ~prefix:returnTypePrefix
+
+let isReturnTypeName (f : Ident.t) : bool =
+  String.starts_with ~prefix:returnTypePrefix (Ident.name f)
 
 let mkReturnFieldName (i : int) : Ident.t = Ident.mk_ident ("r" ^ string_of_int i)
 
