@@ -92,6 +92,20 @@ let split3 (xyzs : ('x * 'y * 'z) list) : ('x list * 'y list * 'z list) =
     xyzs
     ([], [], [])
 
+(** split4 [(a1, b1, c1, d1); ... (an, bn, cn, dn)] = ([a1; ... an], ... [d1; ... dn]) *)
+let split4 (abcds : ('a * 'b * 'c * 'd) list) : ('a list * 'b list * 'c list * 'd list) =
+  List.fold_right
+    (fun (a, b, c, d) (as', bs, cs, ds) -> (a :: as', b :: bs, c :: cs, d :: ds))
+    abcds
+    ([], [], [], [])
+
+(** split5 [(a1, b1, c1, d1, e1); ... (an, bn, cn, dn, en)] = ([a1; ... an], ... [e1; ... en]) *)
+let split5 (abcdes : ('a * 'b * 'c * 'd * 'e) list) : ('a list * 'b list * 'c list * 'd list * 'e list) =
+  List.fold_right
+    (fun (a, b, c, d, e) (as', bs, cs, ds, es) -> (a :: as', b :: bs, c :: cs, d :: ds, e :: es))
+    abcdes
+    ([], [], [], [], [])
+
 (** iter3 f [x1;x2;...] [y1;y2;...] [z1;z2;...] = f x1 y1 z1; f x2 y2 z2; ... *)
 let rec iter3 (f : 'a -> 'b -> 'c -> unit) (xs : 'a list) (ys : 'b list) (zs : 'c list) =
   ( match (xs, ys, zs) with
