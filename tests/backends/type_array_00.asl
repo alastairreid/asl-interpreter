@@ -1,7 +1,7 @@
 // RUN: %aslrun %s | filecheck %s
 // Copyright (C) 2023-2025 Intel Corporation
 
-var R : array [2] of bits(32);
+var R : array [4] of bits(32);
 
 func Test(i : integer) => bits(32)
 begin
