@@ -239,6 +239,13 @@ class constEvalClass (env : Env.t) =
             else
               Visitor.ChangeTo (Expr_Let (v, t', e', b'))
             )
+      | Expr_Assert (e1, e2, loc) ->
+          let e1' = self#eval_expr e1 in
+          let e2' = self#eval_expr e2 in
+          if e1' = asl_true then
+              Visitor.ChangeTo e2'
+          else if e1 == e1' && e2 == e2' then SkipChildren
+          else Visitor.ChangeTo (Expr_Assert (e1', e2', loc))
       | Expr_Slices (t, e, ss) ->
           let t' = self#eval_type t in
           let e' = self#eval_expr e in
