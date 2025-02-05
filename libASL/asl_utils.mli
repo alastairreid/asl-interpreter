@@ -377,13 +377,15 @@ val mk_cvt_int_bits : AST.expr -> AST.expr -> AST.expr
 (** {2 Let expressions}                                         *)
 (****************************************************************)
 
+type binding = (Ident.t * AST.ty * AST.expr)
+
 (** Construct nested let-expressions from a list of bindings
  *
  *     mk_let_exprs [(x, tx, ex); (y, ty, ey)] e
  *   =
  *     let x:tx = ex in (let y:ty = ey in e)
  *)
-val mk_let_exprs : (Ident.t * AST.ty * AST.expr) list -> AST.expr -> AST.expr
+val mk_let_exprs : binding list -> AST.expr -> AST.expr
 
 (** Construct assignments from a list of bindings
  *
@@ -392,7 +394,30 @@ val mk_let_exprs : (Ident.t * AST.ty * AST.expr) list -> AST.expr -> AST.expr
  *     let x : tx = ex;
  *     let y : ty = ey;
  *)
-val mk_assigns : Loc.t -> (Ident.t * AST.ty * AST.expr) list -> AST.stmt list
+val mk_assigns : Loc.t -> binding list -> AST.stmt list
+
+(****************************************************************)
+(** {2 Assert expressions and statements}                       *)
+(****************************************************************)
+
+type check = (AST.expr * Loc.t)
+
+(* Construct nested assert-expressions from a list of checks
+ *
+ *     mk_assert [(x, locx); (y, locy)] e
+ *   =
+ *     __assert x __in (__assert y in e)
+ *)
+val mk_assert_exprs : check list -> AST.expr -> AST.expr
+
+(* Construct assertion statements from a list of checks
+ *
+ *     mk_assert [(x, locx); (y, locy)] e
+ *   =
+ *     assert x;
+ *     assert y;
+ *)
+val mk_assert_stmts : (AST.expr * Loc.t) list -> AST.stmt list
 
 (****************************************************************)
 (** {2 Safe expressions}                                        *)

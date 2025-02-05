@@ -1089,13 +1089,16 @@ let mk_cvt_int_bits (n : AST.expr) (x : AST.expr) : AST.expr =
 (** {2 Let expressions and statements}                          *)
 (****************************************************************)
 
+type binding = (Ident.t * AST.ty * AST.expr)
+type check = (AST.expr * Loc.t)
+
 (** Construct nested let-expressions from a list of bindings
  *
  *     mk_let_exprs [(x, tx, ex); (y, ty, ey)] e
  *   =
  *     let x:tx = ex in (let y:ty = ey in e)
  *)
-let rec mk_let_exprs (bindings : (Ident.t * AST.ty * AST.expr) list) (e : AST.expr) : AST.expr =
+let rec mk_let_exprs (bindings : binding list) (e : AST.expr) : AST.expr =
   ( match bindings with
   | [] -> e
   | ((v, ty, e') :: bs) -> AST.Expr_Let(v, ty, e', mk_let_exprs bs e)
@@ -1108,10 +1111,36 @@ let rec mk_let_exprs (bindings : (Ident.t * AST.ty * AST.expr) list) (e : AST.ex
  *     let x : tx = ex;
  *     let y : ty = ey;
  *)
-let mk_assigns (loc : Loc.t) (bindings : (Ident.t * AST.ty * AST.expr) list) : AST.stmt list =
+let mk_assigns (loc : Loc.t) (bindings : binding list) : AST.stmt list =
   List.map (fun (v, ty, e) ->
     AST.Stmt_ConstDecl (DeclItem_Var (v, Some ty), e, loc))
     bindings
+
+(****************************************************************)
+(** {2 Assert expressions and statements}                       *)
+(****************************************************************)
+
+(* Construct nested assert-expressions from a list of checks
+ *
+ *     mk_assert [(x, locx); (y, locy)] e
+ *   =
+ *     __assert x __in (__assert y in e)
+ *)
+let rec mk_assert_exprs (checks : (AST.expr * Loc.t) list) (e : AST.expr) : AST.expr =
+  ( match checks with
+  | [] -> e
+  | ((c, loc) :: cs) -> AST.Expr_Assert (c, mk_assert_exprs cs e, loc)
+  )
+
+(* Construct assertion statements from a list of checks
+ *
+ *     mk_assert [(x, locx); (y, locy)] e
+ *   =
+ *     assert x;
+ *     assert y;
+ *)
+let mk_assert_stmts (checks : (AST.expr * Loc.t) list) : AST.stmt list =
+  List.map (fun (c, loc) -> AST.Stmt_Assert (c, loc)) checks
 
 (****************************************************************)
 (** {2 Safe expressions}                                        *)
