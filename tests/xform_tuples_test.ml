@@ -16,6 +16,7 @@ module TC = Tcheck
  ****************************************************************)
 
 let tuple_tests : unit Alcotest.test_case list =
+  TC.enable_runtime_checks := false;
   let prelude = load_test_libraries () in
   let globals = TC.env0 in
   let stmts = test_xform_stmts Xform_tuples.xform_stmts globals prelude in

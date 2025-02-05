@@ -942,6 +942,9 @@ let mk_ne_int (x : AST.expr) (y : AST.expr) : AST.expr = mk_binop ne_int [] x y
 (** Construct "le_int(x, y)" *)
 let mk_le_int (x : AST.expr) (y : AST.expr) : AST.expr = mk_binop le_int [] x y
 
+(** Construct "lt_int(x, y)" *)
+let mk_lt_int (x : AST.expr) (y : AST.expr) : AST.expr = mk_binop lt_int [] x y
+
 (** Construct "add_int(x, y)" *)
 let mk_add_int (x : AST.expr) (y : AST.expr) : AST.expr =
   if x = zero then y

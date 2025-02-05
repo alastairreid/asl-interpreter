@@ -140,8 +140,8 @@ let rec process_command (tcenv : TC.Env.t) (cpu : Cpu.cpu) (fname : string) (inp
      ()
   | _ ->
       if ';' = String.get input (String.length input - 1) then
-        let s = LoadASL.read_stmt tcenv input in
-        Eval.eval_stmt cpu.env s
+        let ss = LoadASL.read_stmt tcenv input in
+        List.iter (Eval.eval_stmt cpu.env) ss
       else
         let loc = mkLoc fname input in
         let e = LoadASL.read_expr tcenv loc input in
@@ -377,6 +377,8 @@ let options =
       ("--nocheck-call-markers",      Arg.Clear Global_checks.check_call_markers, "       Do not check that function calls have correct exception markers");
       ("--check-constraints", Arg.Set Tcheck.enable_constraint_checks,     "       Check type constraints");
       ("--nocheck-constraints", Arg.Clear Tcheck.enable_constraint_checks, "       Do not check type constraints");
+      ("--runtime-check",           Arg.Set Tcheck.enable_runtime_checks,         "       Insert runtime checks");
+      ("--noruntime-checks",        Arg.Clear Tcheck.enable_runtime_checks,       "       Do not insert runtime checks");
     ]
 
 let version = "ASLi 1.0.0"

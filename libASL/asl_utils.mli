@@ -292,6 +292,9 @@ val mk_ne_int : AST.expr -> AST.expr -> AST.expr
 (** Construct "le_int(x, y)" *)
 val mk_le_int : AST.expr -> AST.expr -> AST.expr
 
+(** Construct "lt_int(x, y)" *)
+val mk_lt_int : AST.expr -> AST.expr -> AST.expr
+
 (** Construct "add_int(x, y)" *)
 val mk_add_int : AST.expr -> AST.expr -> AST.expr
 

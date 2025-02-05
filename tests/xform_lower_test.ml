@@ -15,6 +15,7 @@ module TC = Tcheck
  ****************************************************************)
 
 let bitslices_hilo_tests : unit Alcotest.test_case list =
+  TC.enable_runtime_checks := false;
   let prelude = load_test_libraries () in
   let globals = TC.env0 in
   let expr = test_xform_expr Xform_lower.xform_expr globals prelude in

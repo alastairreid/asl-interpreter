@@ -203,7 +203,7 @@ let read_expr (tcenv : TC.Env.t) (loc : Loc.t) (s : string) : AST.expr =
   let e', _ = TC.tc_expr tcenv loc e in
   e'
 
-let read_stmt (tcenv : TC.Env.t) (s : string) : AST.stmt =
+let read_stmt (tcenv : TC.Env.t) (s : string) : AST.stmt list =
   let lexbuf = Lexing.from_string s in
   let s = Parser.stmt_command_start Lexer.token lexbuf in
   TC.tc_stmt tcenv s

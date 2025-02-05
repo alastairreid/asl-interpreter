@@ -23,7 +23,7 @@ val read_files : string list -> string list -> bool -> Asl_ast.declaration list
 
 val read_config : TC.Env.t -> Loc.t -> string -> Ident.t * AST.expr * AST.ty
 val read_expr : TC.Env.t -> Loc.t -> string -> AST.expr
-val read_stmt : TC.Env.t -> string -> AST.stmt
+val read_stmt : TC.Env.t -> string -> AST.stmt list
 val read_stmts : TC.Env.t -> string -> AST.stmt list
 val read_declarations_unsorted : TC.GlobalEnv.t -> string -> AST.declaration list
 

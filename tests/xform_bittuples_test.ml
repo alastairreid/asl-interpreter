@@ -18,6 +18,7 @@ module TC = Tcheck
 (** Test xform_stmts *)
 let test_bittuple_stmts (globals : TC.GlobalEnv.t) (prelude : AST.declaration list) (decls : string)
     (l : string) (r : string) () : unit =
+  TC.enable_runtime_checks := false;
   let (tcenv, _) = extend_tcenv globals decls in
   let l' = LoadASL.read_stmts tcenv l in
   let r' = LoadASL.read_stmts tcenv r in

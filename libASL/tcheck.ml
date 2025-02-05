@@ -23,6 +23,7 @@ open Format
 let verbose = false
 let fmt = std_formatter
 let enable_constraint_checks = ref false
+let enable_runtime_checks = ref true
 let max_errors = ref 0
 
 (****************************************************************)
@@ -853,6 +854,109 @@ let rec least_supertype (env : Env.t) (loc : Loc.t) (ty1 : AST.ty) (ty2 : AST.ty
   | _ -> raise (DoesNotMatch (loc, "type", pp_type ty2, pp_type ty1))
   )
 
+(****************************************************************)
+(** {2 Inserting runtime checks}                                *)
+(****************************************************************)
+
+let check_vars = new Asl_utils.nameSupply "__check"
+
+let add_check (loc : Loc.t) (asserts : check list ref) (x : AST.expr) : unit =
+  asserts := (x, loc) :: !asserts
+
+let mk_expr_safe_to_replicate (lets : binding list ref) (x : AST.expr) (ty : AST.ty) : AST.expr =
+  if is_safe_to_replicate x then
+    x
+  else
+    let v = check_vars#fresh in
+    lets := (v, ty, x) :: !lets;
+    Expr_Var v
+
+let mk_zero_check (loc : Loc.t) (lets : binding list ref) (asserts : check list ref) (x : AST.expr) : AST.expr =
+  if not !enable_runtime_checks then
+      x
+  else
+      let x' = mk_expr_safe_to_replicate lets x type_integer in
+      add_check loc asserts (mk_ne_int zero x');
+      x'
+
+let mk_exactdiv_check (loc : Loc.t) (lets : binding list ref) (asserts : check list ref) (x : AST.expr) (y : AST.expr) : (AST.expr * AST.expr) =
+  if not !enable_runtime_checks then
+      (x, y)
+  else
+      let x' = mk_expr_safe_to_replicate lets x type_integer in
+      let y' = mk_expr_safe_to_replicate lets y type_integer in
+      (* The exact div runtime check is disabled at present because it breaks too much code *)
+      (* add_check loc asserts (mk_eq_int zero (mk_zrem_int x' y')); *)
+      add_check loc asserts (mk_ne_int zero y');
+      (x', y')
+
+let mk_index_check (loc : Loc.t) (lets : binding list ref) (asserts : check list ref) (ixty : AST.ixtype) (ix : AST.expr) : AST.expr =
+  if not !enable_runtime_checks then
+      ix
+  else
+      ( match ixty with
+      | Index_Enum tc -> ix
+      | Index_Int size ->
+          let size' = mk_expr_safe_to_replicate lets size type_integer in
+          let ix'   = mk_expr_safe_to_replicate lets ix type_integer in
+          add_check loc asserts (mk_le_int zero ix');
+          add_check loc asserts (mk_lt_int ix' size');
+          ix'
+      )
+
+let mk_slice_check (loc : Loc.t) (lets : binding list ref) (asserts : check list ref) (size : AST.expr) (s : AST.slice) : AST.slice =
+  if not !enable_runtime_checks then
+      s
+  else
+      ( match s with
+      | Slice_Single ix ->
+          let size' = mk_expr_safe_to_replicate lets size type_integer in
+          let ix'   = mk_expr_safe_to_replicate lets ix type_integer in
+          add_check loc asserts (mk_le_int zero ix');
+          add_check loc asserts (mk_lt_int ix' size');
+          Slice_Single ix'
+      | Slice_HiLo (hi, lo) ->
+          let size' = mk_expr_safe_to_replicate lets size type_integer in
+          let hi'   = mk_expr_safe_to_replicate lets hi type_integer in
+          let lo'   = mk_expr_safe_to_replicate lets lo type_integer in
+          add_check loc asserts (mk_le_int zero lo');
+          add_check loc asserts (mk_le_int lo' hi');
+          add_check loc asserts (mk_lt_int hi' size');
+          Slice_HiLo (hi', lo')
+      | Slice_LoWd (lo, wd) ->
+          let size' = mk_expr_safe_to_replicate lets size type_integer in
+          let lo'   = mk_expr_safe_to_replicate lets lo type_integer in
+          let wd'   = mk_expr_safe_to_replicate lets wd type_integer in
+          add_check loc asserts (mk_le_int zero lo');
+          add_check loc asserts (mk_le_int zero wd');
+          add_check loc asserts (mk_le_int (mk_add_int lo' wd') size');
+          Slice_LoWd (lo', wd')
+      | Slice_Element (ix, wd) ->
+          let size' = mk_expr_safe_to_replicate lets size type_integer in
+          let ix'   = mk_expr_safe_to_replicate lets ix type_integer in
+          let wd'   = mk_expr_safe_to_replicate lets wd type_integer in
+          add_check loc asserts (mk_le_int zero ix');
+          add_check loc asserts (mk_le_int zero wd');
+          add_check loc asserts (mk_le_int (mk_mul_int ix' wd') (mk_sub_int size' wd'));
+          Slice_Element (ix, wd')
+      )
+
+let mk_constraint_check (loc : Loc.t) (lets : binding list ref) (asserts : check list ref) (crs : AST.constraint_range list) (x : AST.expr) : AST.expr =
+  if not !enable_runtime_checks then
+      x
+  else
+      let x' = mk_expr_safe_to_replicate lets x type_integer in
+      add_check loc asserts (constraint_ranges_to_expr x' crs);
+      x'
+
+let mk_type_check (loc : Loc.t) (lets : binding list ref) (asserts : check list ref) (t : AST.ty) (x : AST.expr) : AST.expr =
+  if not !enable_runtime_checks then
+      x
+  else
+      ( match t with
+      | Type_Integer (Some crs) -> mk_constraint_check loc lets asserts crs x
+      | _ -> x
+      )
 
 (****************************************************************)
 (** {2 Typechecking function (and operator) application}        *)
@@ -1325,7 +1429,7 @@ and tc_e_elsif (env : Env.t) (loc : Loc.t) (x : AST.e_elsif) :
       let e', ty = tc_expr env loc e in
       (E_Elsif_Cond (c', e'), ty)
 
-(** Typecheck bitslice indices *)
+(** Typecheck bitslice indices and insert runtime check *)
 and tc_slice (env : Env.t) (loc : Loc.t) (x : AST.slice) :
     AST.slice * AST.ty =
   match x with
@@ -1403,15 +1507,33 @@ and tc_slice_expr (env : Env.t) (loc : Loc.t) (x : expr)
   if List.length ss = 0 then raise (TypeError (loc, "empty list of subscripts"));
   let ss' = List.map fst ss in
   let x', ty' = tc_expr env loc x in
-  let ty = type_bits (slices_width ss') in
+  let wd = slices_width ss' in
+  let ty = type_bits wd in
   match derefType (Env.globals env) loc ty' with
   | Type_Array (ixty, elty) -> (
       match ss with
       | [ (Slice_Single i, ity) ] ->
           check_subtype_satisfies env loc ity (ixtype_basetype ixty);
-          (Expr_Array (x', i), elty)
+          let lets = ref [] in
+          let asserts = ref [] in
+          let i' = mk_index_check loc lets asserts ixty i in
+          let x' =
+              (Expr_Array (x', i'))
+              |> mk_assert_exprs !asserts
+              |> mk_let_exprs !lets
+          in
+          (x', elty)
       | _ -> raise (TypeError (loc, "multiple subscripts for array")))
-  | Type_Bits _
+  | Type_Bits (size, _) ->
+      let lets = ref [] in
+      let asserts = ref [] in
+      let ss'' = List.map (mk_slice_check loc lets asserts size) ss' in
+      let x'' =
+          (Expr_Slices (ty', x', ss''))
+          |> mk_assert_exprs !asserts
+          |> mk_let_exprs !lets
+      in
+      (x'', ty)
   | Type_Integer _ ->
       (Expr_Slices (ty', x', ss'), ty)
   | _ -> raise (TypeError (loc, "slice of expr"))
@@ -1453,7 +1575,22 @@ and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) :
       let x', xty = tc_expr env loc x in
       let y', yty = tc_expr env loc y in
       let fty = tc_binop env loc op x' y' xty yty in
-      (Expr_TApply (fty.name, fty.parameters, [ x'; y' ], NoThrow), fty.rty)
+      let lets = ref [] in
+      let asserts = ref [] in
+      let r = if Ident.in_list fty.name [fdiv_int; frem_int; zdiv_int; zrem_int] then
+              let y'' = mk_zero_check loc lets asserts y' in
+              Expr_TApply (fty.name, fty.parameters, [x'; y''], NoThrow)
+          else if Ident.equal fty.name Builtin_idents.exact_div_int then
+              let (x'', y'') = mk_exactdiv_check loc lets asserts x' y' in
+              Expr_TApply (fty.name, fty.parameters, [x''; y''], NoThrow)
+          else
+              Expr_TApply (fty.name, fty.parameters, [x'; y'], NoThrow)
+      in
+      let r' = r
+              |> mk_assert_exprs !asserts
+              |> mk_let_exprs !lets
+      in
+      (r', fty.rty)
   | Expr_Field (e, f) ->
       let e', ty = tc_expr env loc e in
       ( match typeFields (Env.globals env) loc ty with
@@ -1618,7 +1755,15 @@ and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) :
       match derefType (Env.globals env) loc ty with
       | Type_Array (ixty, elty) ->
           let e' = check_expr env loc (ixtype_basetype ixty) e in
-          (Expr_Array (a', e'), elty)
+          let lets = ref [] in
+          let asserts = ref [] in
+          let e'' = mk_index_check loc lets asserts ixty e' in
+          let x' =
+              (Expr_Array (a', e''))
+              |> mk_assert_exprs !asserts
+              |> mk_let_exprs !lets
+          in
+          (x', elty)
       | _ -> raise (TypeError (loc, "subscript of non-array")))
   | Expr_Lit (VInt _)    -> (x, Type_Integer (Some([Constraint_Single x])))
   | Expr_Lit (VIntN v)   -> (x, type_sintN (mk_litint v.n))
@@ -1631,12 +1776,29 @@ and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) :
   | Expr_AsConstraint (e, c) ->
       let e' = check_expr env loc type_integer e in
       let c' = tc_constraints env loc c in
-      (Expr_AsConstraint (e', c'), Type_Integer (Some c'))
+      let ty = Type_Integer (Some c') in
+      let lets = ref [] in
+      let asserts = ref [] in
+      let e'' = mk_constraint_check loc lets asserts c' e' in
+      let x' =
+             (Expr_AsConstraint (e'', c'))
+             |> mk_assert_exprs !asserts
+             |> mk_let_exprs !lets
+      in
+      (x', ty)
   | Expr_AsType (e, t) ->
       let e', ty = tc_expr env loc e in
       let t' = tc_type env loc t in
       (* todo: check that ty is structurally consistent with t' *)
-      (Expr_AsType (e', t'), t')
+      let lets = ref [] in
+      let asserts = ref [] in
+      let e'' = mk_type_check loc lets asserts (derefType (Env.globals env) loc t') e' in
+      let x' =
+             (Expr_AsType (e'', t'))
+             |> mk_assert_exprs !asserts
+             |> mk_let_exprs !lets
+      in
+      (x', t')
 
 (** Typecheck list of types *)
 and tc_types (env : Env.t) (loc : Loc.t) (xs : AST.ty list) : AST.ty list =
@@ -1711,22 +1873,29 @@ and tc_constraints (env : Env.t) (loc : Loc.t) (cs : AST.constraint_range list)
 
     This primarily consists of disambiguating between array indexing and bitslicing
     Note that this function is almost identical to tc_slice_expr
+
+    Insertion of runtime checking code may write additional bindings and assertions
+    to 'lets' and 'asserts'.
  *)
-let rec tc_slice_lexpr (env : Env.t) (loc : Loc.t) (x : lexpr)
-    (ss : (AST.slice * AST.ty) list) : AST.lexpr * AST.ty =
+let rec tc_slice_lexpr (env : Env.t) (loc : Loc.t)
+    (lets : binding list ref) (asserts : check list ref)
+    (x : lexpr) (ss : (AST.slice * AST.ty) list)
+    : AST.lexpr * AST.ty =
   if List.length ss = 0 then raise (TypeError (loc, "empty list of subscripts"));
   let ss' = List.map fst ss in
-  let x', ty' = tc_lexpr2 env loc x in
+  let x', ty' = tc_lexpr2 env loc lets asserts x in
   let ty = type_bits (slices_width ss') in
   match derefType (Env.globals env) loc ty' with
   | Type_Array (ixty, elty) -> (
       match ss with
       | [ (Slice_Single i, ity) ] ->
           check_subtype_satisfies env loc ity (ixtype_basetype ixty);
-          (LExpr_Array (x', i), elty)
+          let i' = mk_index_check loc lets asserts ixty i in
+          (LExpr_Array (x', i'), elty)
       | _ -> raise (TypeError (loc, "multiple subscripts for array")))
   | Type_Bits (n, _) ->
-    (LExpr_Slices (ty', x', ss'), ty)
+    let ss'' = List.map (mk_slice_check loc lets asserts n) ss' in
+    (LExpr_Slices (ty', x', ss''), ty)
   | Type_Integer _ ->
       (* There is an argument for making this operation illegal *)
       if false then
@@ -1737,9 +1906,13 @@ let rec tc_slice_lexpr (env : Env.t) (loc : Loc.t) (x : lexpr)
 
 (** Typecheck left hand side of expression in context where
     type of right hand side is not yet known
+    Insertion of runtime checking code may write additional bindings and assertions
+    to 'lets' and 'asserts'.
  *)
-and tc_lexpr2 (env : Env.t) (loc : Loc.t) (x : AST.lexpr) :
-    AST.lexpr * AST.ty =
+and tc_lexpr2 (env : Env.t) (loc : Loc.t)
+    (lets : binding list ref) (asserts : check list ref)
+    (x : AST.lexpr)
+    : AST.lexpr * AST.ty =
   match x with
   | LExpr_Wildcard -> raise (TypeError (loc, "wildcard in lexpr2"))
   | LExpr_Var v -> (
@@ -1782,14 +1955,14 @@ and tc_lexpr2 (env : Env.t) (loc : Loc.t) (x : AST.lexpr) :
               (LExpr_ReadWrite (fty'.name, gty.funname, fty'.parameters, [], throws), fty'.rty)
           | None -> raise (UnknownObject (loc, "variable", Ident.to_string v))))
   | LExpr_Field (l, f) -> (
-      let l', ty = tc_lexpr2 env loc l in
+      let l', ty = tc_lexpr2 env loc lets asserts l in
       match typeFields (Env.globals env) loc ty with
       | FT_Record rfs -> (LExpr_Field (l', f), get_recordfield loc rfs f)
       | FT_Register rfs ->
           let ss, ty' = get_regfield loc rfs f in
           (LExpr_Slices (ty, l', ss), ty'))
   | LExpr_Fields (l, fs) -> (
-      let l', ty = tc_lexpr2 env loc l in
+      let l', ty = tc_lexpr2 env loc lets asserts l in
       match typeFields (Env.globals env) loc ty with
       | FT_Record rfs ->
           let tys = List.map (get_recordfield loc rfs) fs in
@@ -1843,22 +2016,23 @@ and tc_lexpr2 (env : Env.t) (loc : Loc.t) (x : AST.lexpr) :
               raise (UnknownObject (loc, "getter function", Ident.to_string a))
           | Some _, None ->
               raise (UnknownObject (loc, "setter function", Ident.to_string a))
-          | _ -> tc_slice_lexpr env loc e ss')
-      | _ -> tc_slice_lexpr env loc e ss')
+          | _ -> tc_slice_lexpr env loc lets asserts e ss')
+      | _ -> tc_slice_lexpr env loc lets asserts e ss')
   | LExpr_BitTuple (_, ls) ->
-      let ls', tys = List.split (List.map (tc_lexpr2 env loc) ls) in
+      let ls', tys = List.split (List.map (tc_lexpr2 env loc lets asserts) ls) in
       let ws = List.map (width_of_type (Env.globals env) loc) tys in
       let w = Xform_simplify_expr.mk_add_ints ws in
       (LExpr_BitTuple (ws, ls'), type_bits w)
   | LExpr_Tuple ls ->
-      let ls', tys = List.split (List.map (tc_lexpr2 env loc) ls) in
+      let ls', tys = List.split (List.map (tc_lexpr2 env loc lets asserts) ls) in
       (LExpr_Tuple ls', Type_Tuple tys)
   | LExpr_Array (a, e) -> (
-      let a', ty = tc_lexpr2 env loc a in
+      let a', ty = tc_lexpr2 env loc lets asserts a in
       match derefType (Env.globals env) loc ty with
       | Type_Array (ixty, elty) ->
           let e' = check_expr env loc (ixtype_basetype ixty) e in
-          (LExpr_Array (a', e'), elty)
+          let e'' = mk_index_check loc lets asserts ixty e' in
+          (LExpr_Array (a', e''), elty)
       | _ -> raise (TypeError (loc, "subscript of non-array")))
   | _ -> raise (InternalError (loc, "tc_lexpr2", (fun fmt -> FMT.lexpr fmt x), __LOC__))
 
@@ -1868,8 +2042,13 @@ and tc_lexpr2 (env : Env.t) (loc : Loc.t) (x : AST.lexpr) :
 
 (** Typecheck left hand side of expression and check that rhs type 'ty' is compatible.
     Return set of variables assigned to in this expression
+    Insertion of runtime checking code may write additional bindings and assertions
+    to 'lets' and 'asserts'.
  *)
-let rec tc_lexpr (env : Env.t) (loc : Loc.t) (ty : AST.ty) (x : AST.lexpr) : AST.lexpr =
+let rec tc_lexpr (env : Env.t) (loc : Loc.t)
+    (lets : binding list ref) (asserts : check list ref)
+    (ty : AST.ty) (x : AST.lexpr)
+    : AST.lexpr =
   match x with
   | LExpr_Wildcard ->
       LExpr_Wildcard
@@ -1910,7 +2089,7 @@ let rec tc_lexpr (env : Env.t) (loc : Loc.t) (ty : AST.ty) (x : AST.lexpr) : AST
           )
       )
   | LExpr_Field (l, f) ->
-      let l', rty = tc_lexpr2 env loc l in
+      let l', rty = tc_lexpr2 env loc lets asserts l in
       let r, fty =
         match typeFields (Env.globals env) loc rty with
         | FT_Record rfs -> (LExpr_Field (l', f), get_recordfield loc rfs f)
@@ -1921,7 +2100,7 @@ let rec tc_lexpr (env : Env.t) (loc : Loc.t) (ty : AST.ty) (x : AST.lexpr) : AST
       check_subtype_satisfies env loc ty fty;
       r
   | LExpr_Fields (l, fs) ->
-      let l', lty = tc_lexpr2 env loc l in
+      let l', lty = tc_lexpr2 env loc lets asserts l in
       let r, ty' =
         match typeFields (Env.globals env) loc lty with
         | FT_Record rfs ->
@@ -1993,23 +2172,26 @@ let rec tc_lexpr (env : Env.t) (loc : Loc.t) (ty : AST.ty) (x : AST.lexpr) : AST
                     (* todo: calculate type correctly *)
                     let throws = NoThrow in
                     let wr = LExpr_ReadWrite (fty.funname, fty'.funname, [], [], throws) in
-                    (* todo: check slices are integer *)
-                    (* todo: check rty is bits(_) *)
-                    let ss'' = List.map fst ss' in
-                    (LExpr_Slices (fty.rty, wr, ss''), type_bits (slices_width ss''))
+                    ( match derefType (Env.globals env) loc fty.rty with
+                    | Type_Bits (n, _) ->
+                        let ss'' = List.map (fun (s,_) -> mk_slice_check loc lets asserts n s) ss' in
+                        let ty = type_bits (slices_width ss'') in
+                        (LExpr_Slices (fty.rty, wr, ss''), ty)
+                    | _ -> raise (TypeError (loc, "slice of lexpr"))
+                    )
                 | None, Some _ ->
                     raise
                       (UnknownObject (loc, "var getter function", Ident.to_string a))
                 | Some _, None ->
                     raise
                       (UnknownObject (loc, "var setter function", Ident.to_string a))
-                | None, None -> tc_slice_lexpr env loc e ss'))
-        | _ -> tc_slice_lexpr env loc e ss'
+                | None, None -> tc_slice_lexpr env loc lets asserts e ss'))
+        | _ -> tc_slice_lexpr env loc lets asserts e ss'
       in
       check_subtype_satisfies env loc ty ty';
       e'
   | LExpr_BitTuple (_, ls) ->
-      let ls', tys = List.split (List.map (tc_lexpr2 env loc) ls) in
+      let ls', tys = List.split (List.map (tc_lexpr2 env loc lets asserts) ls) in
       let ws = List.map (width_of_type (Env.globals env) loc) tys in
       let w = Xform_simplify_expr.mk_add_ints ws in
       check_subtype_satisfies env loc ty (type_bits w);
@@ -2018,17 +2200,18 @@ let rec tc_lexpr (env : Env.t) (loc : Loc.t) (ty : AST.ty) (x : AST.lexpr) : AST
       let ls' =
         match ty with
         | Type_Tuple tys when List.length ls = List.length tys ->
-            List.map2 (tc_lexpr env loc) tys ls
+            List.map2 (tc_lexpr env loc lets asserts) tys ls
         | _ -> raise (IsNotA (loc, "tuple of length ?", pp_type ty))
       in
       LExpr_Tuple ls'
   | LExpr_Array (a, e) -> (
-      let a', ty = tc_lexpr2 env loc a in
+      let a', ty = tc_lexpr2 env loc lets asserts a in
       match derefType (Env.globals env) loc ty with
       | Type_Array (ixty, elty) ->
           let e', ety = tc_expr env loc e in
           check_subtype_satisfies env loc ety (ixtype_basetype ixty);
-          LExpr_Array (a', e')
+          let e'' = mk_index_check loc lets asserts ixty e' in
+          LExpr_Array (a', e'')
       | _ -> raise (TypeError (loc, "subscript of non-array")))
   | _ -> raise (InternalError (loc, "tc_lexpr", (fun fmt -> FMT.lexpr fmt x), __LOC__))
 
@@ -2093,7 +2276,7 @@ let rec tc_decl_item (env : Env.t) (loc : Loc.t) (ity : AST.ty) (x : AST.decl_it
 let rec tc_stmts (env : Env.t) (loc : Loc.t) (xs : AST.stmt list) :
     AST.stmt list =
   Env.nest
-    (fun env' -> List.map (tc_stmt env') xs)
+    (fun env' -> List.concat_map (tc_stmt env') xs)
     env
 
 (** Typecheck 'if expr then stmt' *)
@@ -2128,18 +2311,21 @@ and tc_catcher (env : Env.t) (loc : Loc.t) (x : AST.catcher) : AST.catcher =
       in
       Catcher_Guarded (v, tc, b', loc)
 
-(** typecheck statement *)
-and tc_stmt (env : Env.t) (x : AST.stmt) : AST.stmt =
+(** typecheck statement
+ *  This normally returns a single statement except for instructions
+ *  where we insert a runtime check prior to the statement.
+ *)
+and tc_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
   match x with
   | Stmt_VarDeclsNoInit (vs, ty, loc) ->
       let ty' = tc_type env loc ty in
       List.iter (fun v -> Env.addLocalVar env {name=v; loc; ty=ty'; is_local=true; is_constant=false}) vs;
-      Stmt_VarDeclsNoInit (vs, ty', loc)
+      [Stmt_VarDeclsNoInit (vs, ty', loc)]
   | Stmt_VarDecl (di, i, loc) ->
       let (i', ity) = tc_expr env loc i in
       let di' = tc_decl_item env loc ity di in
       add_decl_item_vars env loc false di';
-      Stmt_VarDecl (di', i', loc)
+      [Stmt_VarDecl (di', i', loc)]
   | Stmt_ConstDecl (di, i, loc) ->
       let (i', ity) = tc_expr env loc i in
       let di' = tc_decl_item env loc ity di in
@@ -2154,19 +2340,23 @@ and tc_stmt (env : Env.t) (x : AST.stmt) : AST.stmt =
           )
       | _ -> ());
 
-      Stmt_ConstDecl (di', i', loc)
+      [Stmt_ConstDecl (di', i', loc)]
   | Stmt_Assign (l, r, loc) ->
       let (r', rty) = tc_expr env loc r in
-      let l' = tc_lexpr env loc rty l in
+      let lets = ref [] in
+      let asserts = ref [] in
+      let l' = tc_lexpr env loc lets asserts rty l in
+      let lets' = Asl_utils.mk_assigns loc !lets in
+      let asserts' = Asl_utils.mk_assert_stmts !asserts in
       if verbose then
         Format.fprintf fmt "    - Typechecking %a <- %a : %a\n"
           FMT.lexpr l' FMT.expr r' FMT.ty rty;
-      Stmt_Assign (l', r', loc)
+      (lets' @ asserts' @ [Stmt_Assign (l', r', loc)])
   | Stmt_TCall (f, tes, es, throws, loc) ->
       let es', tys = List.split (tc_exprs env loc es) in
       let fty = tc_apply env loc "procedure" f es' tys in
       check_subtype_satisfies env loc type_unit fty.rty;
-      Stmt_TCall (fty.name, fty.parameters, es', throws, loc)
+      [Stmt_TCall (fty.name, fty.parameters, es', throws, loc)]
   | Stmt_FunReturn (e, loc) ->
       let rty =
         match Env.getReturnType env with
@@ -2175,37 +2365,37 @@ and tc_stmt (env : Env.t) (x : AST.stmt) : AST.stmt =
           (loc, "Stmt_FunReturn", (fun fmt -> FMT.stmt fmt x), __LOC__))
       in
       let e' = check_expr env loc rty e in
-      Stmt_FunReturn (e', loc)
+      [Stmt_FunReturn (e', loc)]
   | Stmt_ProcReturn loc ->
       (match Env.getReturnType env with
       | None -> ()
       | Some (Type_Tuple []) -> ()
       | _ -> raise (InternalError
         (loc, "return type should be None", (fun fmt -> FMT.stmt fmt x), __LOC__)));
-      Stmt_ProcReturn loc
+      [Stmt_ProcReturn loc]
   | Stmt_Assert (e, loc) ->
       let e' = check_expr env loc type_bool e in
-      Stmt_Assert (e', loc)
+      [Stmt_Assert (e', loc)]
   | Stmt_Throw (e, loc) ->
       let (e', ty') = tc_expr env loc e in
       (* todo: check that ty' is an exception type *)
-      Stmt_Throw (e', loc)
+      [Stmt_Throw (e', loc)]
   | Stmt_Block (ss, loc) ->
       let ss' = tc_stmts env loc ss in
-      Stmt_Block (ss', loc)
+      [Stmt_Block (ss', loc)]
   | Stmt_If (c, t, els, (e, el), loc) ->
       let c' = check_expr env loc type_bool c in
       let t' = tc_stmts env loc t in
       let els' = List.map (tc_s_elsif env) els in
       let e' = tc_stmts env el e in
-      Stmt_If (c', t', els', (e', el), loc)
+      [Stmt_If (c', t', els', (e', el), loc)]
   | Stmt_Case (e, _, alts, odefault, loc) ->
       let (e', ty') = tc_expr env loc e in
       let alts' = List.map (tc_alt env ty') alts in
       let odefault' =
         Option.map (fun (b, bl) -> (tc_stmts env loc b, bl)) odefault
       in
-      Stmt_Case (e', Some ty', alts', odefault', loc)
+      [Stmt_Case (e', Some ty', alts', odefault', loc)]
   | Stmt_For (v, start, dir, stop, b, loc) ->
       let start' = check_expr env loc type_integer start in
       let stop' = check_expr env loc type_integer stop in
@@ -2222,20 +2412,20 @@ and tc_stmt (env : Env.t) (x : AST.stmt) : AST.stmt =
             tc_stmts env' loc b)
           env
       in
-      Stmt_For (v, start', dir, stop', b', loc)
+      [Stmt_For (v, start', dir, stop', b', loc)]
   | Stmt_While (c, b, loc) ->
       let c' = check_expr env loc type_bool c in
       let b' = tc_stmts env loc b in
-      Stmt_While (c', b', loc)
+      [Stmt_While (c', b', loc)]
   | Stmt_Repeat (b, c, pos, loc) ->
       let b' = tc_stmts env loc b in
       let c' = check_expr env loc type_bool c in
-      Stmt_Repeat (b', c', pos, loc)
+      [Stmt_Repeat (b', c', pos, loc)]
   | Stmt_Try (tb, pos, catchers, odefault, loc) ->
       let tb' = tc_stmts env loc tb in
       let catchers' = List.map (tc_catcher env loc) catchers in
       let odefault' = Option.map (fun (b, bl) -> (tc_stmts env loc b, bl)) odefault in
-      Stmt_Try (tb', pos, catchers', odefault', loc)
+      [Stmt_Try (tb', pos, catchers', odefault', loc)]
 
 (****************************************************************)
 (** {2 Typecheck function definition}                           *)
