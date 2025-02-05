@@ -44,6 +44,12 @@ val drop_right : int -> 'a list -> 'a list
 (** split3 [(x1, y1, z1); ... (xn, yn, zn)] = ([x1; ... xn], [y1; ... yn], [z1; ... zn]) *)
 val split3 : ('x * 'y * 'z) list -> ('x list * 'y list * 'z list)
 
+(** split4 [(a1, b1, c1, d1); ... (an, bn, cn, dn)] = ([a1; ... an], ... [d1; ... dn]) *)
+val split4 : ('a * 'b * 'c * 'd) list -> ('a list * 'b list * 'c list * 'd list)
+
+(** split5 [(a1, b1, c1, d1, e1); ... (an, bn, cn, dn, en)] = ([a1; ... an], ... [e1; ... en]) *)
+val split5 : ('a * 'b * 'c * 'd * 'e) list -> ('a list * 'b list * 'c list * 'd list * 'e list)
+
 (** iter3 f [x1;x2;...] [y1;y2;...] [z1;z2;...] = f x1 y1 z1; f x2 y2 z2; ... *)
 val iter3 : ('a -> 'b -> 'c -> unit) -> ('a list -> 'b list -> 'c list -> unit)
 
