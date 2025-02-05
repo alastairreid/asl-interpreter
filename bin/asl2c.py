@@ -217,9 +217,11 @@ def report(x):
 # (The assumption is that the command printed a useful/meaningful error message already)
 def run(cmd):
     report(" ".join(cmd))
-    r = subprocess.run(cmd)
-    if r.returncode != 0:
-        exit(r.returncode)
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Command '{' '.join(e.cmd)}' returned non-zero exit status {e.returncode}.")
+        sys.exit(e.returncode)
 
 ################################################################
 # Compile/link flags
