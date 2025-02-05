@@ -10,6 +10,14 @@
         "ASL_WriteReg64",
         "ASL_WriteMemory8",
         "PrintState"
-    ]
+    ],
+
+    "__comment": [
+        "Split the variables into shared (global) and thread-local."
+    ],
+    "split_state": {
+        "global_state": ["__Memory"],
+        "threadlocal_state" : [".*"]
+    }
 }
 

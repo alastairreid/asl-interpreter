@@ -232,6 +232,13 @@ UNUSED static void set_register(const char* name, uint64_t val)
  * Simulator
  ****************************************************************/
 
+// Storage for the thread-local state in a processor.
+// (Note that the variables 'threadlocal_state_ptr' and 'global_state_ptr'
+// need to point to these structs and their initializers need to be
+// called.)
+struct threadlocal_state Processor0;
+struct global_state Global;
+
 int main(int argc, const char* argv[])
 {
         ASL_error_file = stderr;
@@ -240,6 +247,15 @@ int main(int argc, const char* argv[])
                 exit(1);
         }
         exception_clear();
+
+        // Initialize all the state structs
+        ASL_initialize_threadlocal_state(&Processor0);
+        ASL_initialize_global_state(&Global);
+
+        // Set the state pointers
+        threadlocal_state_ptr = &Processor0;
+        global_state_ptr = &Global;
+
         ASL_Reset_0();
         exception_check("ASL_Reset");
 
