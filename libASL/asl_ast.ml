@@ -70,6 +70,7 @@ pattern =
 and expr =
    Expr_If of expr * expr * e_elsif list * expr
  | Expr_Let of Ident.t * ty * expr * expr (* IR extension, not intended for use in specs *)
+ | Expr_Assert of expr * expr * Loc.t (* IR extension, not intended for use in specs *)
  | Expr_Binop of expr * binop * expr
  | Expr_Unop of unop * expr (* unary operator *)
  | Expr_Field of expr * Ident.t (* field selection *)

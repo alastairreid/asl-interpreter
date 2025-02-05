@@ -331,6 +331,11 @@ and eval_expr (loc : Loc.t) (env : Env.t) (x : AST.expr) : value =
         Env.addLocalConst loc env v e';
         eval_expr loc env b
       )
+  | Expr_Assert (e1, e2, loc) ->
+      if not (to_bool loc (eval_expr loc env e1)) then begin
+        raise (EvalError (loc, "assertion failure"));
+      end;
+      eval_expr loc env e2
   | Expr_Binop (a, op, b) ->
       raise
         (EvalError

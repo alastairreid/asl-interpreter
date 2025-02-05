@@ -1439,6 +1439,10 @@ and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) :
           (Expr_Let (v, t', e', b'), bty')
         )
         env
+  | Expr_Assert (e1, e2, loc) ->
+      let e1' = check_expr env loc type_bool e1 in
+      let (e2', ty') = tc_expr env loc e2 in
+      (Expr_Assert (e1', e2', loc), ty')
   | Expr_Binop (x, Binop_Eq, Expr_Lit (VMask _ as m)) ->
       (* syntactic sugar *)
       tc_expr env loc (Expr_In (x, Pat_Lit m))

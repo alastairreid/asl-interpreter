@@ -159,6 +159,11 @@ and visit_expr (vis : aslVisitor) (x : expr) : expr =
         let b' = visit_expr vis b in
         if v == v' && t == t' && e == e' && b == b' then x
         else Expr_Let (v', t', e', b')
+    | Expr_Assert (e1, e2, loc) ->
+        let e1' = visit_expr vis e1 in
+        let e2' = visit_expr vis e2 in
+        if e1 == e1' && e2 == e2' then x
+        else Expr_Assert (e1', e2', loc)
     | Expr_Binop (a, op, b) ->
         let a' = visit_expr vis a in
         let b' = visit_expr vis b in

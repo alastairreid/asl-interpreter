@@ -23,6 +23,7 @@ let string_of_token (t : Asl_parser.token) : string =
   | BITS -> "bits"
   | BEGIN -> "begin"
   | BITSLIT x -> Value.string_of_value (VBits x)
+  | UNDERSCORE_UNDERSCORE_ASSERT -> "__assert"
   | UNDERSCORE_UNDERSCORE_BUILTIN -> "__builtin"
   | UNDERSCORE_UNDERSCORE_IN -> "__in"
   | UNDERSCORE_UNDERSCORE_LET -> "__let"

@@ -919,6 +919,12 @@ and expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
       Format.fprintf fmt " = %a; %a; })"
         (expr loc) e
         (expr loc) b
+  | Expr_Assert (e1, e2, loc) ->
+      PP.fprintf fmt "({ ASL_assert(\"%s\", \"%s\", %a); %a; })"
+        (String.escaped (Loc.to_string loc))
+        (String.escaped (Utils.to_string2 (Fun.flip FMT.expr e1)))
+        (expr loc) e1
+        (expr loc) e2;
   | Expr_Lit v -> valueLit loc fmt v
   | Expr_RecordInit (tc, [], fas) ->
       if List.mem tc !exception_tcs then begin

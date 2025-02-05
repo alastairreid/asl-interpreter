@@ -27,6 +27,7 @@ open Loc
 let type_unknown = Type_Constructor (Ident.mk_ident "<type_unknown>", [])
 %}
 
+%token UNDERSCORE_UNDERSCORE_ASSERT  (* __assert *)
 %token UNDERSCORE_UNDERSCORE_BUILTIN  (* __builtin *)
 %token UNDERSCORE_UNDERSCORE_IN   (* __in *)
 %token UNDERSCORE_UNDERSCORE_LET  (* __let *)
@@ -504,6 +505,8 @@ conditional_expression:
     { Expr_If(c, t, els, e) }
 | UNDERSCORE_UNDERSCORE_LET v = ident COLON ty = ty EQ e = expr UNDERSCORE_UNDERSCORE_IN b = expr
     { Expr_Let(v, ty, e, b) }
+| UNDERSCORE_UNDERSCORE_ASSERT e1 = expr UNDERSCORE_UNDERSCORE_IN e2 = expr
+    { Expr_Assert(e1, e2, Range($symbolstartpos, $endpos)) }
 | cexpr = cexpr { cexpr }
 
 e_elsif:

@@ -409,6 +409,10 @@ and expr (fmt : PP.formatter) (x : AST.expr) : unit =
         ty t
         expr e
         expr b
+  | Expr_Assert (e1, e2, loc) ->
+      Format.fprintf fmt "__assert %a __in %a"
+        expr e1
+        expr e2
   | Expr_Binop (a, op, b) ->
       expr fmt a;
       nbsp fmt;
