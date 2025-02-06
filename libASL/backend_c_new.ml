@@ -297,7 +297,13 @@ let rethrow_stmt (fmt : PP.formatter) : unit =
     ident (current_catch_label ())
 
 let rethrow_expr (fmt : PP.formatter) (f : unit -> unit) : unit =
-  PP.fprintf fmt "({ __auto_type __r = ";
+  PP.fprintf fmt "({ ";
+  if !is_cxx then begin
+    PP.fprintf fmt "auto __r = "
+  end else begin
+    (* __auto_type is a gcc extension (also supported by clang) *)
+    PP.fprintf fmt "__auto_type __r = "
+  end;
   f ();
   PP.fprintf fmt "; ";
   rethrow_stmt fmt;
