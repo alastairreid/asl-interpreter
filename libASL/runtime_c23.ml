@@ -464,7 +464,7 @@ module Runtime : RT.RuntimeLib = struct
 
   let in_bits (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (m : Primops.mask) : unit =
     if n = 0 then
-      (* Although we return empty_bits, we may still need to execute 'x' for any side effects *)
+      (* Although we return TRUE we may still need to execute 'x' for any side effects *)
       PP.fprintf fmt "({ (void)%a; true; })" RT.pp_expr x
     else
       PP.fprintf fmt "((%a & %s) == %s)"
@@ -501,7 +501,9 @@ module Runtime : RT.RuntimeLib = struct
    *)
   let replicate_bits (fmt : PP.formatter) (m : int) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit =
     if n = 0 then begin
-      empty_bits fmt
+      (* Although we return empty_bits, we may still need to execute 'x' for any side effects *)
+      PP.fprintf fmt "({ (void)%a; 0uwb; })"
+        RT.pp_expr x
     end else begin
       let result_width = m * n in
       let n = Z.of_int n in
