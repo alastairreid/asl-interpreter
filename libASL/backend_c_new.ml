@@ -1161,14 +1161,7 @@ let type_decls (xs : AST.declaration list) : AST.declaration list =
     | Decl_FunType _
       -> Some x
 
-    (* Add Fun/Proc-Type declarations for any functions that have been created
-     * after typechecking such as functions created during monomorphization.
-     * Since the typechecker creates Fun/Proc-Type declarations for all functions
-     * in the original spec, this will result in duplicate function prototypes
-     * for many functions.
-     *)
-    | Decl_FunDefn (f, fty, b, loc) -> Some (Decl_FunType (f, fty, loc))
-
+    | Decl_FunDefn _
     | Decl_Const _
     | Decl_Exception _
     | Decl_Var _
@@ -1687,9 +1680,6 @@ let mk_ffi_wrappers (is_import : bool) (decl_map : (AST.declaration list) Bindin
       let c_ident = Ident.mk_ident c_name in
       ( match Bindings.find_opt asl_ident decl_map with
       | Some (Decl_FunType (_, fty, loc) :: _) -> Some (c_ident, asl_ident, fty, loc)
-      | Some (Decl_FunDefn (_, fty, _, loc) :: _) -> Some (c_ident, asl_ident, fty, loc)
-      | _ when is_enumerated_type c_ident ->
-          None
       | _ ->
           if not (is_enumerated_type c_ident) then begin
               missing := c_name :: !missing
