@@ -2552,7 +2552,7 @@ let tc_declarations (env : GlobalEnv.t) ~(isPrelude : bool) ~(sort_decls : bool)
    * Note that each declaration is evaluated in a separate local environment
    * but that they share the same global environment
    *)
-  let pre, post = if isPrelude then (ds, []) else genPrototypes ds in
+  let (pre, post) = genPrototypes ds in
   let pre = if sort_decls then List.rev (Asl_utils.topological_sort pre) else pre in
   if verbose then
     Format.fprintf fmt "  - Typechecking %d phase declarations\n"
