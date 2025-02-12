@@ -33,7 +33,7 @@ depends: [
   "ocolor" {>= "1.2.2"}
   "odoc"
   "yojson"
-  "z3" {>= "4.8.7"}
+  "z3" {>= "4.13.0"}
   "zarith"
 ]
 build: [
