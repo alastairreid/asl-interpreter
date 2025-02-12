@@ -384,12 +384,21 @@ let build_global_type_info (ds : AST.declaration list) =
   in
   List.fold_left add_type_info Bindings.empty ds
 
+(* Generate a function prototype from a function definition *)
+let generate_prototype (x : AST.declaration) : AST.declaration option =
+  ( match x with
+  | Decl_FunDefn (qid, fty, _, loc) -> Some (Decl_FunType (qid, fty, loc))
+  | _ -> None
+  )
+
 let monomorphize (ds : AST.declaration list) : AST.declaration list =
   let genv = Eval.build_constant_environment ds in
   let global_type_info = build_global_type_info ds in
   let mono = new monoClass genv global_type_info ds in
   let ds' = List.map (visit_decl (mono :> aslVisitor)) ds in
-  ds' @ mono#getInstances
+  let instances = mono#getInstances in
+  let protos = List.filter_map generate_prototype instances in
+  ds' @ protos @ instances
 
 (****************************************************************
  * Command: :xform_monomorphize
