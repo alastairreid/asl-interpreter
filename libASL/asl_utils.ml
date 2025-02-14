@@ -936,6 +936,9 @@ let mk_eq_enum (x : AST.expr) (y : AST.expr) : AST.expr = mk_binop eq_enum [] x 
 (** Construct "eq_int(x, y)" *)
 let mk_eq_int (x : AST.expr) (y : AST.expr) : AST.expr = mk_binop eq_int [] x y
 
+(** Construct "ne_int(x, y)" *)
+let mk_ne_int (x : AST.expr) (y : AST.expr) : AST.expr = mk_binop ne_int [] x y
+
 (** Construct "le_int(x, y)" *)
 let mk_le_int (x : AST.expr) (y : AST.expr) : AST.expr = mk_binop le_int [] x y
 
@@ -961,6 +964,10 @@ let mk_mul_int (x : AST.expr) (y : AST.expr) : AST.expr =
   else if x = minus_one then mk_neg_int y
   else if y = minus_one then mk_neg_int x
   else mk_binop mul_int [] x y
+
+(** Construct "zrem_int(x, y)" *)
+let mk_zrem_int (x : AST.expr) (y : AST.expr) : AST.expr =
+  mk_binop zrem_int [] x y
 
 (** Construct "pow_int_int(x, y)" *)
 let mk_pow_int_int (x : AST.expr) (y : AST.expr) : AST.expr =

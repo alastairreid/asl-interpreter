@@ -286,6 +286,9 @@ val mk_eq_enum : AST.expr -> AST.expr -> AST.expr
 (** Construct "eq_int(x, y)" *)
 val mk_eq_int : AST.expr -> AST.expr -> AST.expr
 
+(** Construct "ne_int(x, y)" *)
+val mk_ne_int : AST.expr -> AST.expr -> AST.expr
+
 (** Construct "le_int(x, y)" *)
 val mk_le_int : AST.expr -> AST.expr -> AST.expr
 
@@ -300,6 +303,9 @@ val mk_neg_int : AST.expr -> AST.expr
 
 (** Construct "mul_int(x, y)" *)
 val mk_mul_int : AST.expr -> AST.expr -> AST.expr
+
+(** Construct "zrem_int(x, y)" *)
+val mk_zrem_int : AST.expr -> AST.expr -> AST.expr
 
 (** Construct "pow_int_int(x, y)" *)
 val mk_pow_int_int : AST.expr -> AST.expr -> AST.expr
