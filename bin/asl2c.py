@@ -375,8 +375,10 @@ def generate_c(asli, asl_files, project_file, configurations):
     asli_cmd = [
         asli,
         "--batchmode", "--nobanner",
-        f"--project={project_file}"
     ]
+    asli_cmd.append("--check-call-markers")
+    asli_cmd.append("--check-exception-markers")
+    asli_cmd.append(f"--project={project_file}")
     for file in configurations:
         asli_cmd.append(f"--configuration={file}")
     asli_cmd.extend(asl_files)
@@ -526,9 +528,13 @@ def main() -> int:
         asli_cmd = [
             asli,
             "--batchmode", "--nobanner",
+        ]
+        asli_cmd.append("--check-call-markers")
+        asli_cmd.append("--check-exception-markers")
+        asli_cmd.extend([
             "--exec=let result = main();",
             "--exec=:quit",
-        ]
+        ])
         asli_cmd.extend(args.asl_files)
         run(asli_cmd)
     else:
