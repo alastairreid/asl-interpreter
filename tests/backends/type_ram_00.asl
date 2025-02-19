@@ -17,12 +17,12 @@ end
 
 func Write1(address : bits(8), value : bits(8))
 begin
-    return asl_ram_write(8, 1, __Memory, address, value);
+    asl_ram_write(8, 1, __Memory, address, value);
 end
 
 func Write4(address : bits(8), value : bits(32))
 begin
-    return asl_ram_write(8, 4, __Memory, address, value);
+    asl_ram_write(8, 4, __Memory, address, value);
 end
 
 func main() => integer
