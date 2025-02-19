@@ -383,8 +383,7 @@ module Runtime : RT.RuntimeLib = struct
       RT.pp_expr i
 
   let set_slice (fmt : PP.formatter) (n : int) (w : int) (l : RT.rt_expr) (i : RT.rt_expr) (r : RT.rt_expr) : unit =
-    PP.fprintf fmt "{ %a __index = %a; "
-      ty_uint int_width
+    PP.fprintf fmt "{ __auto_type __index = %a; "
       RT.pp_expr i;
     PP.fprintf fmt "%a __mask = %a >> %d; "
       ty_bits n

@@ -404,7 +404,7 @@ module Runtime : RT.RuntimeLib = struct
     print_sintN_hexadecimal fmt int_width ~add_size:false x
 
   let get_slice (fmt : PP.formatter) (n : int) (w : int) (l : RT.rt_expr) (i : RT.rt_expr) : unit =
-    PP.fprintf fmt "sc_biguint<%d>(%a.range(%d+%a.to_int()-1,%a.to_int()))"
+    PP.fprintf fmt "sc_biguint<%d>(%a.range(%d+%a-1,%a))"
       w
       RT.pp_expr l
       w
@@ -412,7 +412,7 @@ module Runtime : RT.RuntimeLib = struct
       RT.pp_expr i
 
   let set_slice (fmt : PP.formatter) (n : int) (w : int) (l : RT.rt_expr) (i : RT.rt_expr) (r : RT.rt_expr) : unit =
-    PP.fprintf fmt "%a.range(%d+%a.to_int()-1,%a.to_int()) = %a;"
+    PP.fprintf fmt "%a.range(%d+%a-1,%a) = %a;"
       RT.pp_expr l
       w
       RT.pp_expr i
@@ -624,6 +624,12 @@ module Runtime : RT.RuntimeLib = struct
     PP.fprintf fmt "((%a)%a)" ty_sint int_width RT.pp_expr x
 
   let ffi_asl2c_integer_small (fmt : PP.formatter) (x : RT.rt_expr) : unit =
+    PP.fprintf fmt "%a.to_int64()" RT.pp_expr x
+
+  let ffi_c2asl_sintN_small (fmt : PP.formatter) (x : RT.rt_expr) : unit =
+    PP.fprintf fmt "((%a)%a)" ty_sint int_width RT.pp_expr x
+
+  let ffi_asl2c_sintN_small (fmt : PP.formatter) (x : RT.rt_expr) : unit =
     PP.fprintf fmt "%a.to_int64()" RT.pp_expr x
 
   let ffi_c2asl_bits_small (n : int) (fmt : PP.formatter) (x : RT.rt_expr) : unit =

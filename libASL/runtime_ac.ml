@@ -375,23 +375,23 @@ module Runtime : RT.RuntimeLib = struct
 
   let get_slice (fmt : PP.formatter) (n : int) (w : int) (l : RT.rt_expr) (i : RT.rt_expr) : unit =
     if w = 1 then
-      PP.fprintf fmt "(%a[%a])"
+      PP.fprintf fmt "(%a[(int)(%a)])"
         RT.pp_expr l
         RT.pp_expr i
     else
-      PP.fprintf fmt "(%a.slc<%d>(%a))"
+      PP.fprintf fmt "(%a.slc<%d>((int)(%a)))"
         RT.pp_expr l
         w
         RT.pp_expr i
 
   let set_slice (fmt : PP.formatter) (n : int) (w : int) (l : RT.rt_expr) (i : RT.rt_expr) (r : RT.rt_expr) : unit =
     if w = 1 then
-      PP.fprintf fmt "%a[%a] = %a;"
+      PP.fprintf fmt "%a[(int)(%a)] = %a;"
         RT.pp_expr l
         RT.pp_expr i
         RT.pp_expr r
     else
-      PP.fprintf fmt "%a.set_slc(%a, %a);"
+      PP.fprintf fmt "%a.set_slc((int)(%a), %a);"
         RT.pp_expr l
         RT.pp_expr i
         RT.pp_expr r
