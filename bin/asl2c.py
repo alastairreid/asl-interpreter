@@ -396,6 +396,7 @@ def generate_c(asli, asl_files, project_file, configurations):
     ]
     asli_cmd.append("--check-call-markers")
     asli_cmd.append("--check-exception-markers")
+    asli_cmd.append("--check-constraints")
     asli_cmd.append(f"--project={project_file}")
     for file in configurations:
         asli_cmd.append(f"--configuration={file}")
@@ -551,6 +552,7 @@ def main() -> int:
         ]
         asli_cmd.append("--check-call-markers")
         asli_cmd.append("--check-exception-markers")
+        asli_cmd.append("--check-constraints")
         asli_cmd.extend([
             "--exec=let result = main();",
             "--exec=:quit",
