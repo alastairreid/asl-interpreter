@@ -343,6 +343,7 @@ let rethrow_expr (fmt : PP.formatter) (f : unit -> unit) : unit =
 let const_expr (loc : Loc.t) (x : AST.expr) : V.value =
   ( match x with
   | Expr_Lit v -> v
+  | Expr_TApply (f, _, [Expr_Lit (VIntN w)], _) when Ident.equal f cvt_sintN_int -> VInt w.v
   | _ ->
       let msg = Format.asprintf "const_expr: not literal constant '%a'" FMT.expr x in
       let pp fmt = FMT.expr fmt x in
@@ -627,8 +628,11 @@ and expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
       end
   | Expr_Slices (Type_Bits (n,_), e, [Slice_LoWd (lo, wd)]) ->
       let module Runtime = (val (!runtime) : RuntimeLib) in
-      Runtime.get_slice fmt (const_int_expr loc n) (const_int_expr loc wd) (mk_expr loc e) (mk_expr loc lo)
+      Runtime.get_slice fmt (const_int_expr loc n) (const_int_expr loc wd) (mk_expr loc e) (fun fmt -> index_expr loc fmt lo)
   | Expr_Slices (Type_Integer _, e, [Slice_LoWd (lo, wd)]) when lo = Asl_utils.zero ->
+      let module Runtime = (val (!runtime) : RuntimeLib) in
+      Runtime.cvt_int_bits fmt (const_int_expr loc wd) (mk_expr loc e)
+  | Expr_Slices (Type_Integer _, e, [Slice_LoWd (lo, wd)]) ->
       let module Runtime = (val (!runtime) : RuntimeLib) in
       Runtime.cvt_int_bits fmt (const_int_expr loc wd) (mk_expr loc e)
   | Expr_TApply (f, tes, es, throws) ->
@@ -673,7 +677,10 @@ and exprs (loc : Loc.t) (fmt : PP.formatter) (es : AST.expr list) : unit =
  *)
 and index_expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
   let module Runtime = (val (!runtime) : RuntimeLib) in
-  Runtime.ffi_asl2c_integer_small fmt (mk_expr loc x)
+  ( match x with
+  | Expr_TApply (f, _, [x'], _) when Ident.equal f cvt_sintN_int -> mk_expr loc x' fmt
+  | _ -> Runtime.ffi_asl2c_integer_small fmt (mk_expr loc x)
+  )
 
 and varty ?(const_ref = false) (loc : Loc.t) (fmt : PP.formatter) (v : Ident.t) (x : AST.ty) : unit =
   let module Runtime = (val (!runtime) : RuntimeLib) in
@@ -717,13 +724,13 @@ and varty ?(const_ref = false) (loc : Loc.t) (fmt : PP.formatter) (v : Ident.t) 
   | Type_Array (Index_Enum tc, ety) ->
     varty ~const_ref:const_ref loc fmt v ety;
     PP.fprintf fmt "[%a]" ident tc
-  | Type_Array (Index_Int (Expr_Lit (VInt sz)), ety) ->
+  | Type_Array (Index_Int sz, ety) ->
     varty ~const_ref:const_ref loc fmt v ety;
-    PP.fprintf fmt "[%s]" (Z.format "%d" sz)
+    PP.fprintf fmt "[%d]" (const_int_expr loc sz)
   | Type_Constructor (_, _)
   | Type_OfExpr _
   | Type_Tuple _
-  | Type_Array _ ->
+  ->
       let pp fmt = FMT.ty fmt x in
       raise (Error.Unimplemented (loc, "type", pp))
   )
@@ -789,7 +796,7 @@ let lslice (loc : Loc.t) (fmt : PP.formatter) (t : AST.ty) (l : AST.lexpr) (r : 
   let module Runtime = (val (!runtime) : RuntimeLib) in
   ( match (t, s) with
   | (Type_Bits (n, _), Slice_LoWd (lo, wd)) ->
-      Runtime.set_slice fmt (const_int_expr loc n) (const_int_expr loc wd) (mk_lexpr loc l) (mk_expr loc lo) (mk_expr loc r)
+      Runtime.set_slice fmt (const_int_expr loc n) (const_int_expr loc wd) (mk_lexpr loc l) (fun fmt -> index_expr loc fmt lo) (mk_expr loc r)
   | _ -> raise (InternalError (loc, "Only Slice_LoWd is supported", (fun fmt -> FMT.lexpr fmt l), __LOC__))
   )
 
