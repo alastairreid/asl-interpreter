@@ -418,7 +418,7 @@ func Log2(a : integer) => integer
 begin
     assert IsPowerOfTwo(a);
     var b = a;
-    var r : integer = 0;
+    var r = 0;
     while b > 1 do
        b = b DIV 2;
        r = r + 1;

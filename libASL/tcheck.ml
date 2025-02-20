@@ -2242,16 +2242,28 @@ let tc_decl_bit (env : Env.t) (loc : Loc.t) (x : (Ident.t option * AST.ty)) : (I
   | _ -> raise (TypeError (loc, "bits type expected"))
   )
 
+(* drop any integer constraints from a type *)
+let drop_constraints (ty : AST.ty) : AST.ty =
+  ( match ty with
+  | Type_Integer _ -> Type_Integer None
+  | _ -> ty
+  )
+
 (* typecheck a decl_item using the type `ity` of the initializer *)
-let rec tc_decl_item (env : Env.t) (loc : Loc.t) (ity : AST.ty) (x : AST.decl_item) : AST.decl_item =
+let rec tc_decl_item (env : Env.t) (loc : Loc.t) (is_immutable : bool) (ity : AST.ty) (x : AST.decl_item) : AST.decl_item =
   match (ity, x) with
   | (ity, DeclItem_Var (v, None)) ->
-    DeclItem_Var (v, Some ity)
+    (* Mutable variable declarations do not inherit constraints from their
+     * initializers because the whole point of a mutable variable is that it can be
+     * assigned values different from their initializer.
+     *)
+    let ity' = if is_immutable then ity else drop_constraints ity in
+    DeclItem_Var (v, Some ity')
   | (ity, DeclItem_Var (v, Some ty)) ->
       let ty' = check_type env loc ity ty in
       DeclItem_Var (v, Some ty')
   | (Type_Tuple itys, DeclItem_Tuple dis) when List.length dis = List.length itys ->
-      let dis' = List.map2 (tc_decl_item env loc) itys dis in
+      let dis' = List.map2 (tc_decl_item env loc is_immutable) itys dis in
       DeclItem_Tuple dis'
   | (_, DeclItem_Tuple dis) ->
       let len = List.length dis in
@@ -2323,12 +2335,12 @@ and tc_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
       [Stmt_VarDeclsNoInit (vs, ty', loc)]
   | Stmt_VarDecl (di, i, loc) ->
       let (i', ity) = tc_expr env loc i in
-      let di' = tc_decl_item env loc ity di in
+      let di' = tc_decl_item env loc false ity di in
       add_decl_item_vars env loc false di';
       [Stmt_VarDecl (di', i', loc)]
   | Stmt_ConstDecl (di, i, loc) ->
       let (i', ity) = tc_expr env loc i in
-      let di' = tc_decl_item env loc ity di in
+      let di' = tc_decl_item env loc true ity di in
       add_decl_item_vars env loc true di';
 
       (* add integer constants to type environment *)
