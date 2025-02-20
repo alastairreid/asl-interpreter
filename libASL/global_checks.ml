@@ -29,7 +29,7 @@ let verbose = ref false
 (****************************************************************
  * Check that function definitions have correct throw/nothrow markers
  *
- * This is an experimental extensions where function definitions
+ * This is an experimental extension where function definitions
  * must be marked with whether or not they can throw exceptions
  * and function calls must have a matching marker.
  *
@@ -481,7 +481,7 @@ class rethrow_checks_class (effects : effects_class) (loc : Loc.t) =
                 FMT.varname f
             in
             raise (Error.TypeError (loc, msg))
-        end else
+        end;
         if throws = NoThrow && fthrows then begin
             let msg = Format.asprintf
                 "call to function `%a` should be marked with `?` or `!` because it can throw an exception"
@@ -499,11 +499,12 @@ class rethrow_checks_class (effects : effects_class) (loc : Loc.t) =
         let (_, _, fthrows) = effects#fun_effects f in
         if throws <> NoThrow && not fthrows then begin
             let msg = Format.asprintf
-                "call to procedure `%a` is incorrectly marked with `?`  or `!`but it cannot throw an exception"
+                "call to procedure `%a` is incorrectly marked with `?`  or `!` but it cannot throw an exception"
                 FMT.varname f
             in
             raise (Error.TypeError (loc, msg))
-        end else if throws = NoThrow && fthrows then begin
+        end;
+        if throws = NoThrow && fthrows then begin
             let msg = Format.asprintf
                 "call to procedure `%a` should be marked with `?` or `!` because it can throw an exception"
                 FMT.varname f
@@ -522,16 +523,18 @@ class global_checks_class (effects : effects_class) (markers : (AST.can_throw * 
 
     method! vexpr x =
       ignore (check_expression_order loc effects x);
-      ignore (Asl_visitor.visit_expr (new rethrow_checks_class effects loc) x);
       if !check_call_markers then begin
           ignore (Asl_visitor.visit_expr (new exn_call_checks_class markers loc :> Asl_visitor.aslVisitor) x)
+      end else begin
+          ignore (Asl_visitor.visit_expr (new rethrow_checks_class effects loc) x)
       end;
       SkipChildren
 
     method! vstmt x =
-      ignore (Asl_visitor.visit_stmt (new rethrow_checks_class effects (stmt_loc x)) x);
       if !check_call_markers then begin
           ignore (Asl_visitor.visit_stmt (new exn_call_checks_class markers loc :> Asl_visitor.aslVisitor) x)
+      end else begin
+          ignore (Asl_visitor.visit_stmt (new rethrow_checks_class effects (stmt_loc x)) x)
       end;
       DoChildren
   end
