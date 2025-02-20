@@ -21,7 +21,7 @@ begin
     return -1;
 end
 
-func FUT2?(x : integer)
+func FUT2(x : integer)
 begin
     try
         print(FUT?(x)); println();
@@ -42,23 +42,23 @@ end
 
 func main() => integer
 begin
-    FUT2?(0);
+    FUT2(0);
     // CHECK: Caught exception E0
     // CHECK: Exited try block
 
-    FUT2?(1);
+    FUT2(1);
     // CHECK: Caught exception E1{TRUE}
     // CHECK: Exited try block
 
-    FUT2?(2);
+    FUT2(2);
     // CHECK: Caught exception E1{FALSE}
     // CHECK: Exited try block
 
-    FUT2?(3);
+    FUT2(3);
     // CHECK: Caught another exception
     // CHECK: Exited try block
 
-    FUT2?(4);
+    FUT2(4);
     // CHECK: 0x2a
     // CHECK: Did not throw
     // CHECK: Exited try block

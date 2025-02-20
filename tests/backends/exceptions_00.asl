@@ -3,7 +3,7 @@
 
 type E of exception;
 
-func Test(x : integer) => integer
+func Test?(x : integer) => integer
 begin
     try
         if x < 0 then

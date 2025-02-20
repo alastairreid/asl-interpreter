@@ -12,4 +12,5 @@ func main() => integer
 begin
     print_bits_hex(FUT_8_4('0000 0000', 5, '1111')); println();
     // CHECK: Evaluation error: assertion failure
+    return 0;
 end
