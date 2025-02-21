@@ -52,6 +52,7 @@ void FFI_test_exports() {
         printf("%s\n", bret ? "TRUE" : "FALSE");
 
         printf("%d\n", FFI_integer(42));
+        printf("i17'd%d\n", FFI_sint17(42));
 
         int intret2;
         bool boolret2;

@@ -70,6 +70,11 @@ begin
     return x;
 end
 
+func FFI_sint17(x : __sint(17)) => __sint(17)
+begin
+    return x;
+end
+
 // Support for functions that return multiple values
 // is complicated by the fact that the :xform_tuples
 // transformation converts functions that return tuples
@@ -112,6 +117,7 @@ begin
     // CHECK: TRUE
     // CHECK: TRUE
     // CHECK: 42
+    // CHECK: i17'd42
 
     // CHECK: (1, FALSE)
     // CHECK: (4, TRUE)

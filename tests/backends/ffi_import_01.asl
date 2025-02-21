@@ -21,6 +21,7 @@ func FFI_null_string(x : string) => string;
 func FFI_null_E(x : E) => E;
 func FFI_null_boolean(x : boolean) => boolean;
 func FFI_null_integer(x : integer) => integer;
+func FFI_null_sint17(x : __sint(17)) => __sint(17);
 
 // Support for functions that return multiple values
 // is complicated by the fact that the :xform_tuples
@@ -69,6 +70,8 @@ begin
     // CHECK: TRUE
     print_int_dec(FFI_null_integer(42)); println();
     // CHECK: 42
+    print_sintN_dec(FFI_null_sint17(i17'd42)); println();
+    // CHECK: i17'd42
 
     let ret1 = FFI_int_bool(1);
     print_int_dec(ret1.r0); print(" "); print(ret1.r1); println();

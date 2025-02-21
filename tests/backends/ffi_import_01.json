@@ -18,6 +18,7 @@
         "FFI_null_E",
         "FFI_null_boolean",
         "FFI_null_integer",
+        "FFI_null_sint17",
         "FFI_int_bool"
     ]
 }
