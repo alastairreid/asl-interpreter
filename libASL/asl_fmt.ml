@@ -483,17 +483,21 @@ and expr (fmt : PP.formatter) (x : AST.expr) : unit =
       brackets fmt (fun _ -> expr fmt e)
   | Expr_Lit v -> Value.pp_value fmt v
   | Expr_AsConstraint (e, c) ->
-      expr fmt e;
-      nbsp fmt;
-      kw_as fmt;
-      nbsp fmt;
-      constraints fmt c
+      parens fmt (fun _ ->
+        expr fmt e;
+        nbsp fmt;
+        kw_as fmt;
+        nbsp fmt;
+        constraints fmt c
+      )
   | Expr_AsType (e, t) ->
-      expr fmt e;
-      nbsp fmt;
-      kw_as fmt;
-      nbsp fmt;
-      ty fmt t
+      parens fmt (fun _ ->
+        expr fmt e;
+        nbsp fmt;
+        kw_as fmt;
+        nbsp fmt;
+        ty fmt t
+      )
 
 and exprs (fmt : PP.formatter) (es : AST.expr list) : unit =
   commasep fmt (expr fmt) es
