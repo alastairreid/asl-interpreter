@@ -1271,6 +1271,7 @@ let fun_decls (xs : AST.declaration list) : AST.declaration list =
  *   Either uint{8,16,32,64}_t (when the bitsize matches _exactly_)
  *   Or an array of uint64_t (for all other sizes)
  * - integer (limited to 64-bit ints)
+ * - __sint(N) (for N <= 64)
  * - string
  * - enumeration types
  *
@@ -1359,6 +1360,25 @@ let mk_ffi_conversion (loc : Loc.t) (indirect : bool) (c_name : Ident.t) (asl_na
           varty loc fmt asl_name asl_type;
           PP.fprintf fmt " = %a;"
             Runtime.ffi_c2asl_integer_small pp_c_name);
+      }
+  | Type_Constructor (tc, [Expr_Lit (VInt n)])
+    when Ident.equal tc Builtin_idents.sintN
+         && Z.to_int n <= 64
+    ->
+      { asl_name = asl_name;
+        asl_type = asl_type;
+        c_name = c_name;
+        pp_c_type = Some (fun fmt -> PP.fprintf fmt "int%a" ptr ());
+        pp_c_decl = (fun fmt -> PP.fprintf fmt "int %a%a" ptr () ident c_name);
+        pp_asl_to_c = (fun fmt ->
+          PP.fprintf fmt "%a%a = %a;"
+            ptr ()
+            ident c_name
+            Runtime.ffi_asl2c_sintN_small pp_asl_name);
+        pp_c_to_asl = (fun fmt ->
+          varty loc fmt asl_name asl_type;
+          PP.fprintf fmt " = %a;"
+            Runtime.ffi_c2asl_sintN_small pp_c_name);
       }
   | Type_Bits(Expr_Lit (VInt n), _) when List.mem (Z.to_int n) [8; 16; 32; 64] ->
       let n' = Z.to_int n in

@@ -16,6 +16,7 @@
         "FFI_E",
         "FFI_boolean",
         "FFI_integer",
+        "FFI_sint17",
         "FFI_int_bool"
     ],
     "imports": [
