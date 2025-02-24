@@ -65,6 +65,7 @@ LDFLAGS = $(shell ${ASL2C} --print-ld-flags)
 
 CFLAGS += -Wall
 CFLAGS += -g
+CFLAGS += -Wno-unused-but-set-variable
 
 CC=clang-16 -std=c2x
 
@@ -72,7 +73,7 @@ CC=clang-16 -std=c2x
 
 simulator_% : simulator.c config.json demo.asl
 	@ if ${HAVE_GNU_AS}; then \
-	$(ASL2C) --basename=sim --intermediates=log --split-state --backend=$* > sim.prj ; \
+	$(ASL2C) --basename=sim --intermediates=log --split-state --new-ffi --backend=$* > sim.prj ; \
 	env ASL_PATH="${ASL_PATH}" $(ASLI) --nobanner --batchmode --project=sim.prj --configuration=config.json demo.asl ; \
 	$(CC) ${CFLAGS} simulator.c -o $@ ${LDFLAGS} ; \
 	else echo ${REPORT_NOT_GAS}; fi
@@ -90,7 +91,7 @@ demo_% : simulator_% test.elf test.prj
 clean ::
 	$(RM) sim.prj
 	$(RM) log.*.asl
-	$(RM) sim_types.h sim_exceptions.h sim_vars.h
+	$(RM) sim_types.h sim_exceptions.h sim_vars.h sim_ffi.h
 	$(RM) sim_exceptions.c sim_vars.c sim_funs.c
 	$(RM) sim_types.hpp sim_exceptions.hpp sim_vars.hpp
 	$(RM) sim_exceptions.cpp sim_vars.cpp sim_funs.cpp

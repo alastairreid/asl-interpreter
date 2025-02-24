@@ -1,4 +1,4 @@
-/****************************************************************
+/***************************************************************
  * An example simulator harness for use when compiling an ISA
  * specification to C code.
  *
@@ -15,7 +15,7 @@
 
 #include "asl/runtime.h"
 
-#include "sim_types.h"
+#include "sim_ffi.h"
 
 #define UNUSED __attribute__ ((unused))
 
@@ -35,10 +35,10 @@ void load_block(char* data, Elf64_Addr addr, Elf64_Xword file_size, Elf64_Xword 
         for(uint64_t i = 0; i < file_size; ++i) {
                 uint8_t value = *((uint8_t*)(data + i));
                 // printf("Setting %lx = %x\n", addr + i, value);
-                ASL_WriteMemory8_0(addr + i, value);
+                ASL_WriteMemory8(addr + i, value);
         }
         for(uint64_t i = file_size; i < mem_size; ++i) {
-                ASL_WriteMemory8_0(addr + i, 0);
+                ASL_WriteMemory8(addr + i, 0);
         }
 }
 
@@ -138,28 +138,6 @@ runtime_error(const char *msg)
 #include "sim_funs.c"
 
 /****************************************************************
- * Exception support code
- ****************************************************************/
-
-void exception_clear()
-{
-        ASL_exception = (ASL_exception_t){ ._exc={.ASL_tag = ASL_no_exception} };
-}
-
-enum ASL_exception_tag exception_tag()
-{
-        return ASL_exception._exc.ASL_tag;
-}
-
-void exception_check(const char *what)
-{
-        if (ASL_exception._exc.ASL_tag != ASL_no_exception) {
-                fprintf(ASL_error_file, "Error: uncaught exception in %s\n", what);
-                exit(1);
-        }
-}
-
-/****************************************************************
  * Register access by name
  *
  * This builds on the ASL_ReadReg64/ASL_WriteReg64 ASL functions
@@ -211,8 +189,7 @@ UNUSED static uint64_t get_register(const char* name)
                 printf("Ignoring get of unknown register '%s'\n", name);
                 return 0;
         }
-        uint64_t r = ASL_ReadReg64_0(index);
-        exception_check("ASL_ReadReg64");
+        uint64_t r = ASL_ReadReg64(index);
         return r;
 }
 
@@ -224,8 +201,7 @@ UNUSED static void set_register(const char* name, uint64_t val)
                 return;
         }
         printf("Setting %s to %lx\n", name, val);
-        ASL_WriteReg64_0(index, val);
-        exception_check("ASL_WriteReg64");
+        ASL_WriteReg64(index, val);
 }
 
 /****************************************************************
@@ -246,7 +222,6 @@ int main(int argc, const char* argv[])
                 fprintf(ASL_error_file, "Usage: simulator --steps=<n> <.elf files>\n");
                 exit(1);
         }
-        exception_clear();
 
         // Initialize all the state structs
         ASL_initialize_threadlocal_state(&Processor0);
@@ -256,8 +231,7 @@ int main(int argc, const char* argv[])
         threadlocal_state_ptr = &Processor0;
         global_state_ptr = &Global;
 
-        ASL_Reset_0();
-        exception_check("ASL_Reset");
+        ASL_Reset();
 
         long steps = 10; // default number of steps to run
         for(int i = 1; i < argc; ++i) {
@@ -275,11 +249,10 @@ int main(int argc, const char* argv[])
                 }
         }
 
-        PrintState_0();
-        for(int i = 0; i < steps && !ASL_IsHalted_0(); ++i) {
-                ASL_Step_0();
-                exception_check("ASL_Step");
-                PrintState_0();
+        PrintState();
+        for(int i = 0; i < steps && !ASL_IsHalted(); ++i) {
+                ASL_Step();
+                PrintState();
         }
 
         exit(0);
