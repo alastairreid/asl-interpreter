@@ -24,10 +24,6 @@ ASL_NORETURN void ASL_runtime_error(const char *msg);
 
 #define ASL_runtime_error_if(cond, msg) if (cond) ASL_runtime_error(msg);
 
-// Temporary shim for backwards compatibility
-// todo: remove once all uses have been removed
-#define runtime_error(msg) ASL_runtime_error(msg)
-
 void ASL_assert(const char* loc, const char* expr, bool c);
 
 #ifdef __cplusplus

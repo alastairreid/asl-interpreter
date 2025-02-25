@@ -116,7 +116,7 @@ ASL_assert(const char* loc, const char* expr, bool c)
 }
 
 void
-runtime_error(const char *msg)
+ASL_runtime_error(const char *msg)
 {
         fprintf(ASL_error_file, "Runtime error: %s\n", msg);
         fprintf(ASL_error_file, "This error indicates an error in the specification and should\n");
