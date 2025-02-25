@@ -2423,7 +2423,7 @@ and tc_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
       let b' =
         Env.nest
           (fun env' ->
-            Env.addLocalVar env' {name=v; loc; ty; is_local=true; is_constant=true};
+            Env.addLocalVar env' {name=v; loc; ty=ty''; is_local=true; is_constant=true};
             tc_stmts env' loc b)
           env
       in
