@@ -1,4 +1,4 @@
-// RUN: not %aslrun %s | filecheck %s
+// RUN: not %aslrun --runtime-checks %s | filecheck %s
 // Copyright (C) 2023-2025 Intel Corporation
 
 var R : array [4] of bits(32);

@@ -1,4 +1,4 @@
-// RUN: %asli --batchmode --exec=":show --format=raw FUT*" %s | filecheck %s
+// RUN: %asli --batchmode --runtime-checks --exec=":show --format=raw FUT*" %s | filecheck %s
 // Copyright (C) 2025-2025 Intel Corporation
 
 func FUT1(x : bits(32), i : integer {0..31}) => bits(1)

@@ -23,7 +23,7 @@ open Format
 let verbose = false
 let fmt = std_formatter
 let enable_constraint_checks = ref false
-let enable_runtime_checks = ref true
+let enable_runtime_checks = ref false
 let max_errors = ref 0
 
 (****************************************************************)

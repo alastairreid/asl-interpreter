@@ -392,7 +392,7 @@ def generate_config_file(config_file, exports, imports):
         print("}", file=f)
     report(f"# Generated configuration file {config_file}\n")
 
-def run_asli(asli, asl_files, project_file, configurations):
+def run_asli(asli, runtime_checks, asl_files, project_file, configurations):
     asli_cmd = [
         asli,
         "--batchmode", "--nobanner",
@@ -400,6 +400,7 @@ def run_asli(asli, asl_files, project_file, configurations):
     asli_cmd.append("--check-call-markers")
     asli_cmd.append("--check-exception-markers")
     asli_cmd.append("--check-constraints")
+    asli_cmd.append("--runtime-checks" if runtime_checks else "--no-runtime-checks")
     asli_cmd.append(f"--project={project_file}")
     for file in configurations:
         asli_cmd.append(f"--configuration={file}")
@@ -489,6 +490,7 @@ def main() -> int:
     parser.add_argument("--import", dest="imports", help="import this symbol (C generation only)", action='append', default=[])
     parser.add_argument("--line-info", help="insert line directives into C code", action=argparse.BooleanOptionalAction)
     parser.add_argument("--new-ffi", help="use the new FFI", action="store_true", default=False)
+    parser.add_argument("--runtime-checks", help="perform runtime checks (array bounds, etc.)", action="store_true", default=False)
     parser.add_argument("--split-state", help="split state into multiple structs", action=argparse.BooleanOptionalAction)
     parser.add_argument("--instrument-unknown", help="instrument assignments of UNKNOWN", action=argparse.BooleanOptionalAction)
     parser.add_argument("--wrap-variables", help="wrap global variables into functions", action=argparse.BooleanOptionalAction)
@@ -547,6 +549,7 @@ def main() -> int:
         asli_cmd.append("--check-call-markers")
         asli_cmd.append("--check-exception-markers")
         asli_cmd.append("--check-constraints")
+        asli_cmd.append("--runtime-checks" if args.runtime_checks else "--no-runtime-checks")
         asli_cmd.extend([
             "--exec=let result = main();",
             "--exec=:quit",
@@ -561,7 +564,7 @@ def main() -> int:
         (project_file, config_filename, c_files, exe_file) = mk_filenames(backend, working_directory, args.basename, args.generate_cxx)
         generate_project(project_file, script)
         generate_config_file(config_filename, ["main"] + args.exports, args.imports)
-        run_asli(asli, args.asl_files, project_file, [config_filename]+args.configuration)
+        run_asli(asli, args.runtime_checks, args.asl_files, project_file, [config_filename]+args.configuration)
         if args.show_final_asl:
             pass
         elif args.run:

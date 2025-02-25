@@ -1,4 +1,4 @@
-// RUN: %asli --batchmode --exec=":show --format=raw FUT*" %s | filecheck %s
+// RUN: %asli --batchmode --runtime-checks --exec=":show --format=raw FUT*" %s | filecheck %s
 // Copyright (C) 2025-2025 Intel Corporation
 
 var R : array [16] of bits(32);

@@ -371,14 +371,14 @@ let options =
       ("--project", Arg.String add_project,     "       Execute project file");
       ("--format", Arg.Symbol (formats, set_format), "       Control print format");
       ("--max-errors", Arg.Set_int Tcheck.max_errors, "       Maximum number of typechecker errors");
-      ("--check-exception-markers",   Arg.Set   Global_checks.check_defn_markers, "       Check that function definitions have correct exceptions markers");
-      ("--nocheck-exception-markers", Arg.Clear Global_checks.check_defn_markers, "       Do not check that function definitions have correct exceptions markers");
-      ("--check-call-markers",        Arg.Set   Global_checks.check_call_markers, "       Check that function calls have correct exception markers");
-      ("--nocheck-call-markers",      Arg.Clear Global_checks.check_call_markers, "       Do not check that function calls have correct exception markers");
-      ("--check-constraints", Arg.Set Tcheck.enable_constraint_checks,     "       Check type constraints");
-      ("--nocheck-constraints", Arg.Clear Tcheck.enable_constraint_checks, "       Do not check type constraints");
-      ("--runtime-check",           Arg.Set Tcheck.enable_runtime_checks,         "       Insert runtime checks");
-      ("--noruntime-checks",        Arg.Clear Tcheck.enable_runtime_checks,       "       Do not insert runtime checks");
+      ("--check-exception-markers",    Arg.Set   Global_checks.check_defn_markers, "       Check that function definitions have correct exceptions markers");
+      ("--no-check-exception-markers", Arg.Clear Global_checks.check_defn_markers, "       Do not check that function definitions have correct exceptions markers");
+      ("--check-call-markers",         Arg.Set   Global_checks.check_call_markers, "       Check that function calls have correct exception markers");
+      ("--no-check-call-markers",      Arg.Clear Global_checks.check_call_markers, "       Do not check that function calls have correct exception markers");
+      ("--check-constraints",          Arg.Set Tcheck.enable_constraint_checks,    "       Check type constraints");
+      ("--no-check-constraints",       Arg.Clear Tcheck.enable_constraint_checks,  "       Do not check type constraints");
+      ("--runtime-checks",             Arg.Set Tcheck.enable_runtime_checks,       "       Insert runtime checks");
+      ("--no-runtime-checks",          Arg.Clear Tcheck.enable_runtime_checks,     "       Do not insert runtime checks");
     ]
 
 let version = "ASLi 1.0.0"

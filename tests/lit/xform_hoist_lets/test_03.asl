@@ -1,4 +1,4 @@
-// RUN: %asli --batchmode --noruntime-checks --exec=:xform_hoist_lets --exec=":show --format=raw FUT" %s | filecheck %s
+// RUN: %asli --batchmode --no-runtime-checks --exec=:xform_hoist_lets --exec=":show --format=raw FUT" %s | filecheck %s
 // Copyright (C) 2025-2025 Intel Corporation
 
 func FUT(i : integer) => boolean
