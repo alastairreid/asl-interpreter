@@ -678,8 +678,10 @@ and exprs (loc : Loc.t) (fmt : PP.formatter) (es : AST.expr list) : unit =
 and index_expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
   let module Runtime = (val (!runtime) : RuntimeLib) in
   ( match x with
-  | Expr_TApply (f, _, [x'], _) when Ident.equal f cvt_sintN_int -> mk_expr loc x' fmt
-  | _ -> Runtime.ffi_asl2c_integer_small fmt (mk_expr loc x)
+  | Expr_TApply (f, _, [x'], _) when Ident.equal f cvt_sintN_int ->
+      Runtime.ffi_asl2c_sintN_small fmt (mk_expr loc x')
+  | _ ->
+      Runtime.ffi_asl2c_integer_small fmt (mk_expr loc x)
   )
 
 and varty ?(const_ref = false) (loc : Loc.t) (fmt : PP.formatter) (v : Ident.t) (x : AST.ty) : unit =
