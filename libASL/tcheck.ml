@@ -505,30 +505,73 @@ end
     which gives a performance benefit.
  *)
 
-let rec simplify_expr (x : AST.expr) : AST.expr =
-  let eval (x : AST.expr) : Z.t option =
-    match x with Expr_Lit (VInt x') -> Some x' | _ -> None
+let rec const_fold_expr (x : AST.expr) : AST.expr =
+  let rec eval (x : AST.expr) : Z.t option =
+    ( match x with
+    | Expr_Lit (VInt x') -> Some x'
+    | Expr_Assert (e1, e2, loc) -> eval e2
+    | _ -> None
+    )
   in
   let to_expr (x : Z.t) : AST.expr = Expr_Lit (VInt x) in
 
-  match x with
-  | Expr_TApply (f, tes, es, throws) -> (
-      let es' = List.map simplify_expr es in
-      match (f, flatten_map_option eval es') with
-      | i, Some [ a ]    when Ident.equal i neg_int -> to_expr (Primops.prim_neg_int a)
-      | i, Some [ a; b ] when Ident.equal i add_int -> to_expr (Primops.prim_add_int a b)
-      | i, Some [ a; b ] when Ident.equal i sub_int -> to_expr (Primops.prim_sub_int a b)
-      | i, Some [ a; b ] when Ident.equal i mul_int -> to_expr (Primops.prim_mul_int a b)
-      | i, Some [ a; b ] when Ident.equal i exact_div_int -> to_expr (Primops.prim_exact_div_int a b)
-      | i, Some [ a; b ] when Ident.equal i shl_int -> to_expr (Primops.prim_shl_int a b)
-      | i, Some [ a; b ] when Ident.equal i shr_int -> to_expr (Primops.prim_shr_int a b)
-      | i, Some [ a; b ] when Ident.equal i min -> to_expr (Z.min a b)
-      | i, Some [ a; b ] when Ident.equal i max -> to_expr (Z.max a b)
-      | i, Some [ a ] when Ident.equal i pow2_int -> to_expr (Primops.prim_pow2_int a)
-      | i, Some [ a; b ] when Ident.equal i pow_int_int -> to_expr (Primops.prim_pow_int_int a b)
-      | _ -> Expr_TApply (f, tes, es', throws))
+  ( match x with
+  | Expr_TApply (f, [], [a; b], _) when Ident.equal f eq_int && a = b -> asl_true
+  | Expr_TApply (f, tes, es, throws) ->
+      let es' = List.map const_fold_expr es in
+      ( match flatten_map_option eval es' with
+      | Some [a]    when Ident.equal f neg_int -> to_expr (Primops.prim_neg_int a)
+      | Some [a; b] when Ident.equal f add_int -> to_expr (Primops.prim_add_int a b)
+      | Some [a; b] when Ident.equal f sub_int -> to_expr (Primops.prim_sub_int a b)
+      | Some [a; b] when Ident.equal f mul_int -> to_expr (Primops.prim_mul_int a b)
+      | Some [a; b] when Ident.equal f exact_div_int -> to_expr (Primops.prim_exact_div_int a b)
+      | Some [a; b] when Ident.equal f shl_int -> to_expr (Primops.prim_shl_int a b)
+      | Some [a; b] when Ident.equal f shr_int -> to_expr (Primops.prim_shr_int a b)
+      | Some [a; b] when Ident.equal f min -> to_expr (Z.min a b)
+      | Some [a; b] when Ident.equal f max -> to_expr (Z.max a b)
+      | Some [a]    when Ident.equal f pow2_int -> to_expr (Primops.prim_pow2_int a)
+      | Some [a; b] when Ident.equal f pow_int_int -> to_expr (Primops.prim_pow_int_int a b)
+      | _ -> Expr_TApply (f, tes, es', throws)
+      )
+  | Expr_Assert (e1, e2, loc) ->
+      const_fold_expr e2
   | _ -> x
+  )
 
+(* Simplify use of __assert and __let in an expression
+ * as preparation for generating a Z3 check.
+ *
+ * The primary reason for doing this is to enable the exact_div
+ * handling in z3_of_expr to work.
+ *)
+class simplifyExprClass = object(self)
+  inherit Asl_visitor.nopAslVisitor
+
+  val mutable env = Bindings.empty
+
+  method! vexpr e =
+    ( match e with
+    | Expr_Var v ->
+        ( match Bindings.find_opt v env with
+        | Some r -> ChangeTo r
+        | None -> SkipChildren
+        )
+    | Expr_Let (v, ty, e1, e2) ->
+        env <- Bindings.add v e1 env;
+        (* Note: there is no need to remove 'v' after transforming e2
+         * because __let-bound variables are unique in the expression.
+         *)
+        ChangeTo e2
+    | Expr_Assert (e1, e2, loc) ->
+        ChangeDoChildrenPost (e2, Fun.id)
+    | _ ->
+        DoChildren
+    )
+end
+
+let simplify_expr (x : AST.expr) : AST.expr =
+  let v = new simplifyExprClass in
+  Asl_visitor.visit_expr v x
 
 (****************************************************************)
 (** {3 Z3 support code}                                         *)
@@ -551,12 +594,19 @@ let rec simplify_expr (x : AST.expr) : AST.expr =
     "F" does.
  *)
 
-let rec z3_of_expr (ctx : Z3.context) (ufs : (AST.expr * Z3.Expr.expr) list ref)
-    (x : AST.expr) : Z3.Expr.expr =
-  match x with
+let rec z3_of_expr
+    (ctx : Z3.context)
+    (ufs : (AST.expr * Z3.Expr.expr) list ref)
+    (x : AST.expr)
+    : Z3.Expr.expr =
+  ( match x with
   | Expr_Var v ->
-      let intsort = Z3.Arithmetic.Integer.mk_sort ctx in
-      Z3.Expr.mk_const_s ctx (Ident.to_string v) intsort
+      if v = false_ident then Z3.Boolean.mk_false ctx
+      else if v = true_ident then Z3.Boolean.mk_true ctx
+      else (
+        let intsort = Z3.Arithmetic.Integer.mk_sort ctx in
+        Z3.Expr.mk_const_s ctx (Ident.to_string v) intsort
+      )
   | Expr_Lit (VInt i) -> Z3.Arithmetic.Integer.mk_numeral_s ctx (Z.to_string i)
   (* todo: the following lines involving DIV are not sound *)
   | Expr_TApply
@@ -642,18 +692,20 @@ let rec z3_of_expr (ctx : Z3.context) (ufs : (AST.expr * Z3.Expr.expr) list ref)
     Z3.Boolean.mk_or ctx [z3_of_expr ctx ufs a; z3_of_expr ctx ufs b]
   | Expr_TApply (i, [], [ a; b ], _) when Ident.equal i implies_bool ->
       Z3.Boolean.mk_implies ctx (z3_of_expr ctx ufs a) (z3_of_expr ctx ufs b)
-  | _ -> (
+  | _ ->
       if verbose then
         Format.fprintf fmt
           "    Unable to translate %a - using as uninterpreted function\n"
           FMT.expr x;
       let intsort = Z3.Arithmetic.Integer.mk_sort ctx in
-      match List.assoc_opt x !ufs with
+      ( match List.assoc_opt x !ufs with
       | None ->
           let uf = Z3.Expr.mk_fresh_const ctx "UNINTERPRETED" intsort in
           ufs := (x, uf) :: !ufs;
           uf
-      | Some uf -> uf)
+      | Some uf -> uf
+      )
+  )
 
 let z3_ctx = Z3.mk_context []
 
@@ -708,14 +760,15 @@ let check_equality
   (env : Env.t) (loc : Loc.t)
   (x : AST.expr) (y : AST.expr)
   : unit =
-  let x' = simplify_expr x in
-  let y' = simplify_expr y in
+  let x' = const_fold_expr (simplify_expr x) in
+  let y' = const_fold_expr (simplify_expr y) in
 
   (* As a performance optimisation, omit SMT calls that are trivially true *)
   if x' <> y' then begin
     let assumptions = Env.getConstraints env in
+    let assumptions' = List.map (fun c -> const_fold_expr (simplify_expr c)) assumptions in
     let constraints = [mk_eq_int x' y'] in
-    if not (check_constraints assumptions constraints) then begin
+    if not (check_constraints assumptions' constraints) then begin
       raise (DoesNotMatch (loc, "type width parameter", pp_expr x, pp_expr y))
     end
   end
@@ -732,7 +785,7 @@ let are_legal_constraint_ranges (crs : AST.constraint_range list) : AST.expr =
 
 let constraint_range_to_expr (v : AST.expr) (cr : AST.constraint_range) : AST.expr =
   ( match cr with
-  | Constraint_Single e -> mk_eq_int v e
+  | Constraint_Single e -> if v = e then asl_true else mk_eq_int v e
   | Constraint_Range (lo, hi) -> mk_and (mk_le_int lo v) (mk_le_int v hi)
   )
 
@@ -744,8 +797,10 @@ let is_subrange (env : Env.t) (crs1 : constraint_range list) (crs2 : constraint_
   let chk = mk_implies
               (mk_and (are_legal_constraint_ranges crs1) (constraint_ranges_to_expr v crs1))
               (constraint_ranges_to_expr v crs2)  in
+  let chk' = const_fold_expr (simplify_expr chk) in
   let assumptions = Env.getConstraints env in
-  let r = check_constraints assumptions [chk] in
+  let assumptions' = List.map (fun c -> const_fold_expr (simplify_expr c)) assumptions in
+  let r = check_constraints assumptions' [chk'] in
   if verbose && not r then begin
     Format.printf "Failed subrange check %a => %a\n"
       FMT.exprs assumptions
@@ -1554,8 +1609,9 @@ and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) :
       Env.nest (fun env' ->
           let t' = tc_type env' loc t in
           let e' = check_expr env' loc t' e in
-          if t' = type_integer then
+          if t' = type_integer then begin
             Env.addConstraint env loc (mk_eq_int (Expr_Var v) e');
+          end;
           Env.addLocalVar env' {name=v; loc; ty=t'; is_local=true; is_constant=true};
           let (b', bty') = tc_expr env' loc b in
           (Expr_Let (v, t', e', b'), bty')
