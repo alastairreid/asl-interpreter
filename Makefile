@@ -10,15 +10,17 @@
 
 VERSION = 0.2.0
 
-ifneq ($(V),1)
-MAKEFLAGS += --silent
-endif
-
 export DUNE_BUILD_DIR ?= $(CURDIR)/_build
 
 DUNE := dune
 OPAM := opam
 LIT := lit
+
+# Control verbosity of testing
+LIT_VERBOSITY = --succinct
+# LIT_VERBOSITY = --verbose
+DUNE_VERBOSITY = ALCOTEST_COMPACT=1
+# DUNE_VERBOSITY =
 
 build::
 	$(DUNE) build
@@ -55,13 +57,13 @@ test: test_demo_interpreter
 test: test_demos
 
 dune_test: build
-	$(DUNE) test
+	$(DUNE_VERBOSITY) $(DUNE) test
 
 runtime_test:
 	$(MAKE) -C runtime test BUILD_DIR=$(DUNE_BUILD_DIR)/runtime
 
 lit_test: build
-	env PATH="`pwd`/tests/scripts:${PATH}" ${LIT} tests/lit -v
+	env PATH="`pwd`/tests/scripts:${PATH}" ${LIT} tests/lit $(LIT_VERBOSITY)
 
 TEST_ENV += AC_TYPES_DIR="`pwd`/runtime/external/ac_types"
 TEST_ENV += SC_TYPES_DIR="`pwd`/runtime/external/systemc/build-install"
@@ -73,7 +75,7 @@ BACKENDS = interpreter c23 ac fallback sc
 test_backends: ${addprefix test_backend_, ${BACKENDS}}
 
 test_backend_%: build
-	env PATH="${CURDIR}/tests/scripts:$${PATH}" ${TEST_ENV} ASL_BACKEND=$* ${LIT} tests/backends -v
+	env PATH="${CURDIR}/tests/scripts:$${PATH}" ${TEST_ENV} ASL_BACKEND=$* ${LIT} tests/backends $(LIT_VERBOSITY)
 
 
 test_demos: ${addprefix test_demo_, $(filter-out interpreter ac, ${BACKENDS})}
