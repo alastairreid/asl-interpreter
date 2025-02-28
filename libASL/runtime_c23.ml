@@ -399,7 +399,14 @@ module Runtime : RT.RuntimeLib = struct
   let eq_bits  (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "==" x y
   let ne_bits  (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "!=" x y
   let add_bits (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "+" x y
-  let sub_bits (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "-" x y
+  let sub_bits (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit =
+    (* Subtraction is awkward because even though the inputs are unsigned, the result seems to be signed
+     * and so we explicitly cast the result back to unsigned.
+     *)
+    PP.fprintf fmt "((%a)(%a - %a))"
+      ty_bits n
+      RT.pp_expr x
+      RT.pp_expr y
   let mul_bits (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "*" x y
   let and_bits (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "&" x y
   let or_bits  (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "|" x y
