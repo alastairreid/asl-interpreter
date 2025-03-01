@@ -670,6 +670,62 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
           ignore (ScopeStack.add env v (Some finalv, ty))
         )
         mutables
+  | Stmt_While (cond, b, loc) ->
+      (* Since ASL code tends to have few mutable vars, we use all mutable vars as
+       * an approximation of the set of variables modified by this if.
+       *)
+      let get_mutbind (env : environment) (v : Ident.t) : Ident.t =
+        ( match ScopeStack.get env v with
+        | Some (Some v', _) -> v'
+        | _ -> raise (InternalError (loc, "Stmt_For", (fun fmt -> Ident.pp fmt v), __LOC__))
+        )
+      in
+      let mutables =
+        ScopeStack.bindings env
+        |> List.concat_map (List.filter_map (fun (v, (ob, ty)) ->
+             ( match ob with
+             | Some current ->
+                 let loopv1 = locals#fresh in
+                 let loopv2 = locals#fresh in
+                 let finalv = locals#fresh in
+                 Some (v, current, loopv1, loopv2, finalv, ty)
+             | None ->
+                 None
+             )))
+      in
+      if not (List.is_empty mutables) then begin
+        PP.fprintf fmt "%a = "
+          (commasep varident) (List.map (fun (_, _, _, _, finalv, _) -> finalv) mutables)
+      end;
+      PP.fprintf fmt "scf.while (";
+      commasep (fun fmt (v, current, loopv1, _, _, _) -> PP.fprintf fmt "%a = %a"
+          varident loopv1
+          varident current)
+        fmt
+        mutables;
+      PP.fprintf fmt ") {";
+      indented fmt (fun _ ->
+        let (cond', _) = expr loc env fmt cond in
+        PP.fprintf fmt "scf.condition(%a) %a"
+          varident cond'
+          (commasep varident) (List.map (fun (v, _, _, _, _, ty) -> get_mutbind env v) mutables)
+      );
+      PP.fprintf fmt "} do {";
+      PP.fprintf fmt "^bb(%a):"
+        (commasep (fun fmt (v, _, _, loopv2, _, ty) -> PP.fprintf fmt "%a: %a"
+            varident loopv2
+            (pp_type loc) ty))
+        mutables;
+      indented fmt (fun _ ->
+        indented_block env fmt b;
+        PP.fprintf fmt "scf.yield ";
+        commasep (fun fmt (v, _, _, loopv2, _, ty) -> PP.fprintf fmt "%a: %a"
+            varident (get_mutbind env loopv2)
+            (pp_type loc) ty)
+          fmt
+          mutables
+      );
+      PP.fprintf fmt "}@,@,"
   | _ ->
       let pp fmt = FMT.stmt fmt x in
       raise (Error.Unimplemented (Loc.Unknown, "statement", pp))
