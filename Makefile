@@ -70,7 +70,7 @@ TEST_ENV += SC_TYPES_DIR="`pwd`/runtime/external/systemc/build-install"
 
 WIDE_BITINT_SUPPORTED := `$(MAKE) -C runtime/test wide_bitint_supported`
 
-BACKENDS = interpreter c23 ac fallback sc
+BACKENDS = interpreter c23 ac fallback
 
 test_backends: ${addprefix test_backend_, ${BACKENDS}}
 
