@@ -42,8 +42,7 @@ begin
     while i <= (__let t : integer = 10 __in t) do
     end
     // CHECK:       while __let t : integer = 10 __in asl_le_int.0{}(i, t) do
-    // CHECK-NEXT:  
-    // CHECK-NEXT:  end
+    // CHECK:       end
 
     // REPEAT loop
     repeat
