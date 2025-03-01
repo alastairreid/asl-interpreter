@@ -608,7 +608,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
           ignore (ScopeStack.add env v (Some v', ty))
         )
         mutables
-  | Stmt_For (ix, efrom, Direction_Up, eto, b, loc) ->
+  | Stmt_For (ix, ty, efrom, Direction_Up, eto, b, loc) ->
       (* Since ASL code tends to have few mutable vars, we use all mutable vars as
        * an approximation of the set of variables modified by this if.
        *)
