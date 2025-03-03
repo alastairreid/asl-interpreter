@@ -975,7 +975,7 @@ let mk_slice_check (loc : Loc.t) (lets : binding list ref) (asserts : check list
           let hi'   = mk_expr_safe_to_replicate lets hi type_integer in
           let lo'   = mk_expr_safe_to_replicate lets lo type_integer in
           add_check loc asserts (mk_le_int zero lo');
-          add_check loc asserts (mk_le_int lo' hi');
+          add_check loc asserts (mk_le_int lo' (mk_add_int hi' one));
           add_check loc asserts (mk_lt_int hi' size');
           Slice_HiLo (hi', lo')
       | Slice_LoWd (lo, wd) ->

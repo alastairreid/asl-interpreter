@@ -10,7 +10,7 @@ end
 func FUT2(x : bits(32), h : integer {0..31}, l : integer {0..4}) => bits(h-l+1)
 begin
     return x[h : l];
-    // CHECK: return __assert asl_lt_int.0{}(h, 32) __in __assert asl_le_int.0{}(l, h) __in __assert asl_le_int.0{}(0, l) __in {bits(32)}x[h : l];
+    // CHECK: return __assert asl_lt_int.0{}(h, 32) __in __assert asl_le_int.0{}(l, asl_add_int.0{}(h, 1)) __in __assert asl_le_int.0{}(0, l) __in {bits(32)}x[h : l];
 end
 
 

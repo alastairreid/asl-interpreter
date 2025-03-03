@@ -15,7 +15,7 @@ begin
     var r : bits(32) = x;
     r[h:l] = Ones(h-l+1);
     // CHECK: assert asl_lt_int.0{}(h, 32);
-    // CHECK: assert asl_le_int.0{}(l, h);
+    // CHECK: assert asl_le_int.0{}(l, asl_add_int.0{}(h, 1));
     // CHECK: assert asl_le_int.0{}(0, l);
     return r;
 end
