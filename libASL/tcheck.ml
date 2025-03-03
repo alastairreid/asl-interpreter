@@ -750,11 +750,7 @@ let simplify_constraints (cs : constraint_range list) : constraint_range list =
   cs
 
 let constraint_union (ocrs1 : constraint_range list option) (ocrs2 : constraint_range list option) : constraint_range list option =
-  ( match (ocrs1, ocrs2) with
-  | (None, _) -> ocrs2
-  | (_, None) -> ocrs1
-  | (Some crs1, Some crs2) -> Some (simplify_constraints (crs1 @ crs2))
-  )
+  map2_option (fun crs1 crs2 -> simplify_constraints (crs1 @ crs2)) ocrs1 ocrs2
 
 let check_equality
   (env : Env.t) (loc : Loc.t)
@@ -871,6 +867,7 @@ let rec check_subtype_satisfies (env : Env.t) (loc : Loc.t) (ty1 : AST.ty) (ty2 
  *
  *  e.g. the least supertype of "integer \{0..3\}" and "integer \{8, 16\}"
  *  is "integer \{0..3, 8, 16\}"
+ *  and the least supertype of "integer" and "integer \{8, 16\}" is "integer".
  *
  *  If no supertype exists, report an error.
  *)
