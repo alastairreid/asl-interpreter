@@ -108,6 +108,38 @@ module Runtime : RT.RuntimeLib = struct
       op
       RT.pp_expr y
 
+  (* Binary operation that returns bits(N).
+   * The result is explicitly cast to bits(N) to prevent the C integer promotion
+   * rules from changing the width or sign of the operation.
+   *)
+  let binop_bits (fmt : PP.formatter) (n : int) (op : string) (x : RT.rt_expr) (y : RT.rt_expr) : unit =
+    PP.fprintf fmt "((%a)(%a %s %a))"
+      ty_bits n
+      RT.pp_expr x
+      op
+      RT.pp_expr y
+
+  (* Unary operation that returns __sint(N).
+   * The result is explicitly cast to __sint(N) to prevent the C integer promotion
+   * rules from changing the width or sign of the operation.
+   *)
+  let unop_sintN (fmt : PP.formatter) (n : int) (op : string) (x : RT.rt_expr) : unit =
+    PP.fprintf fmt "((%a)(%s %a))"
+      ty_sint n
+      op
+      RT.pp_expr x
+
+  (* Binary operation that returns __sint(N).
+   * The result is explicitly cast to __sint(N) to prevent the C integer promotion
+   * rules from changing the width or sign of the operation.
+   *)
+  let binop_sintN (fmt : PP.formatter) (n : int) (op : string) (x : RT.rt_expr) (y : RT.rt_expr) : unit =
+    PP.fprintf fmt "((%a)(%a %s %a))"
+      ty_sint n
+      RT.pp_expr x
+      op
+      RT.pp_expr y
+
   (* signed sized integer functions *)
   let eq_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "==" x y
   let ne_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "!=" x y
@@ -115,15 +147,15 @@ module Runtime : RT.RuntimeLib = struct
   let gt_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt ">" x y
   let le_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "<=" x y
   let lt_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "<" x y
-  let add_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "+" x y
-  let neg_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) : unit = unop fmt "-" x
-  let sub_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "-" x y
-  let mul_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "*" x y
-  let shr_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt ">>" x y
-  let shl_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "<<" x y
-  let exact_div_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "/" x y
-  let zdiv_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "/" x y
-  let zrem_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "%" x y
+  let add_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop_sintN fmt n "+" x y
+  let neg_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) : unit = unop_sintN fmt n "-" x
+  let sub_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop_sintN fmt n "-" x y
+  let mul_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop_sintN fmt n "*" x y
+  let shr_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop_sintN fmt n ">>" x y
+  let shl_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop_sintN fmt n "<<" x y
+  let exact_div_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop_sintN fmt n "/" x y
+  let zdiv_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop_sintN fmt n "/" x y
+  let zrem_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop_sintN fmt n "%" x y
 
   let fdiv_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit =
     PP.fprintf fmt "({ %a __tmp1 = %a; "
@@ -398,16 +430,9 @@ module Runtime : RT.RuntimeLib = struct
 
   let eq_bits  (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "==" x y
   let ne_bits  (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "!=" x y
-  let add_bits (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "+" x y
-  let sub_bits (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit =
-    (* Subtraction is awkward because even though the inputs are unsigned, the result seems to be signed
-     * and so we explicitly cast the result back to unsigned.
-     *)
-    PP.fprintf fmt "((%a)(%a - %a))"
-      ty_bits n
-      RT.pp_expr x
-      RT.pp_expr y
-  let mul_bits (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "*" x y
+  let add_bits (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop_bits fmt n "+" x y
+  let sub_bits (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop_bits fmt n "-" x y
+  let mul_bits (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop_bits fmt n "*" x y
   let and_bits (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "&" x y
   let or_bits  (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "|" x y
   let eor_bits (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "^" x y
@@ -419,8 +444,8 @@ module Runtime : RT.RuntimeLib = struct
     else
       unop fmt "~" x
 
-  let lsl_bits (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt "<<" x y
-  let lsr_bits (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop fmt ">>" x y
+  let lsl_bits (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop_bits fmt n "<<" x y
+  let lsr_bits (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit = binop_bits fmt n ">>" x y
 
   let asr_bits (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit =
     PP.fprintf fmt "((%a)(((%a)%a) >> %a))"
