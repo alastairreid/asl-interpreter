@@ -110,7 +110,7 @@ let primitive_operations = Identset.IdentSet.of_list [
   Builtin_idents.cvt_bits_sint;
   Builtin_idents.cvt_bits_uint;
   Builtin_idents.cvt_int_bits;
-  Builtin_idents.eor_bits;
+  Builtin_idents.xor_bits;
   Builtin_idents.frem_bits_int;
   Builtin_idents.notin_mask;
   Builtin_idents.asr_bits;
