@@ -259,8 +259,18 @@ let prim_extract_int (x : Z.t) (i : bigint) (w : bigint) : bitvector =
   assert (0 <= w');
   mkBits w' (z_extract x i' w')
 
-let prim_insert (x : bitvector) (i : bigint) (w : bigint) (y : bitvector) :
-    bitvector =
+let prim_insert_int (x : bigint) (i : bigint) (w : bigint) (y : bitvector) : bigint =
+  let i' = Z.to_int i in
+  let w' = Z.to_int w in
+  assert (0 <= i');
+  assert (0 <= w');
+  assert (w' = y.n);
+  let msk = Z.sub (Z.shift_left Z.one (i' + w')) (Z.shift_left Z.one i') in
+  let nmsk = Z.lognot msk in
+  let y' = Z.shift_left (z_extract y.v 0 w') i' in
+  Z.logor (Z.logand nmsk x) (Z.logand msk y')
+
+let prim_insert_bits (x : bitvector) (i : bigint) (w : bigint) (y : bitvector) : bitvector =
   let i' = Z.to_int i in
   let w' = Z.to_int w in
   assert (0 <= i');

@@ -436,14 +436,26 @@ and eval_lexpr (loc : Loc.t) (env : Env.t) (x : AST.lexpr) (r : value) : unit =
             set_fields (i + w) fs' v'
       in
       eval_lexpr_modify loc env l (set_fields 0 fs)
-  | LExpr_Slices (_, l, ss) ->
+  | LExpr_Slices (Type_Bits _, l, ss) ->
       let rec eval (o : value) (ss' : AST.slice list) (prev : value) : value =
-        match ss' with
+        ( match ss' with
         | [] -> prev
         | s :: ss ->
-            let i, w = eval_slice loc env s in
+            let (i, w) = eval_slice loc env s in
             let v = extract_bits'' loc r o w in
             eval (eval_add_int loc o w) ss (insert_bits loc prev i w v)
+        )
+      in
+      eval_lexpr_modify loc env l (eval (VInt Z.zero) (List.rev ss))
+  | LExpr_Slices (Type_Integer _, l, ss) ->
+      let rec eval (o : value) (ss' : AST.slice list) (prev : value) : value =
+        ( match ss' with
+        | [] -> prev
+        | s :: ss ->
+            let (i, w) = eval_slice loc env s in
+            let v = extract_bits'' loc r o w in
+            eval (eval_add_int loc o w) ss (insert_int loc prev i w v)
+        )
       in
       eval_lexpr_modify loc env l (eval (VInt Z.zero) (List.rev ss))
   | LExpr_BitTuple (ws, ls) ->

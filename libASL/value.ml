@@ -782,15 +782,20 @@ let extract_bits'' (loc : Loc.t) (x : value) (i : value) (w : value) : value =
   | VBits x' -> VBits (prim_extract x' (to_integer loc i) (to_integer loc w))
   | _ -> raise (EvalError (loc, "bits or integer expected. Got " ^ string_of_value x))
 
+let insert_int (loc : Loc.t) (x : value) (i : value) (w : value) (y : value) : value =
+  VInt
+    (prim_insert_int (to_integer loc x) (to_integer loc i) (to_integer loc w)
+       (to_bits loc y))
+
 let insert_bits (loc : Loc.t) (x : value) (i : value) (w : value) (y : value) :
     value =
   VBits
-    (prim_insert (to_bits loc x) (to_integer loc i) (to_integer loc w)
+    (prim_insert_bits (to_bits loc x) (to_integer loc i) (to_integer loc w)
        (to_bits loc y))
 
 let insert_bits' (loc : Loc.t) (x : value) (i : int) (w : int) (y : value) :
     value =
-  VBits (prim_insert (to_bits loc x) (Z.of_int i) (Z.of_int w) (to_bits loc y))
+  VBits (prim_insert_bits (to_bits loc x) (Z.of_int i) (Z.of_int w) (to_bits loc y))
 
 let rec eval_eq (loc : Loc.t) (x : value) (y : value) : bool =
   match (x, y) with

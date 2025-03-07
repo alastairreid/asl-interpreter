@@ -632,9 +632,6 @@ and expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
   | Expr_Slices (Type_Integer _, e, [Slice_LoWd (lo, wd)]) when lo = Asl_utils.zero ->
       let module Runtime = (val (!runtime) : RuntimeLib) in
       Runtime.cvt_int_bits fmt (const_int_expr loc wd) (mk_expr loc e)
-  | Expr_Slices (Type_Integer _, e, [Slice_LoWd (lo, wd)]) ->
-      let module Runtime = (val (!runtime) : RuntimeLib) in
-      Runtime.cvt_int_bits fmt (const_int_expr loc wd) (mk_expr loc e)
   | Expr_TApply (f, tes, es, throws) ->
       if throws <> NoThrow then
         rethrow_expr fmt (fun _ -> funcall loc fmt f tes es)
@@ -784,8 +781,7 @@ let rec lexpr (loc : Loc.t) (fmt : PP.formatter) (x : AST.lexpr) : unit =
   | LExpr_BitTuple _
   | LExpr_Fields _
   | LExpr_ReadWrite _
-  | LExpr_Slices _ ->
-    lexpr loc fmt x
+  | LExpr_Slices _
   | LExpr_Tuple _
   | LExpr_Write _ ->
       let pp fmt = FMT.lexpr fmt x in
@@ -799,6 +795,8 @@ let lslice (loc : Loc.t) (fmt : PP.formatter) (t : AST.ty) (l : AST.lexpr) (r : 
   ( match (t, s) with
   | (Type_Bits (n, _), Slice_LoWd (lo, wd)) ->
       Runtime.set_slice fmt (const_int_expr loc n) (const_int_expr loc wd) (mk_lexpr loc l) (fun fmt -> index_expr loc fmt lo) (mk_expr loc r)
+  | (Type_Integer _, Slice_LoWd (lo, wd)) ->
+      Runtime.set_slice_int fmt (const_int_expr loc wd) (mk_lexpr loc l) (fun fmt -> index_expr loc fmt lo) (mk_expr loc r)
   | _ -> raise (InternalError (loc, "Only Slice_LoWd is supported", (fun fmt -> FMT.lexpr fmt l), __LOC__))
   )
 

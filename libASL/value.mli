@@ -68,6 +68,7 @@ val from_stringLit : string -> value
 val extract_bits : Loc.t -> value -> value -> value -> value
 val extract_bits' : Loc.t -> value -> int -> int -> value
 val extract_bits'' : Loc.t -> value -> value -> value -> value
+val insert_int : Loc.t -> value -> value -> value -> value -> value
 val insert_bits : Loc.t -> value -> value -> value -> value -> value
 val insert_bits' : Loc.t -> value -> int -> int -> value -> value
 
