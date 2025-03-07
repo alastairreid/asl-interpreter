@@ -245,7 +245,7 @@ let simple_exprs (loc : Loc.t) (fmt : PP.formatter) (xs : AST.expr list) : unit 
   commasep (simple_expr loc) fmt xs
 
 let parameters (loc : Loc.t) (fmt : PP.formatter) (ps : AST.expr list) : unit =
-  if List.is_empty ps then begin
+  if Utils.is_empty ps then begin
     ()
   end else begin
     PP.fprintf fmt "<%a>"
@@ -294,7 +294,7 @@ let formal_param (loc : Loc.t) (fmt : PP.formatter) (x : (Ident.t * AST.ty optio
     varident v
 
 let formal_params (loc : Loc.t) (fmt : PP.formatter) (xs : (Ident.t * AST.ty option) list) : unit =
-  if List.is_empty xs then begin
+  if Utils.is_empty xs then begin
     ()
   end else begin
     PP.fprintf fmt "<%a>"
@@ -574,18 +574,18 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
         )
       in
       let (c', _) = expr loc env fmt c in
-      if not (List.is_empty fresh_vars) then begin
+      if not (Utils.is_empty fresh_vars) then begin
         PP.fprintf fmt "%a = "
           (commasep varident) fresh_vars
       end;
       PP.fprintf fmt "scf.if %a " varident c';
-      if not (List.is_empty mutable_types) then begin
+      if not (Utils.is_empty mutable_types) then begin
         PP.fprintf fmt "-> (%a) "
           (commasep (pp_type loc)) mutable_types
       end;
       PP.fprintf fmt "{";
       indented_block env fmt t;
-      if List.is_empty mutable_vars then begin
+      if Utils.is_empty mutable_vars then begin
         PP.fprintf fmt "scf.yield";
       end else begin
         let mutable_vars' = List.map get_mutbind mutable_vars in
@@ -595,7 +595,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
       end;
       PP.fprintf fmt "@,} else {";
       indented_block env fmt e;
-      if List.is_empty mutable_vars then begin
+      if Utils.is_empty mutable_vars then begin
         PP.fprintf fmt "scf.yield";
       end else begin
         let mutable_vars' = List.map get_mutbind mutable_vars in
@@ -634,7 +634,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
       let (to', _) = expr loc env fmt eto in
       let step = locals#fresh in
       PP.fprintf fmt "%a = asl.constant_int 1 {attr_dict}@," varident step;
-      if not (List.is_empty mutables) then begin
+      if not (Utils.is_empty mutables) then begin
         PP.fprintf fmt "%a = "
           (commasep varident) (List.map (fun (_, _, _, finalv, _) -> finalv) mutables)
       end;
@@ -644,7 +644,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
         varident from'
         varident to'
         varident step;
-      if not (List.is_empty mutables) then begin
+      if not (Utils.is_empty mutables) then begin
         PP.fprintf fmt " iter_args (";
         commasep (fun fmt (v, current, loopv, _, _) -> PP.fprintf fmt "%a = %a"
             varident loopv
@@ -658,7 +658,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
       ScopeStack.nest env (fun env' ->
         ignore (ScopeStack.add env' ix (None, Asl_utils.type_integer));
         indented_block env' fmt b);
-      if List.is_empty mutables then begin
+      if Utils.is_empty mutables then begin
         PP.fprintf fmt "scf.yield";
       end else begin
         PP.fprintf fmt "scf.yield %a : %a"
@@ -693,7 +693,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
                  None
              )))
       in
-      if not (List.is_empty mutables) then begin
+      if not (Utils.is_empty mutables) then begin
         PP.fprintf fmt "%a = "
           (commasep varident) (List.map (fun (_, _, _, _, finalv, _) -> finalv) mutables)
       end;
