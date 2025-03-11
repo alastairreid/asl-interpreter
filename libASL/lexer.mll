@@ -110,6 +110,7 @@ let update_location lexbuf opt_file line =
 
 rule token = parse
     (* whitespace and comments *)
+    | "```"                       { fenced_code_block lexbuf }
     | ['\n']                      { Lexing.new_line lexbuf; token lexbuf }
     | [' ' '\t']                  { token lexbuf }
     | '/' '/' [^'\n']*     as lxm { record_comment lexbuf.lex_start_p lexbuf.lex_curr_p lxm; token lexbuf }
@@ -193,10 +194,19 @@ rule token = parse
                        exit 0 }
 
 and comment depth = parse
-      '/' '*' { comment (depth+1) lexbuf }
+    | '/' '*' { comment (depth+1) lexbuf }
     | '*' '/' { if depth = 1 then token lexbuf else comment (depth-1) lexbuf }
     | '\n'    { Lexing.new_line lexbuf; comment depth lexbuf }
     | _       { comment depth lexbuf }
+
+(* Fenced code blocks (i.e., characters marked by ``` in column 0 at start
+ * and end are treated as comments.
+ * This makes it easy to include metadata in ASL files.
+ *)
+and fenced_code_block = parse
+  | "\n```"   { Lexing.new_line lexbuf; token lexbuf }
+  | '\n'      { Lexing.new_line lexbuf; fenced_code_block lexbuf }
+  | _         { fenced_code_block lexbuf }
 
 and string b = parse
   | '\\' 'n'                  { Buffer.add_char b '\n'; string b lexbuf }
