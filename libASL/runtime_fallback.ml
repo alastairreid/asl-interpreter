@@ -235,6 +235,14 @@ module Runtime : RT.RuntimeLib = struct
   let cvt_bits_uint (fmt : PP.formatter) (n : int) (x : RT.rt_expr) : unit = apply_bits_1_1 fmt "cvt_bits_uint" n x
   let cvt_int_bits (fmt : PP.formatter) (n : int) (x : RT.rt_expr) : unit = apply_bits_1_1 fmt "cvt_int_bits" n x
 
+  let get_slice_int (fmt : PP.formatter) (w : int) (x : RT.rt_expr) (i : RT.rt_expr) : unit =
+    let slice fmt =
+      PP.fprintf fmt "(%a >> %a)"
+        RT.pp_expr x
+        RT.pp_expr i
+    in
+    cvt_int_bits fmt w slice
+
   let set_slice_int (fmt : PP.formatter) (w : int) (l : RT.rt_expr) (i : RT.rt_expr) (r : RT.rt_expr) : unit =
     let mask = Z.sub (Z.shift_left Z.one w) Z.one in
     PP.fprintf fmt "%a = ({ int __index = %a; %a __mask = %a << __index; (%a & ~__mask) | (((%a)%a) << __index); });"
