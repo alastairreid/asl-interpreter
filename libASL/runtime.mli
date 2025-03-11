@@ -61,6 +61,7 @@ module type RuntimeLib = sig
   val pow2_int : PP.formatter -> rt_expr -> unit
   val align_int : PP.formatter -> rt_expr -> rt_expr -> unit
   val mod_pow2_int : PP.formatter -> rt_expr -> rt_expr -> unit
+  val get_slice_int : PP.formatter -> int -> rt_expr -> rt_expr -> unit
   val set_slice_int : PP.formatter -> int -> rt_expr -> rt_expr -> rt_expr -> unit
   val print_int_dec : PP.formatter -> rt_expr -> unit
   val print_int_hex : PP.formatter -> rt_expr -> unit

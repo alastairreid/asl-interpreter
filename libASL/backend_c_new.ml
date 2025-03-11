@@ -629,9 +629,9 @@ and expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
   | Expr_Slices (Type_Bits (n,_), e, [Slice_LoWd (lo, wd)]) ->
       let module Runtime = (val (!runtime) : RuntimeLib) in
       Runtime.get_slice fmt (const_int_expr loc n) (const_int_expr loc wd) (mk_expr loc e) (fun fmt -> index_expr loc fmt lo)
-  | Expr_Slices (Type_Integer _, e, [Slice_LoWd (lo, wd)]) when lo = Asl_utils.zero ->
+  | Expr_Slices (Type_Integer _, e, [Slice_LoWd (lo, wd)]) ->
       let module Runtime = (val (!runtime) : RuntimeLib) in
-      Runtime.cvt_int_bits fmt (const_int_expr loc wd) (mk_expr loc e)
+      Runtime.get_slice_int fmt (const_int_expr loc wd) (mk_expr loc e) (mk_expr loc lo)
   | Expr_TApply (f, tes, es, throws) ->
       if throws <> NoThrow then
         rethrow_expr fmt (fun _ -> funcall loc fmt f tes es)

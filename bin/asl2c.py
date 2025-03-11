@@ -73,9 +73,7 @@ base_script = """
 // e.g., "x[7:0]" --> "x[0 +: 8]"
 :xform_lower
 
-// Eliminate slices of integers by first converting the integer to a bitvector.
-// e.g., if "x : integer", then "x[1 +: 8]" to "cvt_int_bits(x, 9)[1 +: 8]"
-:xform_int_bitslices
+{xform_int_bitslices}
 
 // Convert use of getter/setter syntax to function calls.
 // e.g., "Mem[a, sz] = x" --> "Mem_set(a, sz, x)"
@@ -329,10 +327,17 @@ def mk_script(args, output_directory):
         'output_dir':  output_directory,
         'split_state': "",
         'suppress_bitslice_xform': "",
+        'xform_int_bitslices': "",
         'track_valid': "",
         'wrap_variables': "",
     }
     if args.instrument_unknown: substitutions['track_valid'] = ":xform_valid track-valid"
+    if args.transform_int_slices:
+        substitutions["xform_int_bitslices"] = textwrap.dedent("""\
+            // Eliminate slices of integers by first converting the integer to a bitvector.
+            // e.g., if "x : integer", then "x[1 +: 8]" to "cvt_int_bits(x, 9)[1 +: 8]"
+            :xform_int_bitslices
+            """)
     if args.wrap_variables: substitutions['wrap_variables'] = ":xform_wrap"
     if not args.auto_case_split:
         substitutions['auto_case_split'] = '--no-auto-case-split'
@@ -492,6 +497,7 @@ def main() -> int:
     parser.add_argument("--new-ffi", help="use the new FFI", action="store_true", default=False)
     parser.add_argument("--runtime-checks", help="perform runtime checks (array bounds, etc.)", action="store_true", default=False)
     parser.add_argument("--split-state", help="split state into multiple structs", action=argparse.BooleanOptionalAction)
+    parser.add_argument("--transform-int-slices", help="convert integer slices to bit slices", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--instrument-unknown", help="instrument assignments of UNKNOWN", action=argparse.BooleanOptionalAction)
     parser.add_argument("--wrap-variables", help="wrap global variables into functions", action=argparse.BooleanOptionalAction)
     parser.add_argument("-O0", help="perform minimal set of transformations", action=argparse.BooleanOptionalAction)
