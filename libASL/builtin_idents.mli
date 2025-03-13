@@ -30,6 +30,7 @@ val and_bits : Ident.t
 val or_bits : Ident.t
 val lsr_bits : Ident.t
 val lsl_bits : Ident.t
+val len : Ident.t
 val max : Ident.t
 val min : Ident.t
 val eq_bool : Ident.t

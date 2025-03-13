@@ -126,6 +126,7 @@ let resize_sintN       = Ident.mk_fident "asl_resize_sintN"
 let print_sintN_dec    = Ident.mk_fident "print_sintN_dec"
 let print_sintN_hex    = Ident.mk_fident "print_sintN_hex"
 
+let len               = Ident.mk_fident "Len"
 let max               = Ident.mk_fident "Max"
 let min               = Ident.mk_fident "Min"
 let zero_extend       = Ident.mk_fident "ZeroExtend"

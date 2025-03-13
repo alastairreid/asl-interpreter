@@ -254,6 +254,8 @@ class constEvalClass (env : Env.t) =
           let ss'' = List.filter (function (Slice_LoWd(_, w)) -> w <> zero | _ -> true) ss' in
           let r = if Utils.is_empty ss'' then empty_bits else Expr_Slices (t', e', ss'') in
           Visitor.ChangeTo r
+      | Expr_TApply (f, [n], [e], NoThrow) when Ident.equal f Builtin_idents.len && isPure e ->
+          Visitor.ChangeTo (self#eval_expr n)
       | _ -> (
           try
             let eval (x : expr) : expr =
