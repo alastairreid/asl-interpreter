@@ -1772,7 +1772,6 @@ let mk_ffi_wrappers (is_import : bool) (decl_map : (AST.declaration list) Bindin
   let (mk_protos, mk_defns) =
     infos
     |> List.map (fun (c_name, asl_name, fty, loc) ->
-         PP.printf "%sing function '%a'\n" direction ident c_name;
          if is_import then
            mk_ffi_import_wrapper loc asl_name c_name fty
          else
@@ -1789,7 +1788,6 @@ let ffi_track_enums (decl_map : (AST.declaration list) Bindings.t) (exports : st
     let c_ident = Ident.mk_ident c_name in
     ( match Bindings.find_opt c_ident decl_map with
     | Some (Decl_Enum (tc, es, loc) :: _) ->
-      PP.printf "Exporting type %a\n" ident tc;
       add_enumerated_type tc es
     | _ ->
       ()
