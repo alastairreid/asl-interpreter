@@ -59,7 +59,6 @@ ASL_print_char(ASL_int_t x)
 static inline void
 ASL_print_int_hex(int n, bool add_size, ASL_int_t x)
 {
-#ifdef ASL_INT128
         if (x < 0) {
                 printf("-");
         }
@@ -68,25 +67,27 @@ ASL_print_int_hex(int n, bool add_size, ASL_int_t x)
         } else {
                 printf("0x");
         }
-        int64_t top = (int64_t)(x >> 64);
-        int64_t bottom = (int64_t)x;
-        if (top == 0 && bottom >= 0) {
-            printf("%" PRIx64, bottom);
-        } else if (top == -1 && bottom < 0 && bottom != INT64_MIN) {
-            printf("%" PRIx64, -bottom);
-        } else {
-            printf("%08" PRIx64 "_%08" PRIx64, top, bottom);
+#ifdef ASL_INT128
+        if (x == ASL_INT128_MIN) {
+                printf("80000000000000000000000000000000");
+                return;
+        } else if (x < 0) {
+                x = -x;
+        }
+        bool leading = true;
+        for(int i = 124; i >= 0; i -= 4) {
+                unsigned c = (x >> i) & 0xf;
+                if (leading) {
+                        if (i == 0 || c) {
+                                printf("%x", c);
+                                leading = false;
+                        }
+                } else {
+                        printf("%x", c);
+                }
         }
 #else
-        if (x < 0) {
-                printf("-");
-        }
-        if (add_size) {
-                printf("i%d'x", n);
-        } else {
-                printf("0x");
-        }
-        if (x == INT64_MIN) {
+        if (x == ASL_INT64_MIN) {
                 printf("8000000000000000");
         } else if (x < 0) {
                 printf("%" PRIx64, (long long)-x);
@@ -110,7 +111,9 @@ ASL_print_int_dec(int n, bool add_size, ASL_int_t x)
         int64_t bottom = (int64_t)x;
         if (top == 0 && bottom >= 0) {
                 printf("%" PRId64, bottom);
-        } else if (top == -1 && bottom < 0 && bottom != INT64_MIN) {
+        } else if (x == ASL_INT64_MIN) {
+                printf("9223372036854775808");
+        } else if (top == -1 && bottom < 0) {
                 printf("%" PRId64, -bottom);
         } else {
                 // despite the name, large numbers are printed in hex
@@ -123,7 +126,7 @@ ASL_print_int_dec(int n, bool add_size, ASL_int_t x)
         if (add_size) {
                 printf("i%d'", n);
         }
-        if (x == INT64_MIN) {
+        if (x == ASL_INT64_MIN) {
                 printf("9223372036854775808");
         } else {
                 printf("%" PRId64, (long long)x);

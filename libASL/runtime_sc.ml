@@ -20,6 +20,12 @@ module Runtime : RT.RuntimeLib = struct
 
   let int_width = 128
 
+  let max_sintN (n : int) = Z.sub (Z.shift_left Z.one (n-1)) Z.one
+  let min_sintN (n : int) = Z.neg (Z.shift_left Z.one (n-1))
+
+  let max_64bit_signed = max_sintN 64
+  let min_64bit_signed = min_sintN 64
+
   (* signed and unsigned ints
    *
    * Note that "sc_bigint<0>" and "sc_biguint<0>" are
@@ -59,31 +65,31 @@ module Runtime : RT.RuntimeLib = struct
     PP.fprintf fmt "static_cast<int>(%sUL)" (Z.format "%#x" x)
 
   let pos_int_literal (n : int) (fmt : PP.formatter) (x : Z.t) : unit =
-    let max_64bit_signed = Z.of_int64 Int64.max_int in
-    if Z.lt x max_64bit_signed then begin
-      (* Minor optimization to improve readability and efficiency *)
-      PP.fprintf fmt "sc_bigint<%d>(%s)" n (Z.format "%d" x)
-    end else begin
-      let num_limbs = (n + 31) / 32 in
-      let limbs = split_int x num_limbs 32 in
-      PP.fprintf fmt "asl::sc_bit_fill<%a,%d>((int [%d]){"
-        ty_sint n
-        n
-        num_limbs;
-      PP.pp_print_list
-        ~pp_sep:(fun fmt _ -> PP.pp_print_string fmt ", ")
-        constant_u32
-        fmt
-        limbs;
-      PP.fprintf fmt "})"
-    end
+    let num_limbs = (n + 31) / 32 in
+    let limbs = split_int x num_limbs 32 in
+    PP.fprintf fmt "asl::sc_bit_fill<%a,%d>((int [%d]){"
+      ty_sint n
+      n
+      num_limbs;
+    PP.pp_print_list
+      ~pp_sep:(fun fmt _ -> PP.pp_print_string fmt ", ")
+      constant_u32
+      fmt
+      limbs;
+    PP.fprintf fmt "})"
 
   let intN_literal (n : int) (fmt : PP.formatter) (x : Z.t) : unit =
-    if Z.geq x Z.zero then
+    if Z.gt x min_64bit_signed && Z.leq x max_64bit_signed then begin
+      (* Minor optimization to improve readability and efficiency *)
+      PP.fprintf fmt "sc_bigint<%d>(%s)" n (Z.format "%d" x)
+    end else if Z.geq x Z.zero then begin
       pos_int_literal n fmt x
-    else
+    end else if Z.equal x (min_sintN n) then begin
+      pos_int_literal n fmt (Z.neg (min_sintN n)) (* rely on wraparound *)
+    end else begin
       PP.fprintf fmt "(-%a)"
         (pos_int_literal n) (Z.neg x)
+    end
 
   let int_literal (fmt : PP.formatter) (x : Z.t) : unit = intN_literal int_width fmt x
   let sintN_literal (fmt : PP.formatter) (x : Primops.sintN) : unit = intN_literal x.n fmt x.v
@@ -92,11 +98,11 @@ module Runtime : RT.RuntimeLib = struct
     intN_literal n fmt Z.zero
 
   (* Generate MIN_INT<n> in a bigint with type sc_bigint<size> *)
-  let min_sintN (size : int) (fmt : PP.formatter) (n : int) : unit =
+  let pp_min_sintN (size : int) (fmt : PP.formatter) (n : int) : unit =
     intN_literal size fmt (Z.neg (Z.pow (Z.of_int 2) (n-1)))
 
   (* Generate MAX_INT<n> in a bigint with type sc_bigint<size> *)
-  let max_sintN (size : int) (fmt : PP.formatter) (n : int) : unit =
+  let pp_max_sintN (size : int) (fmt : PP.formatter) (n : int) : unit =
     intN_literal size fmt (Z.add (Z.pow (Z.of_int 2) (n-1)) Z.minus_one)
 
   let empty_bits (fmt : PP.formatter) (_ : unit) : unit = PP.pp_print_string fmt "sc_biguint<1>(0)"
@@ -293,7 +299,7 @@ module Runtime : RT.RuntimeLib = struct
 
   let print_sint64_decimal (fmt : PP.formatter) (n : int) (add_size : bool) (x : string) : unit =
     if add_size then begin
-      PP.fprintf fmt "    if (%s == %a) {@," x (min_sintN n) n;
+      PP.fprintf fmt "    if (%s == %a) {@," x (pp_min_sintN n) n;
       PP.fprintf fmt "      printf(\"-i%d'd%s\");@," n (Z.to_string (Z.shift_left Z.one (n - 1)));
       PP.fprintf fmt "    } else {@,";
       PP.fprintf fmt "      if (%s < 0) {@," x;
@@ -315,8 +321,8 @@ module Runtime : RT.RuntimeLib = struct
         (* Print small numbers in decimal, large numbers in hex *)
         PP.fprintf fmt "@[<v>{ %a __tmp = %a;@," ty_sint n RT.pp_expr x;
         PP.fprintf fmt "  if (__tmp >= %a && __tmp <= %a) {@,"
-          (min_sintN n) 63
-          (max_sintN n) 63;
+          (pp_min_sintN n) 63
+          (pp_max_sintN n) 63;
         print_sint64_decimal fmt n add_size "__tmp";
         PP.fprintf fmt "  } else {@,";
         PP.fprintf fmt "    if (__tmp < %a) {@," zero_sintN n;

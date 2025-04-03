@@ -20,13 +20,19 @@ module Runtime : RT.RuntimeLib = struct
 
   let int_width = 128
 
+  let max_sintN (n : int) = Z.sub (Z.shift_left Z.one (n-1)) Z.one
+  let min_sintN (n : int) = Z.neg (Z.shift_left Z.one (n-1))
+
+  let max_64bit_signed = max_sintN 64
+  let min_64bit_signed = min_sintN 64
+
   let zero_sintN (fmt : PP.formatter) (n : int) : unit =
     PP.fprintf fmt "ac_int<128,true>(value<AC_VAL_0,%d,true>(0))" n
 
-  let min_sintN (fmt : PP.formatter) (n : int) : unit =
+  let pp_min_sintN (fmt : PP.formatter) (n : int) : unit =
     PP.fprintf fmt "ac_int<128,true>(value<AC_VAL_MIN,%d,true>(0))" n
 
-  let max_sintN (fmt : PP.formatter) (n : int) : unit =
+  let pp_max_sintN (fmt : PP.formatter) (n : int) : unit =
     PP.fprintf fmt "ac_int<128,true>(value<AC_VAL_MAX,%d,true>(0))" n
 
   (* signed and unsigned ints *)
@@ -74,11 +80,17 @@ module Runtime : RT.RuntimeLib = struct
     PP.fprintf fmt "}, false)"
 
   let intN_literal (n : int) (fmt : PP.formatter) (x : Z.t) : unit =
-    if Z.geq x Z.zero then
+    if Z.gt x min_64bit_signed && Z.leq x max_64bit_signed then begin
+      (* Minor optimization to improve readability and efficiency *)
+      PP.fprintf fmt "ac_int<%d>(%s)" n (Z.format "%d" x)
+    end else if Z.geq x Z.zero then begin
       pos_int_literal n fmt x
-    else
+    end else if Z.equal x (min_sintN n) then begin
+      pp_min_sintN fmt n
+    end else begin
       PP.fprintf fmt "(-%a)"
         (pos_int_literal n) (Z.neg x)
+    end
 
   let int_literal (fmt : PP.formatter) (x : Z.t) : unit = intN_literal int_width fmt x
   let sintN_literal (fmt : PP.formatter) (x : Primops.sintN) : unit = intN_literal x.n fmt x.v
@@ -263,7 +275,7 @@ module Runtime : RT.RuntimeLib = struct
 
   let print_sint64_decimal (fmt : PP.formatter) (n : int) (add_size : bool) (x : string) : unit =
     if add_size then begin
-      PP.fprintf fmt "    if (%s == %a) {@," x min_sintN n;
+      PP.fprintf fmt "    if (%s == %a) {@," x pp_min_sintN n;
       PP.fprintf fmt "      printf(\"-i%d'd%s\");@," n (Z.to_string (Z.shift_left Z.one (n - 1)));
       PP.fprintf fmt "    } else {@,";
       PP.fprintf fmt "      if (%s < 0) {@," x;
@@ -285,8 +297,8 @@ module Runtime : RT.RuntimeLib = struct
         (* Print small numbers in decimal, large numbers in hex *)
         PP.fprintf fmt "@[<v>{ %a __tmp = %a;@," ty_sint n RT.pp_expr x;
         PP.fprintf fmt "  if (__tmp >= %a && __tmp <= %a) {@,"
-          min_sintN 63
-          max_sintN 63;
+          pp_min_sintN 63
+          pp_max_sintN 63;
         print_sint64_decimal fmt n add_size "__tmp";
         PP.fprintf fmt "  } else {@,";
         PP.fprintf fmt "    if (__tmp < %a) {@," zero_sintN n;
