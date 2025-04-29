@@ -6,7 +6,7 @@
 
 (menhir
  (modules asl_parser)
- (flags --explain --table))
+ (flags --table))
 
 (rule
  (targets asl_parser_messages.ml)

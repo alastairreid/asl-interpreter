@@ -1,4 +1,4 @@
-(lang dune 3.11)
+(lang dune 3.13)
 (using dune_site 0.1)
 
 (name asli)
@@ -8,7 +8,7 @@
 ; Copyright (C) 2022-2025 Intel Corporation
 ; SPDX-Licence-Identifier: BSD-3-Clause
 
-(using menhir 2.0)
+(using menhir 3.0)
 
 (package
   (name asli)

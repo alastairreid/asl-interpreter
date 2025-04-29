@@ -24,7 +24,7 @@ license: "BSD-3-Clause"
 homepage: "https://github.com/IntelLabs/asl-interpreter"
 bug-reports: "https://github.com/IntelLabs/asl-interpreter/issues"
 depends: [
-  "dune" {>= "3.11"}
+  "dune" {>= "3.13"}
   "alcotest" {with-test}
   "dune-site"
   "linenoise"
