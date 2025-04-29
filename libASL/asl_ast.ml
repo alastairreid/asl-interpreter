@@ -77,7 +77,7 @@ and expr =
  | Expr_Fields of expr * Ident.t list (* multiple field selection *)
  | Expr_Slices of ty * expr * slice list (* bitslice *)
  | Expr_WithChanges of ty * expr * (change * expr) list (* copy with changes *)
- | Expr_RecordInit of Ident.t * expr list * (Ident.t * expr) list
+ | Expr_RecordInit of Ident.t * (Ident.t option * expr) list * (Ident.t * expr) list
  | Expr_ArrayInit of expr list
  | Expr_In of expr * pattern (* pattern match *)
  | Expr_Var of Ident.t
@@ -85,6 +85,7 @@ and expr =
  | Expr_Unknown of ty
  | Expr_AsConstraint of expr * constraint_range list
  | Expr_AsType of expr * ty
+ | Expr_UApply of Ident.t * (Ident.t option * expr) list * can_throw (* function call before typechecking - optional named arguments, no type parameters *)
  | Expr_TApply of Ident.t * expr list * expr list * can_throw (* function call with explicit type parameters *)
  | Expr_Concat of expr list * expr list (* bitvector concatenation *)
  | Expr_Array of expr * expr (* array accesses *)
@@ -158,6 +159,7 @@ and stmt =
  | Stmt_ProcReturn of Loc.t (* procedure return *)
  | Stmt_Assert of expr * Loc.t (* assertion *)
  | Stmt_Throw of expr * Loc.t
+ | Stmt_UCall of Ident.t * (Ident.t option * expr) list * can_throw * Loc.t (* procedure call before typechecking - optional name arguments, no type parameters *)
  | Stmt_TCall of Ident.t * expr list * expr list * can_throw * Loc.t (* procedure call with explicit type parameters *)
  | Stmt_VarDeclsNoInit of Ident.t list * ty * Loc.t
  | Stmt_If of expr * stmt list * s_elsif list * (stmt list * Loc.t) * Loc.t
@@ -175,7 +177,7 @@ and alt =
 
 type function_type = {
   parameters : (Ident.t * ty option) list;
-  args : (Ident.t * ty) list;
+  args : (Ident.t * ty * expr option) list;
   setter_arg : (Ident.t * ty) option; (* only present in setter functions *)
   rty : ty option; (* only present in functions and getter functions *)
   use_array_syntax : bool; (* true for array getter/setter functions *)

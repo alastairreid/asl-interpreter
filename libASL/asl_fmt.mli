@@ -54,7 +54,7 @@ val decl_item : formatter -> AST.decl_item -> unit
 val stmt : ?short : bool -> formatter -> AST.stmt -> unit
 val indented_block : ?short : bool -> formatter -> AST.stmt list -> unit
 val parameters : formatter -> (Ident.t * AST.ty option) list -> unit
-val formals : formatter -> (Ident.t * AST.ty) list -> unit
+val formals : formatter -> (Ident.t * AST.ty * AST.expr option) list -> unit
 val function_type : formatter -> AST.function_type -> unit
 val declaration : ?short : bool -> formatter -> AST.declaration -> unit
 val declarations : formatter -> AST.declaration list -> unit

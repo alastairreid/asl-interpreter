@@ -82,7 +82,7 @@ class equivalences :
 
 val fv_expr : AST.expr -> IdentSet.t
 val fv_type : AST.ty -> IdentSet.t
-val fv_args : (Ident.t * AST.ty) list -> IdentSet.t
+val fv_types : AST.ty list -> IdentSet.t
 val fv_stmts : AST.stmt list -> IdentSet.t
 val fv_decl : AST.declaration -> IdentSet.t
 

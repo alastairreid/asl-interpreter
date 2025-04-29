@@ -704,7 +704,9 @@ and expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
   | Expr_Slices _
   | Expr_Tuple _
   | Expr_Unknown _
-  | Expr_Unop _ ->
+  | Expr_Unop _
+  | Expr_UApply _
+    ->
       let pp fmt = FMT.expr fmt x in
       raise (Error.Unimplemented (loc, "expression", pp))
   )
@@ -1050,6 +1052,7 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
   | Stmt_VarDecl _
   | Stmt_ConstDecl _
   | Stmt_Case _
+  | Stmt_UCall _
   ->
     let pp fmt = FMT.stmt fmt x in
     raise (Error.Unimplemented (Loc.Unknown, "statement", pp))
@@ -1062,8 +1065,8 @@ and indented_block (fmt : PP.formatter) (xs : AST.stmt list) : unit =
       cutsep stmt fmt xs)
   end
 
-let formal (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t * AST.ty) : unit =
-  let (v, t) = x in
+let formal (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t * AST.ty * AST.expr option) : unit =
+  let (v, t, _) = x in
   varty ~const_ref:(use_const_ref loc t) loc fmt v t
 
 let function_header (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (fty : AST.function_type) : unit =
@@ -1549,7 +1552,7 @@ let mk_ffi_export_wrapper
 
   let (pp_input_decls, pp_input_cvts, input_args) =
       fty.args
-      |> List.map (fun (asl_arg_name, asl_arg_ty) ->
+      |> List.map (fun (asl_arg_name, asl_arg_ty, _) ->
            let c_name = Ident.add_prefix asl_arg_name ~prefix:"_" in
            let input = mk_ffi_conversion loc false c_name asl_arg_name asl_arg_ty in
            ( input.pp_c_decl
@@ -1677,7 +1680,7 @@ let mk_ffi_import_wrapper
 
   let (pp_input_decls, pp_input_cvts, pp_input_args) =
       fty.args
-      |> List.map (fun (asl_arg_name, asl_arg_ty) ->
+      |> List.map (fun (asl_arg_name, asl_arg_ty, _) ->
            let c_name = Ident.add_prefix asl_arg_name ~prefix:"_" in
            let input = mk_ffi_conversion loc false c_name asl_arg_name asl_arg_ty in
            let pp_cvt fmt =
@@ -1900,7 +1903,7 @@ let mk_ffi_config (decls : AST.declaration list) : (string list * AST.declaratio
     let setter_arg = Ident.mk_ident "value" in
     let setter_fty : AST.function_type = {
         parameters = [];
-        args = [(setter_arg, ty)];
+        args = [(setter_arg, ty, None)];
         setter_arg = None;
         rty = None;
         use_array_syntax = false;

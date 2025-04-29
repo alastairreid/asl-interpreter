@@ -244,21 +244,21 @@ throws:
 | { NoThrow }
 
 function_declaration:
-| UNDERSCORE_UNDERSCORE_BUILTIN FUNC f = ident throws=throws ps = parameters_opt LPAREN args = formal_list RPAREN EQ_GT ty = ty SEMICOLON
+| UNDERSCORE_UNDERSCORE_BUILTIN FUNC f = ident throws=throws ps = parameters_opt LPAREN args = formals_with_default RPAREN EQ_GT ty = ty SEMICOLON
     { let fty = { parameters=ps; args; setter_arg=None; rty=Some ty; use_array_syntax=false; is_getter_setter=false; throws } in
       Decl_BuiltinFunction(f, fty, Range($symbolstartpos, $endpos)) }
-| FUNC f = ident throws=throws ps = parameters_opt LPAREN args = formal_list RPAREN EQ_GT ty = ty SEMICOLON
+| FUNC f = ident throws=throws ps = parameters_opt LPAREN args = formals_with_default RPAREN EQ_GT ty = ty SEMICOLON
     { let fty = { parameters=ps; args; setter_arg=None; rty=Some ty; use_array_syntax=false; is_getter_setter=false; throws } in
       Decl_FunType(f, fty, Range($symbolstartpos, $endpos)) }
-| FUNC f = ident throws=throws ps = parameters_opt LPAREN args = formal_list RPAREN EQ_GT ty = ty BEGIN b = block END
+| FUNC f = ident throws=throws ps = parameters_opt LPAREN args = formals_with_default RPAREN EQ_GT ty = ty BEGIN b = block END
     { let fty = { parameters=ps; args; setter_arg=None; rty=Some ty; use_array_syntax=false; is_getter_setter=false; throws } in
       Decl_FunDefn(f, fty, b, Range($symbolstartpos, $endpos)) }
 
 procedure_declaration:
-| FUNC f = ident throws=throws ps = parameters_opt LPAREN args = formal_list RPAREN SEMICOLON
+| FUNC f = ident throws=throws ps = parameters_opt LPAREN args = formals_with_default RPAREN SEMICOLON
     { let fty = { parameters=ps; args; setter_arg=None; rty=None; use_array_syntax=false; is_getter_setter=false; throws } in
       Decl_FunType(f, fty, Range($symbolstartpos, $endpos)) }
-| FUNC f = ident throws=throws ps = parameters_opt LPAREN args = formal_list RPAREN BEGIN b = block END
+| FUNC f = ident throws=throws ps = parameters_opt LPAREN args = formals_with_default RPAREN BEGIN b = block END
     { let fty = { parameters=ps; args; setter_arg=None; rty=None; use_array_syntax=false; is_getter_setter=false; throws } in
       Decl_FunDefn(f, fty, b, Range($symbolstartpos, $endpos)) }
 
@@ -276,11 +276,18 @@ ty_opt:
 | COLON ty = ty { Some ty }
 | { None }
 
+formals_with_default:
+| formals = separated_list(COMMA, formal_with_default) { formals }
+
+formal_with_default:
+| v = ident COLON ty = ty             { (v, ty, None) }
+| v = ident COLON ty = ty EQ d = expr { (v, ty, Some d) }
+
 formal_list:
-| formal0 = separated_list(COMMA, formal) { formal0 }
+| formals = separated_list(COMMA, formal) { formals }
 
 formal:
-| ident = ident COLON ty = ty { (ident, ty) }
+| ident = ident COLON ty = ty { (ident, ty, None) }
 
 getter_declaration:
 | GETTER f = ident throws=throws ps = parameters_opt EQ_GT ty = ty SEMICOLON
@@ -418,8 +425,8 @@ lexpr:
 simple_stmt:
 | assignment_stmt = assignment_stmt
     { assignment_stmt }
-| f = ident throws1=throws LPAREN args = separated_list(COMMA, expr) RPAREN throws2=throws SEMICOLON
-    { Stmt_TCall(f, [], args, (if throws1<>NoThrow then throws1 else throws2), Range($symbolstartpos, $endpos)) }
+| f = ident throws1=throws LPAREN args = separated_list(COMMA, arg) RPAREN throws2=throws SEMICOLON
+    { Stmt_UCall(f, args, (if throws1<>NoThrow then throws1 else throws2), Range($symbolstartpos, $endpos)) }
 | RETURN e = expr SEMICOLON
     { Stmt_FunReturn(e, Range($symbolstartpos, $endpos)) }
 | RETURN SEMICOLON
@@ -570,12 +577,12 @@ aexpr:
     { literal_expression }
 | v = ident
     { Expr_Var(v) }
-| f = ident LPAREN es = separated_list(COMMA, expr) RPAREN throws=throws
-    { Expr_TApply(f, [], es, throws) }
-| f = ident QUERY LPAREN es = separated_list(COMMA, expr) RPAREN
-    { Expr_TApply(f, [], es, MayThrow) }
+| f = ident LPAREN es = separated_list(COMMA, arg) RPAREN throws=throws
+    { Expr_UApply(f, es, throws) }
+| f = ident QUERY LPAREN es = separated_list(COMMA, arg) RPAREN
+    { Expr_UApply(f, es, MayThrow) }
 | tc = ident
-    LPAREN es = separated_list(COMMA, expr) RPAREN
+    LPAREN es = separated_list(COMMA, arg) RPAREN
     LBRACE fas = separated_nonempty_list(COMMA, field_assignment) RBRACE
     { Expr_RecordInit(tc, es, fas) }
 | tc = ident LBRACE fas = separated_nonempty_list(COMMA, field_assignment) RBRACE
@@ -596,6 +603,10 @@ aexpr:
     { Expr_AsType(e, t) }
 | e = aexpr WITH LBRACE changes = separated_nonempty_list(COMMA, change) RBRACE
     { Expr_WithChanges(type_unknown, e, changes) }
+
+%inline arg:
+| v = ident EQ e = expr { (Some v, e) }
+| e = expr { (None, e) }
 
 field_assignment:
 | ident = ident EQ expr = expr { (ident, expr) }

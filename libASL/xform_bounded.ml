@@ -265,7 +265,7 @@ let xform_function_type (x : AST.function_type) : AST.function_type =
   assert (not x.is_getter_setter);
   {
       parameters = x.parameters;
-      args = List.map (fun (v, ty) -> (v, xform_type ty)) x.args;
+      args = List.map (fun (v, ty, od) -> (v, xform_type ty, od)) x.args;
       setter_arg = None;
       rty = Option.map xform_type x.rty;
       use_array_syntax = x.use_array_syntax;
@@ -473,7 +473,7 @@ class boundedClass = object (self)
             ( match primop f fty' ps args' with
             | Some e -> ChangeTo e
             | None ->
-                let arg_tys = List.map snd fty.args in
+                let arg_tys = List.map (fun (nm, ty, od) -> ty) fty.args in
                 let args'' = List.map2 unpack args' arg_tys in
                 let x' = AST.Expr_TApply (f, ps, args'', can_throw) in
                 ChangeTo (pack (range_of_type (Option.get fty.rty)) x')
@@ -588,7 +588,7 @@ class boundedClass = object (self)
         | Some fty ->
             let fty' = xform_function_type fty in
             let args' = List.map (Asl_visitor.visit_expr (self :> Asl_visitor.aslVisitor)) args in
-            let arg_tys = List.map snd fty.args in
+            let arg_tys = List.map (fun (nm, ty, od) -> ty) fty.args in
             let args'' = List.map2 unpack args' arg_tys in
             let x' = AST.Stmt_TCall (f, ps, args'', can_throw, loc) in
             ChangeTo [x']
@@ -647,7 +647,7 @@ class boundedClass = object (self)
         | Some fty' ->
           let fty'' = xform_function_type fty' in
           lenv <- empty_range_env;
-          List.iter (fun (arg, ty) -> self#add_lrange arg (range_of_type ty)) fty'.args;
+          List.iter (fun (arg, ty, od) -> self#add_lrange arg (range_of_type ty)) fty'.args;
           return_type <- fty'.rty;
           let b' = Asl_visitor.visit_stmts (self :> Asl_visitor.aslVisitor) b in
           lenv <- empty_range_env;

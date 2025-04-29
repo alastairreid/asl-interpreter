@@ -78,7 +78,7 @@ let replace (cl : replaceClass) (ss : AST.stmt list) : AST.stmt list =
 let xform_funtype (fty : AST.function_type) : AST.function_type =
   let args' =
     ( match fty.setter_arg with
-    | Some arg -> fty.args @ [arg]
+    | Some (nm, ty) -> fty.args @ [(nm, ty, None)]
     | None -> fty.args
     )
   in

@@ -45,8 +45,10 @@ class type aslVisitor =
   end
 
 val visit_alt : aslVisitor -> alt -> alt
-val visit_arg : aslVisitor -> Ident.t * ty -> Ident.t * ty
-val visit_args : aslVisitor -> (Ident.t * ty) list -> (Ident.t * ty) list
+val visit_arg_no_default : aslVisitor -> Ident.t * ty -> Ident.t * ty
+val visit_args_no_default : aslVisitor -> (Ident.t * ty) list -> (Ident.t * ty) list
+val visit_arg : aslVisitor -> (Ident.t * ty * expr option) -> (Ident.t * ty * expr option)
+val visit_args : aslVisitor -> (Ident.t * ty * expr option) list -> (Ident.t * ty * expr option) list
 val visit_catcher : aslVisitor -> catcher -> catcher
 val visit_change : aslVisitor -> change -> change
 val visit_constraint_range : aslVisitor -> constraint_range -> constraint_range

@@ -380,7 +380,7 @@ and expr (fmt : PP.formatter) (x : AST.expr) : unit =
         changes cs
   | Expr_RecordInit (tc, tes, fas) ->
       tycon fmt tc;
-      if not (Utils.is_empty tes) then parens fmt (fun _ -> exprs fmt tes);
+      if not (Utils.is_empty tes) then parens fmt (fun _ -> pp_args fmt tes);
       braces fmt (fun _ -> commasep fmt (field_assignment fmt) fas)
   | Expr_ArrayInit es ->
       Format.fprintf fmt "array (%a)"
@@ -411,6 +411,10 @@ and expr (fmt : PP.formatter) (x : AST.expr) : unit =
       if !show_type_params then braces fmt (fun _ -> exprs fmt tes);
       throws fmt can_throw;
       parens fmt (fun _ -> exprs fmt es)
+  | Expr_UApply (f, args, can_throw) ->
+      funname fmt f;
+      throws fmt can_throw;
+      parens fmt (fun _ -> pp_args fmt args)
   | Expr_Tuple es -> parens fmt (fun _ -> exprs fmt es)
   | Expr_Concat (ws, es) ->
       if !show_type_params then braces fmt (fun _ -> exprs fmt ws);
@@ -448,6 +452,17 @@ and expr (fmt : PP.formatter) (x : AST.expr) : unit =
 
 and exprs (fmt : PP.formatter) (es : AST.expr list) : unit =
   commasep fmt (expr fmt) es
+
+and pp_arg (fmt : PP.formatter) (x : Ident.t option * AST.expr) : unit =
+  ( match x with
+  | (None, e) -> expr fmt e
+  | (Some v, e) -> Format.fprintf fmt "%a = %a"
+                     varname v
+                     expr e
+  )
+
+and pp_args (fmt : PP.formatter) (args : (Ident.t option * AST.expr) list) : unit =
+  commasep fmt (pp_arg fmt) args
 
 and field_assignment (fmt : PP.formatter) (x : Ident.t * AST.expr) : unit =
   match x with
@@ -595,6 +610,11 @@ let rec stmt ?(short=false) (fmt : PP.formatter) (x : AST.stmt) : unit =
       throws fmt can_throw;
       parens fmt (fun _ -> exprs fmt args);
       semicolon fmt
+  | Stmt_UCall (f, args, can_throw, loc) ->
+      funname fmt f;
+      throws fmt can_throw;
+      parens fmt (fun _ -> pp_args fmt args);
+      semicolon fmt;
   | Stmt_FunReturn (e, loc) ->
       kw_return fmt;
       nbsp fmt;
@@ -745,11 +765,12 @@ let parameters (fmt : PP.formatter) (xs : (Ident.t * AST.ty option) list) :
     unit =
   commasep fmt (parameter fmt) xs
 
-let formal (fmt : PP.formatter) (x : Ident.t * AST.ty) : unit =
-  let v, t = x in
-  varty fmt v t
+let formal (fmt : PP.formatter) (x : Ident.t * AST.ty * AST.expr option) : unit =
+  let (v, t, od) = x in
+  varty fmt v t;
+  Option.iter (expr fmt) od
 
-let formals (fmt : PP.formatter) (xs : (Ident.t * AST.ty) list) : unit =
+let formals (fmt : PP.formatter) (xs : (Ident.t * AST.ty * AST.expr option) list) : unit =
   commasep fmt (formal fmt) xs
 
 let function_type (fmt : PP.formatter) (fty : AST.function_type) : unit =

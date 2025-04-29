@@ -418,6 +418,8 @@ and eval_expr (loc : Loc.t) (env : Env.t) (x : AST.expr) : value =
         let tvs = eval_exprs loc env tes in
         let vs = eval_exprs loc env es in
         eval_funcall loc env f tvs vs
+  | Expr_UApply (f, es, _) ->
+      raise (EvalError (loc, "Untyped expression" ^ pp_expr x))
   | Expr_Tuple es ->
       let vs = List.map (eval_expr loc env) es in
       VTuple vs
@@ -588,6 +590,8 @@ and eval_stmt (env : Env.t) (x : AST.stmt) : unit =
       let tvs = eval_exprs loc env tes in
       let vs = eval_exprs loc env es in
       eval_proccall loc env f tvs vs
+  | Stmt_UCall (f, es, _, loc) ->
+      raise (EvalError (loc, "Untyped statement " ^ pp_stmt x))
   | Stmt_FunReturn (e, loc) ->
       let v = eval_expr loc env e in
       raise (Return (Some v))
@@ -786,7 +790,7 @@ let build_constant_environment (ds : AST.declaration list) : GlobalEnv.t =
           GlobalEnv.addGlobalConst genv v init
       | Decl_FunDefn (f, fty, body, loc) ->
           let tvs = List.map fst fty.parameters in
-          let args = List.map fst fty.args @ List.map fst (Option.to_list fty.setter_arg) in
+          let args = List.map (fun (nm, _, _) -> nm) fty.args @ List.map fst (Option.to_list fty.setter_arg) in
           GlobalEnv.addFun loc genv f (tvs, args, loc, body)
       (* The following declarations are part of the mutable global state *)
       | Decl_Config (ty, v, _, loc)

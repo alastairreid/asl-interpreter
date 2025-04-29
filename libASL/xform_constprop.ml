@@ -8,6 +8,7 @@
 (** ASL constant propagation transform *)
 
 module AST = Asl_ast
+module FMTAST = Asl_fmt
 open Asl_utils
 open AST
 open Identset
@@ -444,7 +445,7 @@ let rec xform_stmts (env : Env.t) (xs : AST.stmt list) : AST.stmt list =
 
 (** Evaluate statement *)
 and xform_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
-  match x with
+  ( match x with
   | Stmt_VarDeclsNoInit (vs, ty, loc) ->
       let ty' = xform_ty env ty in
       List.iter (fun v -> Env.addLocalVar env v Values.bottom) vs;
@@ -639,6 +640,11 @@ and xform_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
            * catcher executed so we discard all variable values. *)
           Env.mapLocals env (fun _ -> Values.bottom);
           [ Stmt_Try(tb', pos, catchers', odefault', loc) ]
+    | Stmt_UCall _
+      ->
+        raise
+          (Error.Unimplemented (Loc.Unknown, "statement", fun fmt -> FMTAST.stmt fmt x))
+    )
 
 (** Create local environment and add parameters and arguments *)
 let mk_fun_env (env : Eval.GlobalEnv.t) (loc : Loc.t) (f : Ident.t) : Env.t =

@@ -117,7 +117,7 @@ let impure_function_tests : unit Alcotest.test_case list =
          "SignedSat"; "UnsignedSat"; "BitCount"; "LowestSetBit"; "HighestSetBit";
          "asl_add_int"; "asl_add_real"; "asl_add_bits"; "asl_add_bits_int";
        ]
-       [ "asl_ram_init"; "asl_ram_read"; "asl_ram_write"; "__InitRAM"; "__ReadRAM"; "__WriteRAM";
+       [ "asl_ram_init"; "asl_ram_read"; "asl_ram_write";
        ]
     );
     ("user-defined functions", `Quick, test_impure_functions globals prelude

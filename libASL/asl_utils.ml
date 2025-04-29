@@ -198,6 +198,9 @@ class freevarClass =
 
     method! vexpr e =
       match e with
+      | Expr_UApply (f, _, _) ->
+          free_funs <- IdentSet.add f free_funs;
+          DoChildren
       | Expr_TApply (f, _, _, _) ->
           free_funs <- IdentSet.add f free_funs;
           DoChildren
@@ -222,6 +225,9 @@ class freevarClass =
 
     method! vstmt s =
       match s with
+      | Stmt_UCall (f, _, _, _) ->
+          free_funs <- IdentSet.add f free_funs;
+          DoChildren
       | Stmt_TCall (f, _, _, _, _) ->
           free_funs <- IdentSet.add f free_funs;
           DoChildren
@@ -246,8 +252,8 @@ let fv_type (x : ty) : IdentSet.t =
   ignore (visit_type (fv :> aslVisitor) x);
   fv#vars
 
-let fv_args (atys : (Ident.t * ty) list) : IdentSet.t =
-  unionSets (List.map (fun (_, ty) -> fv_type ty) atys)
+let fv_types (xs : ty list) : IdentSet.t =
+  unionSets (List.map fv_type xs)
 
 let fv_stmts stmts =
   let fvs = new freevarClass in
@@ -473,6 +479,7 @@ let stmt_loc (x : AST.stmt) : Loc.t =
   | Stmt_ConstDecl (di, i, loc) -> loc
   | Stmt_Assign (l, r, loc) -> loc
   | Stmt_TCall (f, tes, args, throws, loc) -> loc
+  | Stmt_UCall (f, args, throws, loc) -> loc
   | Stmt_FunReturn (e, loc) -> loc
   | Stmt_ProcReturn loc -> loc
   | Stmt_Assert (e, loc) -> loc

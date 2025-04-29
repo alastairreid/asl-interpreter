@@ -997,7 +997,9 @@ and expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
   | Expr_Tuple _
   | Expr_Unknown _
   | Expr_WithChanges _
-  | Expr_Unop _ ->
+  | Expr_UApply _
+  | Expr_Unop _
+    ->
       raise
         (Error.Unimplemented (loc, "expression", fun fmt -> FMTAST.expr fmt x))
 
@@ -1344,6 +1346,7 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
   | Stmt_VarDecl _
   | Stmt_ConstDecl _
   | Stmt_Case _
+  | Stmt_UCall _
     ->
       raise
         (Error.Unimplemented (Loc.Unknown, "statement", fun fmt -> FMTAST.stmt fmt x))
@@ -1359,8 +1362,8 @@ and brace_enclosed_block (fmt : PP.formatter) (b : AST.stmt list) =
       indented_block fmt b;
       cut fmt)
 
-let formal (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t * AST.ty) : unit =
-  let v, t = x in
+let formal (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t * AST.ty * AST.expr option) : unit =
+  let (v, t, _) = x in
   varty ~const_expr:true loc fmt v t
 
 let function_header (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (fty : AST.function_type) : unit =
@@ -1680,7 +1683,7 @@ let ffi_fun_header (loc : Loc.t) (fmt : PP.formatter) (function_name : string) (
     Format.fprintf fmt "%a %s("
       (ffi_rty loc) x.rty
       function_name;
-    commasep fmt (fun (arg, ty) ->
+    commasep fmt (fun (arg, ty, _) ->
       Format.fprintf fmt "%a %a"
         (ffi_ty loc) ty
         ident arg)
@@ -1723,7 +1726,7 @@ let mk_ffi_defn (fmt : PP.formatter) ((function_name, fty, loc) : (string * AST.
     end;
     Format.fprintf fmt "%a(%a);@,"
       ident (Ident.mk_fident function_name)
-      (fun fmt -> commasep fmt (fun (arg, ty) -> ffi_from_c loc fmt arg ty)) fty.args;
+      (fun fmt -> commasep fmt (fun (arg, ty, _) -> ffi_from_c loc fmt arg ty)) fty.args;
     ( match fty.rty with
     | Some rty ->
         Format.fprintf fmt "return ";

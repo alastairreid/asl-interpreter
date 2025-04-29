@@ -130,14 +130,14 @@ type funtype =
     loc     : Loc.t;
     isArray : bool;
     params  : (Ident.t * AST.ty option) list;
-    atys    : (Ident.t * AST.ty) list;
+    atys    : (Ident.t * AST.ty * AST.expr option) list;
     ovty    : AST.ty option; (* type of rhs in setter functions *)
     rty     : AST.ty;
   }
 
 let pp_funtype (fmt : formatter) (fty : funtype) : unit =
-  Format.fprintf fmt "@[<v>%a%s : {%a}(%a)%a => %a@,  at %a@,@]"
-    FMT.varname fty.funname
+    Format.fprintf fmt "@[<v>%a%s{%a}(%a)%a => %a [defined at %a]@]"
+    Ident.pp_untagged fty.funname
     (if fty.isArray then "[]" else "")
     FMT.parameters fty.params
     FMT.formals fty.atys
@@ -1097,7 +1097,7 @@ let synthesize_parameters (env : Env.t) (loc : Loc.t)
    *)
   let s : (AST.expr option) Scope.t = Scope.empty () in
   List.iter (fun (p, _) -> Scope.set s p None) fty.params;
-  iter3 (fun e ety (v, ty) ->
+  iter3 (fun e ety (v, ty, od) ->
       if List.mem_assoc v fty.params then
         Scope.set s v (Some (subst_consts_expr genv e))
       else begin
@@ -1285,7 +1285,7 @@ let instantiate_fun (env : Env.t) (loc : Loc.t)
   let bs = synthesize_parameters env loc fty es tys in
 
   (* Check each argument *)
-  List.iter2 (fun actual_ty (v, aty) ->
+  List.iter2 (fun actual_ty (v, aty, od) ->
     let aty' = subst_type bs aty in
     (* Format.printf "%a: Argument type %a -> %a\n" FMT.loc loc FMT.ty aty FMT.ty aty'; *)
     check_subtype_satisfies env loc actual_ty aty'
@@ -1334,6 +1334,144 @@ let rec eq_structural (env : GlobalEnv.t) (loc : Loc.t) (ty1 : AST.ty) (ty2 : AS
   | _ -> false
 
 (** Generate error message when function disambiguation fails *)
+let reportMatchChoices (loc : Loc.t) (what : string) (nm : string)
+    (args : ((Ident.t option * AST.expr) * AST.ty) list)
+    (funs : funtype list)
+  : unit
+  =
+  let ppArg ((ov, e), ty) =
+      ( match ov with
+      | Some v -> Format.fprintf fmt "%a: %a" Ident.pp v FMT.ty ty
+      | None   -> FMT.ty fmt ty
+      )
+  in
+  FMT.loc fmt loc;
+  FMT.colon fmt;
+  FMTUtils.nbsp fmt;
+  Format.fprintf fmt "While typechecking a call to '%s' with arguments of type@," nm;
+  Format.fprintf fmt "  %s(" nm;
+  FMTUtils.commasep fmt ppArg args;
+  Format.fprintf fmt ")\n";
+  ( match funs with
+  | [] ->
+      Format.fprintf fmt "No matching %s found@," what;
+  | [f] ->
+      Format.fprintf fmt "Type error in %s arguments for call to '%s'@," what nm;
+      Format.fprintf fmt "  %a@," pp_funtype f
+  | _ ->
+      Format.fprintf fmt "Unable to decide which of the following definitions of '%s' to call@," nm;
+      List.iter (Format.fprintf fmt "  %a@," pp_funtype) funs
+  );
+  FMTUtils.flush fmt
+
+(** Match a list of function arguments against a function definition.
+    This resolves all use of named arguments and default arguments but it
+    does not typecheck the arguments.
+
+    Matching proceeds by first building the 'matches' binding from argument
+    names to any explicit arguments.
+
+    Then the result is converted to a flat list of arguments and any default
+    arguments are inserted.
+ *)
+let matchFunction (env : GlobalEnv.t) (loc : Loc.t)
+    (args : ((Ident.t option * AST.expr) * AST.ty) list)
+    (fty : funtype)
+  : (AST.expr * AST.ty) list
+  =
+  let matches = ref Bindings.empty in (* accumulator for arguments *)
+  let arg_names = List.map (fun (v,ty,e) -> v) fty.atys in
+  let seen_named_arg = ref false in
+  List.iteri (fun i arg ->
+      ( match arg with
+      | ((None, e), ty) ->
+              if !seen_named_arg then begin
+                  let msg = Format.asprintf "positional argument occurs after a named argument" in
+                  raise (TypeError (loc, msg))
+              end;
+              if i >= List.length fty.atys then begin
+                  let msg = Format.asprintf "too many arguments for function '%a' (%d expected)"
+                               Ident.pp_untagged fty.funname
+                               (List.length fty.atys)
+                  in
+                  raise (TypeError (loc, msg))
+              end;
+              let (arg_name, _, _) = List.nth fty.atys i in
+              matches := Bindings.add arg_name (e, ty) !matches
+      | ((Some v, e), ty) ->
+              seen_named_arg := true;
+              if Bindings.mem v !matches then begin
+                  let msg = Format.asprintf "multiple bindings for argument '%a'" Ident.pp v in
+                  raise (TypeError (loc, msg))
+              end;
+              if not (List.mem v arg_names) then begin
+                  let msg = Format.asprintf "named argument '%a' does not match any argument of function '%a(%a)'"
+                              Ident.pp v
+                              Ident.pp_untagged fty.funname
+                              FMT.varnames arg_names
+                  in
+                  raise (TypeError (loc, msg))
+              end;
+              matches := Bindings.add v (e, ty) !matches
+      )
+  ) args;
+
+  (* Convert arguments to a flat list and insert default arguments *)
+  let defaults = List.map (fun (v,ty,e) -> (v, (e, ty))) fty.atys in
+  let args = List.map (fun v ->
+      ( match Bindings.find_opt v !matches with
+      | Some (e, ty) -> (e, ty)
+      | None -> (* no argument provided - check for default argument *)
+          ( match List.assoc_opt v defaults with
+          | Some (Some e, ty) -> (e, ty)
+          | _ ->
+              let msg = Format.asprintf "missing argument '%a'"
+                           Ident.pp v
+              in
+              raise (TypeError (loc, msg))
+          )
+      )
+  ) arg_names
+  in
+  args
+
+
+(** Disambiguate and typecheck application of a function to a list of arguments
+ *  checking named arguments and applying default arguments as applicable.
+ *)
+let tc_apply (env : Env.t) (loc : Loc.t) (what : string)
+    (f : Ident.t)
+    (args : ((Ident.t option * AST.expr) * AST.ty) list)
+  : (fun_instance * AST.expr list)
+  =
+  let genv = Env.globals env in
+  let funs = GlobalEnv.getFuns genv f in
+  let nm = Ident.to_string f in
+  ( match funs with
+  | [] ->
+      raise (UnknownObject (loc, what, nm))
+  | _ ->
+      let isCompatible (fty, args) =
+            List.for_all2 (eq_structural genv loc)
+                          (List.map (fun (nm, ty, od) -> ty) fty.atys)
+                          (List.map snd args)
+      in
+      let matches = List.map (fun f -> (f, matchFunction genv loc args f)) funs in
+      let matches' = List.filter isCompatible matches in
+      ( match matches' with
+      | [] ->
+          reportMatchChoices loc what nm args (List.map fst matches);
+          raise (TypeError (loc, "function arguments"))
+      | [(fty, args)] ->
+          let (es, tys) = List.split args in
+          (instantiate_fun env loc fty es tys, es)
+      | _ ->
+          reportMatchChoices loc what nm args (List.map fst matches);
+          raise (Ambiguous (loc, what, nm))
+      )
+  )
+
+(** Generate error message when function disambiguation fails *)
 let reportChoices (loc : Loc.t) (what : string) (nm : string)
     (tys : AST.ty list) (funs : funtype list) : unit =
   FMT.loc fmt loc;
@@ -1363,7 +1501,7 @@ let isCompatibleFunction (env : GlobalEnv.t) (loc : Loc.t) (isArr : bool) (tys :
   let nargs = List.length tys in
   isArr = fty.isArray
   && List.length fty.atys = nargs
-  && List.for_all2 (eq_structural env loc) (List.map snd fty.atys) tys
+  && List.for_all2 (eq_structural env loc) (List.map (fun (nm, ty, od) -> ty) fty.atys) tys
 
 (** Disambiguate a function name based on the number and type of arguments *)
 let chooseFunction (env : GlobalEnv.t) (loc : Loc.t) (what : string)
@@ -1374,9 +1512,6 @@ let chooseFunction (env : GlobalEnv.t) (loc : Loc.t) (what : string)
   | [] -> None
   | [ r ] -> Some r
   | fs ->
-      (* todo: it would probably be better to detect ambiguity when functions are
-       * defined instead of waiting until they are called
-       *)
       reportChoices loc what nm tys fs;
       raise (Ambiguous (loc, what, nm))
 
@@ -1393,25 +1528,6 @@ let check_duplicate_field_names (fx : 'a -> Ident.t) (fs : 'a list) (loc : Loc.t
       fieldnames := IdentSet.add f' !fieldnames
     )
     fs
-
-(** Disambiguate and typecheck application of a function to a list of arguments *)
-let tc_apply (env : Env.t) (loc : Loc.t) (what : string)
-    (f : Ident.t) (es : AST.expr list) (tys : AST.ty list) : fun_instance =
-  let genv = Env.globals env in
-  let funs = GlobalEnv.getFuns genv f in
-  let nm = Ident.to_string f in
-  match funs with
-  | [] ->
-      raise (UnknownObject (loc, what, nm))
-  | _ ->
-      ( match chooseFunction genv loc what nm false tys funs with
-      | None ->
-          reportChoices loc what nm tys funs;
-          raise (TypeError (loc, "function arguments"))
-      | Some fty ->
-          (* if verbose then Format.fprintf fmt "    - Found matching %s at %a for %s = %a\n" what FMT.loc loc nm pp_funtype fty; *)
-          instantiate_fun env loc fty es tys
-      )
 
 (** Disambiguate and typecheck application of a unary operator to argument *)
 let tc_unop (env : Env.t) (loc : Loc.t) (op : unop)
@@ -1480,6 +1596,14 @@ and check_expr (env : Env.t) (loc : Loc.t) (ty : AST.ty) (x : AST.expr) :
     Format.fprintf fmt "        - Typechecking %a : %a\n" FMT.expr x' FMT.ty ty';
   check_subtype_satisfies env loc ty' ty;
   x'
+
+and tc_args (env : Env.t) (loc : Loc.t) (xs : (Ident.t option * AST.expr) list) : ((Ident.t option * AST.expr) * AST.ty) list =
+  List.map (tc_arg env loc) xs
+
+and tc_arg (env : Env.t) (loc : Loc.t) (x : (Ident.t option * AST.expr)) : ((Ident.t option * AST.expr) * AST.ty) =
+  let (nm, e) = x in
+  let (e', ty) = tc_expr env loc e in
+  ((nm, e'), ty)
 
 (** Typecheck 'if c then expr' *)
 and tc_e_elsif (env : Env.t) (loc : Loc.t) (x : AST.e_elsif) :
@@ -1604,9 +1728,8 @@ and tc_slice_expr (env : Env.t) (loc : Loc.t) (x : expr)
   | _ -> raise (TypeError (loc, "slice of expr"))
 
 (** Typecheck expression *)
-and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) :
-    AST.expr * AST.ty =
-  match x with
+and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) : AST.expr * AST.ty =
+  ( match x with
   | Expr_If (c, t, els, e) ->
       let c' = check_expr env loc type_bool c in
       let t', tty = tc_expr env loc t in
@@ -1689,7 +1812,7 @@ and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) :
        *)
 
       (* variable slice or getter call? *)
-      match e with
+      ( match e with
       | Expr_Var a -> (
           let tys = List.map (function _, ty -> ty) ss' in
           let getters =
@@ -1712,7 +1835,9 @@ and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) :
               let fty' = instantiate_fun env loc fty es tys in
               (Expr_TApply (fty'.name, fty'.parameters, es, NoThrow), fty'.rty)
           | _ -> tc_slice_expr env loc e ss')
-      | _ -> tc_slice_expr env loc e ss')
+      | _ -> tc_slice_expr env loc e ss'
+      )
+    )
   | Expr_WithChanges (_, e, cs) ->
       let lets = ref [] in
       let asserts = ref [] in
@@ -1750,7 +1875,7 @@ and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) :
               |> mk_let_exprs !lets
       in
       (r, ty')
-  | Expr_RecordInit (tc, es, fas) ->
+  | Expr_RecordInit (tc, args, fas) ->
       if not (GlobalEnv.isType (Env.globals env) tc) then
         raise (IsNotA (loc, "type constructor", Ident.to_string tc));
       let (ps, fs) =
@@ -1759,12 +1884,13 @@ and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) :
         | Some (Type_Exception fs) -> ([], fs)
         | _ -> raise (IsNotA (loc, "record or exception type", Ident.to_string tc))
       in
-      if List.length es <> List.length ps then
+      if List.length args <> List.length ps then
         raise (TypeError (loc, "wrong number of type parameters"));
       check_field_assignments loc fs fas;
 
       (* add values of type parameters to environment *)
-      let es' = List.map (check_expr env loc type_integer) es in
+      let args' = List.map (fun (nm, e) -> (nm, check_expr env loc type_integer e)) args in
+      let es' = List.map snd args' in
       let s = mk_bindings (List.combine ps es') in
 
       (* typecheck each field of the record *)
@@ -1778,7 +1904,7 @@ and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) :
           fas
       in
 
-      (Expr_RecordInit (tc, es', fas'), Type_Constructor (tc, es'))
+      (Expr_RecordInit (tc, args', fas'), Type_Constructor (tc, es'))
   | Expr_ArrayInit [] ->
       raise (InternalError (loc, "expr ArrayInit is empty", (fun fmt -> FMT.expr fmt x), __LOC__))
   | Expr_ArrayInit (e::es) ->
@@ -1833,10 +1959,10 @@ and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) :
                    (loc, "variable or getter functions", Ident.to_string v))
         )
       )
-  | Expr_TApply (f, tes, es, throws) ->
-      let es', tys = List.split (tc_exprs env loc es) in
-      let fty = tc_apply env loc "function" f es' tys in
-      (Expr_TApply (fty.name, fty.parameters, es', throws), fty.rty)
+  | Expr_UApply (f, args, throws) ->
+      let args' = tc_args env loc args in
+      let (fty, es) = tc_apply env loc "function" f args' in
+      (Expr_TApply (fty.name, fty.parameters, es, throws), fty.rty)
   | Expr_Tuple es ->
       let es', tys = List.split (List.map (tc_expr env loc) es) in
       (Expr_Tuple es', Type_Tuple tys)
@@ -1902,6 +2028,10 @@ and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) :
              |> mk_let_exprs !lets
       in
       (x', t')
+  | Expr_TApply _ ->
+      raise (InternalError (loc, "Unexpected expression type in typechecker", (fun fmt -> FMT.expr fmt x), __LOC__))
+  )
+
 
 (** Typecheck list of types *)
 and tc_types (env : Env.t) (loc : Loc.t) (xs : AST.ty list) : AST.ty list =
@@ -2476,11 +2606,11 @@ and tc_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
         Format.fprintf fmt "    - Typechecking %a <- %a : %a\n"
           FMT.lexpr l' FMT.expr r' FMT.ty rty;
       (lets' @ asserts' @ [Stmt_Assign (l', r', loc)])
-  | Stmt_TCall (f, tes, es, throws, loc) ->
-      let es', tys = List.split (tc_exprs env loc es) in
-      let fty = tc_apply env loc "procedure" f es' tys in
+  | Stmt_UCall (f, args, throws, loc) ->
+      let args' = tc_args env loc args in
+      let (fty, es) = tc_apply env loc "procedure" f args' in
       check_subtype_satisfies env loc type_unit fty.rty;
-      [Stmt_TCall (fty.name, fty.parameters, es', throws, loc)]
+      [Stmt_TCall (fty.name, fty.parameters, es, throws, loc)]
   | Stmt_FunReturn (e, loc) ->
       let rty =
         match Env.getReturnType env with
@@ -2553,6 +2683,8 @@ and tc_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
       let catchers' = List.map (tc_catcher env loc) catchers in
       let odefault' = Option.map (fun (b, bl) -> (tc_stmts env loc b, bl)) odefault in
       [Stmt_Try (tb', pos, catchers', odefault', loc)]
+  | Stmt_TCall (_, _, _, _, loc) ->
+      raise (InternalError (loc, "Unexpected stmt type in typechecker", (fun fmt -> FMT.stmt fmt x), __LOC__))
   )
 
 (****************************************************************)
@@ -2585,6 +2717,24 @@ let tc_argument
     (env : Env.t)
     (loc : Loc.t)
     (ps : (Ident.t * AST.ty option) list)
+    ((arg, ty, od) : Ident.t * AST.ty * AST.expr option)
+  : (Ident.t * AST.ty * AST.expr option)
+  =
+  let ty' = tc_type env loc ty in
+  let od' = Option.map (check_expr env loc ty') od in
+  if not (List.mem_assoc arg ps) then begin
+    (* add to scope if it is not a parameter *)
+    Env.addLocalVar env {name=arg; loc; ty=ty'; is_local=true; is_constant=true}
+  end;
+  (arg, ty', od')
+
+(** Typecheck function setter argument
+ *  (This is the same as tc_argument except there is no default arg)
+ *)
+let tc_setter
+    (env : Env.t)
+    (loc : Loc.t)
+    (ps : (Ident.t * AST.ty option) list)
     ((arg, ty) : Ident.t * AST.ty)
   : Ident.t * AST.ty
   =
@@ -2608,22 +2758,24 @@ let mangle_setter_name (f : Ident.t) (fty : AST.function_type) : Ident.t =
 (** Typecheck list of function arguments *)
 (* todo: if this is a getter/setter check that if a setter function exists, it has a compatible type *)
 let tc_funtype (env : Env.t) (loc : Loc.t) (fty : AST.function_type) : AST.function_type =
-  let args = fty.args @ Option.to_list fty.setter_arg in
+  let args = List.map (fun (nm, ty, od) -> (nm, ty)) fty.args @ Option.to_list fty.setter_arg in
   let rty = Option.value fty.rty ~default:type_unit in
 
   let globals = Env.globals env in
   let is_not_global (x : Ident.t) = Option.is_none (GlobalEnv.getGlobalVar globals x) in
 
   (* The implicit type parameters are based on the free variables of the function type. *)
-  let argty_fvs = fv_args args |> IdentSet.filter is_not_global in
+  let argtys = List.map snd args in
+  let argty_fvs = fv_types argtys |> IdentSet.filter is_not_global in
   let rty_fvs = fv_type rty |> IdentSet.filter is_not_global in
 
   (* Type parameters in the return type cannot be synthesized directly
    * and must either be an explicit parameter of the function or
    * a free variable in one of the argument types.
    *)
+  let arg_names = List.map fst args in
   let unsynthesizable = (IdentSet.diff rty_fvs argty_fvs)
-                      |> IdentSet.filter (fun v -> not (List.mem_assoc v args))
+                      |> IdentSet.filter (fun v -> not (List.mem v arg_names))
   in
   if not (IdentSet.is_empty unsynthesizable) then begin
     let msg = Format.asprintf "the width parameter(s) `%a` of the return type cannot be determined from the function arguments"
@@ -2653,13 +2805,17 @@ let tc_funtype (env : Env.t) (loc : Loc.t) (fty : AST.function_type) : AST.funct
   in
 
   (* The type of any implicit or explicit parameters should match explicit argument if it exists *)
-  let typed_explicit_parameters = List.map (fun (v, oty) -> (v, merge_tys v oty (List.assoc_opt v args))) fty.parameters in
-  let typed_implicit_parameters = List.map (fun v -> (v, List.assoc_opt v args)) implicit_parameters in
+  let arg_type (v : Ident.t) : AST.ty option =
+      List.find_opt (fun (nm, ty) -> Ident.equal v nm) args
+      |> Option.map snd
+  in
+  let typed_explicit_parameters = List.map (fun (v, oty) -> (v, merge_tys v oty (arg_type v))) fty.parameters in
+  let typed_implicit_parameters = List.map (fun v -> (v, arg_type v)) implicit_parameters in
 
   (* Having inferred all the implicit parameters, we can finally typecheck the function type *)
   let ps' = List.map (tc_parameter env loc) (typed_explicit_parameters @ typed_implicit_parameters) in
   let args' = List.map (tc_argument env loc ps') fty.args in
-  let setter_arg' = Option.map (tc_argument env loc ps') fty.setter_arg in
+  let setter_arg' = Option.map (tc_setter env loc ps') fty.setter_arg in
   let rty' = Option.map (tc_type env loc) fty.rty in
   Env.setReturnType env (Option.value rty' ~default:type_unit);
   { fty with
@@ -2669,9 +2825,11 @@ let tc_funtype (env : Env.t) (loc : Loc.t) (fty : AST.function_type) : AST.funct
     rty=rty'
   }
 
-(** Add function definition to environment *)
+(** Add function definition to environment
+ *  Complaining if there is a previous definition with compatible type.
+ *)
 let addFunction (env : GlobalEnv.t) (loc : Loc.t) (qid : Ident.t) (fty : AST.function_type) : funtype =
-  let argtys = List.map (fun (_, ty) -> ty) fty.args in
+  let argtys = List.map (fun (_, ty, _) -> ty) fty.args in
   let is_setter = Option.is_some fty.setter_arg in
   let funs = if is_setter then GlobalEnv.getSetterFun env qid else GlobalEnv.getFuns env qid in
   let num_funs = List.length funs in
@@ -2754,7 +2912,7 @@ let tc_declaration (env : GlobalEnv.t) (d : AST.declaration) :
            GlobalEnv.addGlobalVar env v)
         es;
       let fty = { parameters = [];
-                  args = [ (Ident.mk_ident "x", ty); (Ident.mk_ident "y", ty) ];
+                  args = [ (Ident.mk_ident "x", ty, None); (Ident.mk_ident "y", ty, None) ];
                   setter_arg = None;
                   rty = Some type_bool;
                   is_getter_setter = false;

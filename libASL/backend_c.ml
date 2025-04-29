@@ -890,7 +890,8 @@ and expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
   | Expr_Unknown _
   | Expr_Unop _
   | Expr_WithChanges _
-  ->
+  | Expr_UApply _
+    ->
       raise
         (Error.Unimplemented (loc, "expression", fun fmt -> FMTAST.expr fmt x))
 
@@ -1183,6 +1184,7 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
       PP.fprintf fmt "@,}"
   | Stmt_VarDecl _
   | Stmt_ConstDecl _
+  | Stmt_UCall _
     ->
       raise
         (Error.Unimplemented (Loc.Unknown, "statement", fun fmt -> FMTAST.stmt fmt x))
@@ -1198,8 +1200,8 @@ and brace_enclosed_block (fmt : PP.formatter) (b : AST.stmt list) =
       indented_block fmt b;
       cut fmt)
 
-let formal (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t * AST.ty) : unit =
-  let v, t = x in
+let formal (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t * AST.ty * AST.expr option) : unit =
+  let (v, t, _) = x in
   varty loc fmt v t
 
 let function_header (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (fty : AST.function_type) : unit =

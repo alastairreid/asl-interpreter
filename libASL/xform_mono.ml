@@ -204,8 +204,8 @@ class monoClass
             end;
             let rty' = Option.map (Xform_constprop.xform_ty env) fty.rty in
             let pnames = List.map fst fty.parameters in
-            let atys' = List.filter (fun (v, _) -> not (List.mem v pnames)) fty.args
-                     |> List.map (fun (v, ty) -> (v, Xform_constprop.xform_ty env ty))
+            let atys' = List.filter (fun (v, _, _) -> not (List.mem v pnames)) fty.args
+                     |> List.map (fun (v, ty, od) -> (v, Xform_constprop.xform_ty env ty, Option.map (Xform_constprop.xform_expr env) od))
             in
             let setter_arg' = Option.map (fun (v, t) -> (v, Xform_constprop.xform_ty env t)) fty.setter_arg in
             let fty' = { fty with parameters=[]; args=atys'; rty=rty'; setter_arg=setter_arg' } in
@@ -238,8 +238,8 @@ class monoClass
 
     method! vexpr x =
       match x with
-      | Expr_RecordInit (tc, tys, fs) -> (
-          match Utils.flatten_map_option const_int_expr tys with
+      | Expr_RecordInit (tc, args, fs) -> (
+          match Utils.flatten_map_option (fun (nm, e) -> const_int_expr e) args with
           | Some [] -> DoChildren
           | Some sizes ->
               Option.value (
@@ -367,7 +367,7 @@ class monoClass
       | Decl_FunType (_, fty, _)
       | Decl_FunDefn (_, fty, _, _)
       ->
-          List.iter (fun (i, ty) -> self#update_local_type_info i ty) fty.args;
+          List.iter (fun (i, ty, _) -> self#update_local_type_info i ty) fty.args;
           Option.iter (fun (i, ty) -> self#update_local_type_info i ty) fty.setter_arg;
           DoChildren
       | _ -> DoChildren

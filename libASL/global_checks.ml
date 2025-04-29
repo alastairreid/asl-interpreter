@@ -141,6 +141,10 @@ let rec canthrow_stmt (x : AST.stmt) : status =
           (status_merge (canthrow_stmts b) (canthrow_expr c))
   | Stmt_Try (b, pos, cs, ob, loc) ->
           if Option.is_some ob then ok else maythrow
+  | Stmt_UCall _
+    ->
+      raise
+        (Error.Unimplemented (Loc.Unknown, "statement", fun fmt -> FMT.stmt fmt x))
   )
 
 and canthrow_stmts (xs : AST.stmt list) : status =

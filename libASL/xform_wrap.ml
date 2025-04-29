@@ -72,7 +72,7 @@ let xform_decl (replacer : replaceClass) (d : AST.declaration) :
       let rd_f = mk_read_fident v in
       let rd_fty : AST.function_type = {
         parameters=[];
-        args=[(i, ixtype_basetype ixty)];
+        args=[(i, ixtype_basetype ixty, None)];
         setter_arg=None;
         rty=Some ty;
         use_array_syntax=false;
@@ -87,7 +87,7 @@ let xform_decl (replacer : replaceClass) (d : AST.declaration) :
       let vl = Ident.mk_ident "v" in
       let wr_fty : AST.function_type = {
         parameters=[];
-        args=[(i, ixtype_basetype ixty); (vl, ty)];
+        args=[(i, ixtype_basetype ixty, None); (vl, ty, None)];
         rty=None;
         setter_arg=None;
         use_array_syntax=false;
@@ -118,7 +118,7 @@ let xform_decl (replacer : replaceClass) (d : AST.declaration) :
       let vl = Ident.mk_ident "v" in
       let wr_fty : AST.function_type = {
         parameters=[];
-        args=[(vl, ty)];
+        args=[(vl, ty, None)];
         rty=None;
         setter_arg=None;
         use_array_syntax=false;
