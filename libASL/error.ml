@@ -53,6 +53,7 @@ let print_exception (e : exn) : unit =
         Value.pp_value exc
         ASL_FMT.loc loc
   | Utils.InternalError (loc, s, pp, ml_loc) ->
+      ASL_FMT.show_type_params := true;
       let fmt = Format.std_formatter in
       Format.fprintf fmt "@.%a: internal compiler error: %s" ASL_FMT.loc loc s;
       FMT_Utils.indented fmt (fun _ -> pp fmt);
