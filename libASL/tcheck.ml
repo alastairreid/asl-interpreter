@@ -1938,7 +1938,8 @@ let rec tc_slice_lexpr (env : Env.t) (loc : Loc.t)
   let ss' = List.map fst ss in
   let x', ty' = tc_lexpr2 env loc lets asserts x in
   let ty = type_bits (slices_width ss') in
-  match derefType (Env.globals env) loc ty' with
+  let ty'' = derefType (Env.globals env) loc ty' in
+  ( match ty'' with
   | Type_Array (ixty, elty) -> (
       match ss with
       | [ (Slice_Single i, ity) ] ->
@@ -1948,14 +1949,15 @@ let rec tc_slice_lexpr (env : Env.t) (loc : Loc.t)
       | _ -> raise (TypeError (loc, "multiple subscripts for array")))
   | Type_Bits (n, _) ->
     let ss'' = List.map (mk_slice_check loc lets asserts n) ss' in
-    (LExpr_Slices (ty', x', ss''), ty)
+    (LExpr_Slices (ty'', x', ss''), ty)
   | Type_Integer _ ->
       (* There is an argument for making this operation illegal *)
       if false then
         Format.fprintf fmt "Warning: slice assignment of integer at %a\n"
           FMT.loc loc;
-      (LExpr_Slices (ty', x', ss'), ty)
+      (LExpr_Slices (ty'', x', ss'), ty)
   | _ -> raise (TypeError (loc, "slice of lexpr"))
+  )
 
 (** Typecheck left hand side of expression in context where
     type of right hand side is not yet known
@@ -2008,15 +2010,17 @@ and tc_lexpr2 (env : Env.t) (loc : Loc.t)
               (LExpr_ReadWrite (fty'.name, gty.funname, fty'.parameters, [], throws), fty'.rty)
           | None -> raise (UnknownObject (loc, "variable", Ident.to_string v))))
   | LExpr_Field (l, f) -> (
-      let l', ty = tc_lexpr2 env loc lets asserts l in
-      match typeFields (Env.globals env) loc ty with
+      let (l', ty) = tc_lexpr2 env loc lets asserts l in
+      let ty' = derefType (Env.globals env) loc ty in
+      match typeFields (Env.globals env) loc ty' with
       | FT_Record rfs -> (LExpr_Field (l', f), get_recordfield loc rfs f)
       | FT_Register rfs ->
-          let ss, ty' = get_regfield loc rfs f in
-          (LExpr_Slices (ty, l', ss), ty'))
+          let (ss, ssty) = get_regfield loc rfs f in
+          (LExpr_Slices (ty', l', ss), ssty))
   | LExpr_Fields (l, fs) -> (
-      let l', ty = tc_lexpr2 env loc lets asserts l in
-      match typeFields (Env.globals env) loc ty with
+      let (l', ty) = tc_lexpr2 env loc lets asserts l in
+      let ty' = derefType (Env.globals env) loc ty in
+      match typeFields (Env.globals env) loc ty' with
       | FT_Record rfs ->
           let tys = List.map (get_recordfield loc rfs) fs in
           let ws = List.map (width_of_type (Env.globals env) loc) tys in
@@ -2024,7 +2028,7 @@ and tc_lexpr2 (env : Env.t) (loc : Loc.t)
           (LExpr_Fields (l', fs), type_bits w)
       | FT_Register rfs ->
           let ss, ty' = get_regfields loc rfs fs in
-          (LExpr_Slices (ty, l', ss), ty'))
+          (LExpr_Slices (ty', l', ss), ty'))
   | LExpr_Slices (_, e, ss) -> (
       let all_single =
         List.for_all (function Slice_Single _ -> true | _ -> false) ss
@@ -2142,20 +2146,22 @@ let rec tc_lexpr (env : Env.t) (loc : Loc.t)
           )
       )
   | LExpr_Field (l, f) ->
-      let l', rty = tc_lexpr2 env loc lets asserts l in
-      let r, fty =
-        match typeFields (Env.globals env) loc rty with
+      let (l', rty) = tc_lexpr2 env loc lets asserts l in
+      let rty' = derefType (Env.globals env) loc rty in
+      let (r, fty) =
+        match typeFields (Env.globals env) loc rty' with
         | FT_Record rfs -> (LExpr_Field (l', f), get_recordfield loc rfs f)
         | FT_Register rfs ->
             let ss, ty' = get_regfield loc rfs f in
-            (LExpr_Slices (rty, l', ss), ty')
+            (LExpr_Slices (rty', l', ss), ty')
       in
       check_subtype_satisfies env loc ty fty;
       r
   | LExpr_Fields (l, fs) ->
-      let l', lty = tc_lexpr2 env loc lets asserts l in
-      let r, ty' =
-        match typeFields (Env.globals env) loc lty with
+      let (l', lty) = tc_lexpr2 env loc lets asserts l in
+      let lty' = derefType (Env.globals env) loc lty in
+      let (r, ty') =
+        ( match typeFields (Env.globals env) loc lty' with
         | FT_Record rfs ->
             let tys = List.map (get_recordfield loc rfs) fs in
             let ws = List.map (width_of_type (Env.globals env) loc) tys in
@@ -2163,7 +2169,8 @@ let rec tc_lexpr (env : Env.t) (loc : Loc.t)
             (LExpr_Fields (l', fs), type_bits w)
         | FT_Register rfs ->
             let ss, ty' = get_regfields loc rfs fs in
-            (LExpr_Slices (lty, l', ss), ty')
+            (LExpr_Slices (lty', l', ss), ty')
+        )
       in
       check_subtype_satisfies env loc ty ty';
       r
@@ -2225,11 +2232,12 @@ let rec tc_lexpr (env : Env.t) (loc : Loc.t)
                     (* todo: calculate type correctly *)
                     let throws = NoThrow in
                     let wr = LExpr_ReadWrite (fty.funname, fty'.funname, [], [], throws) in
-                    ( match derefType (Env.globals env) loc fty.rty with
+                    let rty' = derefType (Env.globals env) loc fty.rty in
+                    ( match rty' with
                     | Type_Bits (n, _) ->
                         let ss'' = List.map (fun (s,_) -> mk_slice_check loc lets asserts n s) ss' in
                         let ty = type_bits (slices_width ss'') in
-                        (LExpr_Slices (fty.rty, wr, ss''), ty)
+                        (LExpr_Slices (rty', wr, ss''), ty)
                     | _ -> raise (TypeError (loc, "slice of lexpr"))
                     )
                 | None, Some _ ->
