@@ -62,7 +62,7 @@ module GlobalEnv = struct
   let getGlobalConst (env : t) (x : Ident.t) : value =
     match Scope.get env.constants x with
     | Some v -> v
-    | None -> failwith "getGlobalConst"
+    | None -> raise (InternalError (Loc.Unknown, "Could not find constant", (fun fmt -> Ident.pp fmt x), __LOC__))
 
   let get_global_constant (env : t) (x : Ident.t) : value option =
     Scope.get env.constants x
@@ -418,7 +418,7 @@ and eval_expr (loc : Loc.t) (env : Env.t) (x : AST.expr) : value =
 
 (** Evaluate L-expression in write-mode (i.e., this is not a read-modify-write) *)
 and eval_lexpr (loc : Loc.t) (env : Env.t) (x : AST.lexpr) (r : value) : unit =
-  match x with
+  ( match x with
   | LExpr_Wildcard -> ()
   | LExpr_Var v -> Env.setVar loc env v r
   | LExpr_Field (l, f) ->
@@ -477,7 +477,9 @@ and eval_lexpr (loc : Loc.t) (env : Env.t) (x : AST.lexpr) (r : value) : unit =
       let tvs = eval_exprs loc env tes in
       let vs = eval_exprs loc env es in
       eval_proccall loc env setter tvs (vs @ [ r ])
-  | _ -> failwith ("eval_lexpr: " ^ pp_lexpr x)
+  | _ ->
+      raise (InternalError (loc, "eval_lexpr: could not handle", (fun fmt -> FMT.lexpr fmt x), __LOC__))
+  )
 
 (** Evaluate L-expression in read-modify-write mode.
 
@@ -507,7 +509,8 @@ and eval_lexpr_modify (loc : Loc.t) (env : Env.t) (x : AST.lexpr)
       let vs = eval_exprs loc env es in
       let old = eval_funcall loc env getter tvs vs in
       eval_proccall loc env setter tvs (vs @ [ modify old ])
-  | _ -> failwith "eval_lexpr_modify"
+  | _ ->
+      raise (InternalError (loc, "eval_lexpr_modify: could not handle", (fun fmt -> FMT.lexpr fmt x), __LOC__))
 
 and add_decl_item_vars (loc : Loc.t) (env : Env.t) (is_const : bool) (x : AST.decl_item) (i : value) : unit =
   match (x, i) with
