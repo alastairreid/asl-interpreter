@@ -60,6 +60,9 @@ let to_string (i : t) : string =
 let pp (fmt : Format.formatter) (x : t) : unit =
   Format.pp_print_string fmt (to_string x)
 
+let pp_untagged (fmt : Format.formatter) (x : t) : unit =
+  Format.pp_print_string fmt x.info.name
+
 let name_with_tag (i : t) : string =
   match i.info.opt_tag with
   | None -> i.info.name
