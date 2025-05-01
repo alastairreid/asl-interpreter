@@ -2,7 +2,7 @@
 (using dune_site 0.1)
 
 (name asli)
-(version 1.0.0)
+(version 1.1.0)
 
 ; Copyright Arm Limited (c) 2017-2019
 ; Copyright (C) 2022-2025 Intel Corporation
