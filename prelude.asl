@@ -187,49 +187,6 @@ __builtin func asl_ram_init(A : integer, ram : __RAM(A), val : bits(64)) => ();
 __builtin func asl_ram_read(A : integer, N : integer, ram : __RAM(A), address : bits(A)) => bits(8*N);
 __builtin func asl_ram_write(A : integer, N : integer, ram : __RAM(A), address : bits(A), val : bits(8*N)) => ();
 
-
-// backwards compatibility layer until the specs are updated to use the new asl_ prefix versions
-// uses the bottom 64 bits of val to initialize memory
-func ram_init(A : integer, N : integer, ram : __RAM(A), val : bits(8*N))
-begin
-    if asl_gt_int(N, 8) then
-        asl_ram_init(A, ram, val[0 +: 64]);
-    else
-        asl_ram_init(A, ram, asl_replicate_bits(val, 8)[0 +: 64]);
-    end
-end
-
-// backwards compatibility layer until the specs are updated to use the new asl_ prefix versions
-func ram_read(A : integer, N : integer, ram : __RAM(A), address : bits(A)) => bits(8*N)
-begin
-    return asl_ram_read(A, N, ram, address);
-end
-
-// backwards compatibility layer until the specs are updated to use the new asl_ prefix versions
-func ram_write(A : integer, N : integer, ram : __RAM(A), address : bits(A), val : bits(8*N))
-begin
-    asl_ram_write(A, N, ram, address, val);
-end
-
-func __InitRAM(A : integer, N : integer, ram : __RAM(A), val : bits(8*N))
-begin
-    if asl_gt_int(N, 8) then
-        asl_ram_init(A, ram, val[0 +: 64]);
-    else
-        asl_ram_init(A, ram, asl_replicate_bits(val, 8)[0 +: 64]);
-    end
-end
-
-func __ReadRAM(A : integer, N : integer, ram : __RAM(A), address : bits(A)) => bits(8*N)
-begin
-    return asl_ram_read(A, N, ram, address);
-end
-
-func __WriteRAM(A : integer, N : integer, ram : __RAM(A), address : bits(A), val : bits(8*N))
-begin
-    asl_ram_write(A, N, ram, address, val);
-end
-
 // Advance trace to next instruction
 __builtin func __TraceNext() => ();
 
