@@ -21,9 +21,6 @@ val resugar_operators : bool ref
 val add_binop : AST.binop -> Ident.t -> unit
 val add_unop : AST.unop -> Ident.t -> unit
 
-type comment = Lexing.position * Lexing.position * string
-val comment_list : comment list ref
-
 val loc : formatter -> Loc.t -> unit
 val tycon : formatter -> Ident.t -> unit
 val varname : formatter -> Ident.t -> unit
@@ -54,7 +51,7 @@ val lexpr : formatter -> AST.lexpr -> unit
 val lexprs : formatter -> AST.lexpr list -> unit
 val varty : formatter -> Ident.t -> AST.ty -> unit
 val decl_item : formatter -> AST.decl_item -> unit
-val stmt : formatter -> AST.stmt -> unit
+val stmt : ?short : bool -> formatter -> AST.stmt -> unit
 val indented_block : formatter -> AST.stmt list -> unit
 val parameters : formatter -> (Ident.t * AST.ty option) list -> unit
 val formals : formatter -> (Ident.t * AST.ty) list -> unit

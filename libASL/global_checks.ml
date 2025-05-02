@@ -155,7 +155,7 @@ and canthrow_stmts (xs : AST.stmt list) : status =
                 if r.live = Some false then begin
                     Format.printf "Warning (%s): Dead code detected '%a'\n"
                         (Loc.to_string (Asl_utils.stmt_loc y))
-                        FMT.stmt y
+                        (FMT.stmt ~short:false) y
                 end;
                 let s = canthrow_stmts (y :: zs) in
                 if s = fail then

@@ -152,7 +152,6 @@ let read_file (paths : string list) (filename : string) (isPrelude : bool)
   let t = parse_file paths filename verbose in
 
   if false then (
-    FMT.comment_list := Lexer.get_comments ();
     FMT.declarations Format.std_formatter t;
     Format.pp_print_flush Format.std_formatter ()
   );

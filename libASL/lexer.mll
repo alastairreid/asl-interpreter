@@ -71,30 +71,6 @@ let keywords : (string * Asl_parser.token) list = [
     ("while",                  WHILE);
 ]
 
-(* To allow us to retain comments when pretty-printing, we record
- * all comments and their locations.
- *)
-let comments: (Lexing.position * Lexing.position * string) list ref = ref []
-
-let get_comments (): (Lexing.position * Lexing.position * string) list = begin
-    let cs = !comments in
-    comments := [];
-    List.rev cs
-end
-
-let record_comment (start: Lexing.position) (finish: Lexing.position) (lxm: string): unit = begin
-    if false then begin
-        Printf.printf "Comment %s:%d:%d-%d = '%s'\n"
-            start.pos_fname
-            start.pos_lnum
-            (start.pos_cnum - start.pos_bol)
-            (finish.pos_cnum - finish.pos_bol)
-            lxm
-    end;
-    let comment = (start, finish, lxm) in
-    comments := comment :: !comments
-end
-
 let update_location lexbuf opt_file line =
     let pos = lexbuf.Lexing.lex_curr_p in
     let new_file = match opt_file with
@@ -113,7 +89,7 @@ rule token = parse
     | "```"                       { fenced_code_block lexbuf }
     | ['\n']                      { Lexing.new_line lexbuf; token lexbuf }
     | [' ' '\t']                  { token lexbuf }
-    | '/' '/' [^'\n']*     as lxm { record_comment lexbuf.lex_start_p lexbuf.lex_curr_p lxm; token lexbuf }
+    | '/' '/' [^'\n']*            { token lexbuf }
     | "#" [' ' '\t']* (['0'-'9']+ as num) [' ' '\t']* ('\"' ([^ '\"']* as name) '\"')? [' ' '\t']* '\n'
                                   { update_location lexbuf name (int_of_string num); token lexbuf }
     | '/' '*'                     { comment 1 lexbuf }

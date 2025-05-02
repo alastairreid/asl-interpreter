@@ -430,7 +430,6 @@ let main () =
       let ds = Global_checks.check_decls ds in
       if !opt_verbose then Printf.printf "Performed global checks\n%!";
       if !opt_print_spec then (
-        FMT.comment_list := Lexer.get_comments ();
         FMT.declarations Format.std_formatter ds;
         Format.pp_print_flush Format.std_formatter ());
 
