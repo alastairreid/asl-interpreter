@@ -1468,7 +1468,7 @@ and check_expr (env : Env.t) (loc : Loc.t) (ty : AST.ty) (x : AST.expr) :
     AST.expr =
   let (x', ty') = tc_expr env loc x in
   if verbose then
-    Format.fprintf fmt "    - Typechecking %a : %a\n" FMT.expr x' FMT.ty ty';
+    Format.fprintf fmt "        - Typechecking %a : %a\n" FMT.expr x' FMT.ty ty';
   check_subtype_satisfies env loc ty' ty;
   x'
 
@@ -2389,7 +2389,8 @@ and tc_catcher (env : Env.t) (loc : Loc.t) (x : AST.catcher) : AST.catcher =
  *  where we insert a runtime check prior to the statement.
  *)
 and tc_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
-  match x with
+  if verbose then Format.fprintf fmt "      - Typechecking statement %a\n" (FMT.stmt ~short:true) x;
+  ( match x with
   | Stmt_VarDeclsNoInit (vs, ty, loc) ->
       let ty' = tc_type env loc ty in
       List.iter (fun v -> Env.addLocalVar env {name=v; loc; ty=ty'; is_local=true; is_constant=false}) vs;
@@ -2502,6 +2503,7 @@ and tc_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
       let catchers' = List.map (tc_catcher env loc) catchers in
       let odefault' = Option.map (fun (b, bl) -> (tc_stmts env loc b, bl)) odefault in
       [Stmt_Try (tb', pos, catchers', odefault', loc)]
+  )
 
 (****************************************************************)
 (** {2 Typecheck function definition}                           *)
@@ -2661,7 +2663,8 @@ let addFunction (env : GlobalEnv.t) (loc : Loc.t) (qid : Ident.t) (fty : AST.fun
 (** Typecheck global declaration, extending environment as needed *)
 let tc_declaration (env : GlobalEnv.t) (d : AST.declaration) :
     AST.declaration list =
-  match d with
+  if verbose then Format.fprintf fmt "    - Typechecking declaration %a\n" (FMT.declaration ~short:true) d;
+  ( match d with
   | Decl_BuiltinType (qid, loc) ->
       GlobalEnv.addType env loc qid (Type_Builtin qid);
       [ d ]
@@ -2787,6 +2790,7 @@ let tc_declaration (env : GlobalEnv.t) (d : AST.declaration) :
       let v = { name=qid; loc; ty=ty'; is_local=false; is_constant=true } in
       GlobalEnv.addGlobalVar env v;
       [ Decl_Config (qid, ty', i', loc) ]
+  )
 
 (** Generate function prototype declarations.
 
@@ -2824,9 +2828,7 @@ let tc_declarations (env : GlobalEnv.t) ~(isPrelude : bool) ~(sort_decls : bool)
    *)
   let (pre, post) = genPrototypes ds in
   let pre = if sort_decls then List.rev (Asl_utils.topological_sort pre) else pre in
-  if verbose then
-    Format.fprintf fmt "  - Typechecking %d phase declarations\n"
-      (List.length pre);
+  if verbose then Format.fprintf fmt "  - Typechecking %d declarations\n" (List.length pre);
   let error_count = ref 0 in
   let tc_decl env d =
     ( try

@@ -522,14 +522,15 @@ let decl_bit (fmt : PP.formatter) (x : (Ident.t option * AST.ty)) : unit =
   varty fmt (Option.value ov ~default:dash_ident) ty
 
 let rec decl_item (fmt : PP.formatter) (x : AST.decl_item) : unit =
-  match x with
+  ( match x with
   | DeclItem_Var (v, ot) -> varoty fmt v ot
   | DeclItem_Tuple dis -> parens fmt (fun _ -> commasep fmt (decl_item fmt) dis)
   | DeclItem_BitTuple dbs -> parens fmt (fun _ -> commasep fmt (decl_bit fmt) dbs)
   | DeclItem_Wildcard ot -> varoty fmt dash_ident ot
+  )
 
 let rec stmt ?(short=false) (fmt : PP.formatter) (x : AST.stmt) : unit =
-  match x with
+  ( match x with
   | Stmt_VarDeclsNoInit (vs, t, loc) ->
       kw_var fmt;
       nbsp fmt;
@@ -593,7 +594,7 @@ let rec stmt ?(short=false) (fmt : PP.formatter) (x : AST.stmt) : unit =
       semicolon fmt
   | Stmt_Block (ss, loc) ->
       kw_begin fmt;
-      indented_block fmt ss;
+      indented_block ~short fmt ss;
       cut fmt;
       kw_end fmt
   | Stmt_If (c, t, els, (e, el), loc) ->
@@ -603,23 +604,28 @@ let rec stmt ?(short=false) (fmt : PP.formatter) (x : AST.stmt) : unit =
           expr fmt c;
           nbsp fmt;
           kw_then fmt;
-          indented_block fmt t;
-          map fmt
-            (fun (AST.S_Elsif_Cond (c, s, loc)) ->
+          if short then
+              Format.fprintf fmt "..."
+          else begin
+              indented_block fmt t;
+              map fmt
+                (fun (AST.S_Elsif_Cond (c, s, loc)) ->
+                  cut fmt;
+                  kw_elsif fmt;
+                  nbsp fmt;
+                  expr fmt c;
+                  nbsp fmt;
+                  kw_then fmt;
+                  indented_block fmt s)
+                els;
+              if e <> [] then (
+                cut fmt;
+                kw_else fmt;
+                indented_block fmt e);
               cut fmt;
-              kw_elsif fmt;
-              nbsp fmt;
-              expr fmt c;
-              nbsp fmt;
-              kw_then fmt;
-              indented_block fmt s)
-            els;
-          if e <> [] then (
-            cut fmt;
-            kw_else fmt;
-            indented_block fmt e);
-          cut fmt;
-          kw_end fmt)
+              kw_end fmt
+          end
+      )
   | Stmt_Case (e, oty, alts, ob, loc) ->
       vbox fmt (fun _ ->
           kw_case fmt;
@@ -631,93 +637,84 @@ let rec stmt ?(short=false) (fmt : PP.formatter) (x : AST.stmt) : unit =
           );
           nbsp fmt;
           kw_of fmt;
+          if short then
+              Format.fprintf fmt "..."
+          else begin
+              indented fmt (fun _ ->
+                  cutsep fmt
+                    (fun (AST.Alt_Alt (ps, oc, ss, loc)) ->
+                      kw_when fmt;
+                      nbsp fmt;
+                      patterns fmt ps;
+                      PP.pp_print_option
+                        (fun _ c ->
+                          nbsp fmt;
+                          kw_where fmt;
+                          nbsp fmt;
+                          expr fmt c)
+                        fmt oc;
+                      nbsp fmt;
+                      eq_gt fmt;
+                      indented_block fmt ss)
+                    alts;
+                  PP.pp_print_option
+                    (fun _ (b, bl) ->
+                      cut fmt;
+                      kw_otherwise fmt;
+                      indented_block fmt b)
+                    fmt ob);
+              cut fmt;
+              kw_end fmt
+          end
+      )
+  | Stmt_For (v, typ, f, dir, t, b, loc) ->
+      Format.fprintf fmt "for %a : %a = %a %a %a do%a@,end"
+        varname                 v
+        ty                      typ
+        expr                    f
+        direction               dir
+        expr                    t
+        (indented_block ~short) b
+  | Stmt_While (c, b, loc) ->
+      Format.fprintf fmt "while %a do%a@,end"
+        expr                    c
+        (indented_block ~short) b
+  | Stmt_Repeat (b, c, pos, loc) ->
+      Format.fprintf fmt "repeat%a@,until %a;"
+        (indented_block ~short) b
+        expr                    c
+  | Stmt_Try (b, pos, cs, ob, loc) ->
+      kw_try fmt;
+      indented_block ~short fmt b;
+      cut fmt;
+      kw_catch fmt;
+      if short then
+          Format.fprintf fmt "..."
+      else begin
           indented fmt (fun _ ->
               cutsep fmt
-                (fun (AST.Alt_Alt (ps, oc, ss, loc)) ->
-                  kw_when fmt;
-                  nbsp fmt;
-                  patterns fmt ps;
-                  PP.pp_print_option
-                    (fun _ c ->
-                      nbsp fmt;
-                      kw_where fmt;
-                      nbsp fmt;
-                      expr fmt c)
-                    fmt oc;
-                  nbsp fmt;
-                  eq_gt fmt;
-                  indented_block fmt ss)
-                alts;
+                (fun (AST.Catcher_Guarded (v, tc, b, loc)) ->
+                  Format.fprintf fmt "when %a : %a =>"
+                    varname v
+                    tycon tc;
+                  indented_block fmt b)
+                cs;
               PP.pp_print_option
                 (fun _ (b, bl) ->
                   cut fmt;
                   kw_otherwise fmt;
                   indented_block fmt b)
                 fmt ob);
-          cut fmt;
-          kw_end fmt)
-  | Stmt_For (v, typ, f, dir, t, b, loc) ->
-      kw_for fmt;
-      nbsp fmt;
-      varname fmt v;
-      nbsp fmt;
-      colon fmt;
-      nbsp fmt;
-      ty fmt typ;
-      nbsp fmt;
-      eq fmt;
-      nbsp fmt;
-      expr fmt f;
-      nbsp fmt;
-      direction fmt dir;
-      nbsp fmt;
-      expr fmt t;
-      nbsp fmt;
-      kw_do fmt;
-      indented_block fmt b;
+      end;
       cut fmt;
       kw_end fmt
-  | Stmt_While (c, b, loc) ->
-      kw_while fmt;
-      nbsp fmt;
-      expr fmt c;
-      nbsp fmt;
-      kw_do fmt;
-      indented_block fmt b;
-      cut fmt;
-      kw_end fmt
-  | Stmt_Repeat (b, c, pos, loc) ->
-      kw_repeat fmt;
-      indented_block fmt b;
-      cut fmt;
-      kw_until fmt;
-      nbsp fmt;
-      expr fmt c;
-      semicolon fmt
-  | Stmt_Try (b, pos, cs, ob, loc) ->
-      kw_try fmt;
-      indented_block fmt b;
-      cut fmt;
-      kw_catch fmt;
-      indented fmt (fun _ ->
-          cutsep fmt
-            (fun (AST.Catcher_Guarded (v, tc, b, loc)) ->
-              Format.fprintf fmt "when %a : %a =>"
-                varname v
-                tycon tc;
-              indented_block fmt b)
-            cs;
-          PP.pp_print_option
-            (fun _ (b, bl) ->
-              cut fmt;
-              kw_otherwise fmt;
-              indented_block fmt b)
-            fmt ob);
-      cut fmt;
-      kw_end fmt
+  )
 
-and indented_block (fmt : PP.formatter) (xs : AST.stmt list) : unit =
-  indented fmt (fun _ -> cutsep fmt (stmt fmt) xs)
+and indented_block ?(short=false) (fmt : PP.formatter) (xs : AST.stmt list) : unit =
+  if short then
+      Format.fprintf fmt "..."
+  else
+      indented fmt (fun _ -> cutsep fmt (stmt fmt) xs)
 
 let parameter (fmt : PP.formatter) (x : Ident.t * AST.ty option) : unit =
   let v, ot = x in
@@ -756,7 +753,7 @@ let function_type (fmt : PP.formatter) (fty : AST.function_type) : unit =
       ty fmt rty)
     fmt fty.rty
 
-let declaration (fmt : PP.formatter) (x : AST.declaration) : unit =
+let declaration ?(short=false) (fmt : PP.formatter) (x : AST.declaration) : unit =
   vbox fmt (fun _ ->
       match x with
       | Decl_BuiltinType (tc, loc) ->
@@ -866,11 +863,13 @@ let declaration (fmt : PP.formatter) (x : AST.declaration) : unit =
           nbsp fmt;
           funname fmt f;
           function_type fmt fty;
-          cut fmt;
-          kw_begin fmt;
-          indented_block fmt b;
-          cut fmt;
-          kw_end fmt
+          if not short then begin
+              cut fmt;
+              kw_begin fmt;
+              indented_block ~short fmt b;
+              cut fmt;
+              kw_end fmt
+          end
       | Decl_Operator1 (op, fs, loc) ->
           kw_underscore_operator1 fmt;
           nbsp fmt;
