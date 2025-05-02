@@ -3,6 +3,7 @@
  *
  * Transforms
  * - Slice_HiLo to Slice_LoWd
+ * - Slice_HiWd to Slice_LoWd
  * - Slice_Single to Slice_LoWd
  * - Slice_Element to Slice_LoWd
  *
@@ -55,6 +56,10 @@ class lower_class = object (self)
       | Slice_Element (lo, wd) ->
           let wd' = self#mk_intexpr_safe_to_replicate wd in
           let lo' = Xform_simplify_expr.simplify (mk_mul_int lo wd') in
+          ChangeDoChildrenPost (AST.Slice_LoWd (lo', wd'), Fun.id)
+      | Slice_HiWd (hi, wd) ->
+          let wd' = self#mk_intexpr_safe_to_replicate wd in
+          let lo' = Xform_simplify_expr.mk_add_int (mk_sub_int hi wd') one in
           ChangeDoChildrenPost (AST.Slice_LoWd (lo', wd'), Fun.id)
       | Slice_HiLo (hi, lo) ->
           let lo' = self#mk_intexpr_safe_to_replicate lo in

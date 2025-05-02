@@ -136,6 +136,7 @@ rule token = parse
     | '+' '+'        { PLUS_PLUS  }
     | '+'            { PLUS       }
     | '+' ':'        { PLUS_COLON }
+    | '-' ':'        { MINUS_COLON }
     | '*' ':'        { STAR_COLON }
     | ','            { COMMA      }
     | '-'            { MINUS      }

@@ -315,6 +315,8 @@ let xform_slice (env : Env.t) (loc : Loc.t) (x : AST.slice) : AST.slice =
     raise (InternalError (loc, "Slice_Single not expected", (fun fmt -> Asl_fmt.slice fmt x), __LOC__))
   | Slice_HiLo _ ->
     raise (InternalError (loc, "Slice_HiLo not expected", (fun fmt -> Asl_fmt.slice fmt x), __LOC__))
+  | Slice_HiWd _ ->
+    raise (InternalError (loc, "Slice_HiWd not expected", (fun fmt -> Asl_fmt.slice fmt x), __LOC__))
   | Slice_Element _ ->
     raise (InternalError (loc, "Slice_Element not expected", (fun fmt -> Asl_fmt.slice fmt x), __LOC__))
 

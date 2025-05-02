@@ -25,3 +25,9 @@ begin
     return x[j *: w];
     // CHECK: return __assert asl_le_int.0{}(asl_mul_int.0{}(j, w), asl_sub_int.0{}(32, w)) __in __assert asl_le_int.0{}(0, w) __in __assert asl_le_int.0{}(0, j) __in {bits(32)}x[j *: w];
 end
+
+func FUT5(x : bits(32), j : integer {0..15}, w : integer) => bits(w)
+begin
+    return x[j -: w];
+    // CHECK: return __assert asl_le_int.0{}(w, asl_add_int.0{}(j, 1)) __in __assert asl_le_int.0{}(0, w) __in __assert asl_lt_int.0{}(j, 32) __in {bits(32)}x[j -: w];
+end

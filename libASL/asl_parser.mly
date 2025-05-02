@@ -77,6 +77,7 @@ let type_unknown = Type_Constructor (Ident.mk_ident "<type_unknown>", [])
 
 (* slice tokens *)
 %token PLUS_COLON  (* +: *)
+%token MINUS_COLON (* -: *)
 %token STAR_COLON  (* *: *)
 
 (* statement tokens *)
@@ -605,6 +606,7 @@ slice:
 | e = expr  { Slice_Single(e) }
 | hi = expr COLON lo = expr { Slice_HiLo(hi, lo) }
 | lo = expr PLUS_COLON wd = expr { Slice_LoWd(lo, wd) }
+| hi = expr MINUS_COLON wd = expr { Slice_HiWd(hi, wd) }
 | lo = expr STAR_COLON wd = expr { Slice_Element(lo, wd) }
 
 literal_expression:

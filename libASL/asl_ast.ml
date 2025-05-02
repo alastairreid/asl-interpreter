@@ -96,6 +96,7 @@ and slice =
    Slice_Single of expr
  | Slice_HiLo of expr * expr
  | Slice_LoWd of expr * expr
+ | Slice_HiWd of expr * expr
  | Slice_Element of expr * expr
 
 and ixtype =

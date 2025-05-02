@@ -1088,6 +1088,8 @@ and lslice (loc : Loc.t) (fmt : PP.formatter) (t : AST.ty) (e : AST.lexpr)(r : A
           raise (InternalError (loc, "Slice_Single not expected", (fun fmt -> FMTAST.lexpr fmt e), __LOC__))
       | Slice_HiLo _ ->
           raise (InternalError (loc, "Slice_HiLo not expected", (fun fmt -> FMTAST.lexpr fmt e), __LOC__))
+      | Slice_HiWd _ ->
+          raise (InternalError (loc, "Slice_HiWd not expected", (fun fmt -> FMTAST.lexpr fmt e), __LOC__))
       | Slice_Element _ ->
           raise (InternalError (loc, "Slice_Element not expected", (fun fmt -> FMTAST.lexpr fmt e), __LOC__))
 

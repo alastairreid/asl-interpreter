@@ -113,6 +113,7 @@ let slice_width (x : AST.slice) : AST.expr =
   | Slice_Single e -> Asl_utils.one
   | Slice_HiLo (hi, lo) -> Xform_simplify_expr.mk_add_int (Asl_utils.mk_sub_int hi lo) Asl_utils.one
   | Slice_LoWd (lo, wd) -> wd
+  | Slice_HiWd (hi, wd) -> wd
   | Slice_Element (lo, wd) -> wd
   )
 

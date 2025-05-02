@@ -91,6 +91,7 @@ let minus (fmt : PP.formatter) : unit = delimiter fmt "-"
 let minus_minus_gt (fmt : PP.formatter) : unit = delimiter fmt "-->"
 let plus (fmt : PP.formatter) : unit = delimiter fmt "+"
 let plus_colon (fmt : PP.formatter) : unit = delimiter fmt "+:"
+let minus_colon (fmt : PP.formatter) : unit = delimiter fmt "-:"
 let star_colon (fmt : PP.formatter) : unit = delimiter fmt "*:"
 let plus_plus (fmt : PP.formatter) : unit = delimiter fmt "++"
 let rbrace_rbrace (fmt : PP.formatter) : unit = delimiter fmt "}}"
@@ -287,6 +288,12 @@ and slice (fmt : PP.formatter) (x : AST.slice) : unit =
       expr fmt lo;
       nbsp fmt;
       plus_colon fmt;
+      nbsp fmt;
+      expr fmt wd
+  | Slice_HiWd (hi, wd) ->
+      expr fmt hi;
+      nbsp fmt;
+      minus_colon fmt;
       nbsp fmt;
       expr fmt wd
   | Slice_Element (lo, wd) ->

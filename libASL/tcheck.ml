@@ -35,6 +35,7 @@ let slice_width (x : AST.slice) : AST.expr =
   | Slice_Single e -> one
   | Slice_HiLo (hi, lo) -> Xform_simplify_expr.mk_add_int (mk_sub_int hi lo) one
   | Slice_LoWd (lo, wd) -> wd
+  | Slice_HiWd (hi, wd) -> wd
   | Slice_Element (_, wd) -> wd
 
 let slices_width (xs : AST.slice list) : AST.expr =
@@ -983,6 +984,14 @@ let mk_slice_check (loc : Loc.t) (lets : binding list ref) (asserts : check list
           add_check loc asserts (mk_le_int zero wd');
           add_check loc asserts (mk_le_int (mk_add_int lo' wd') size');
           Slice_LoWd (lo', wd')
+      | Slice_HiWd (hi, wd) ->
+          let size' = mk_expr_safe_to_replicate lets size type_integer in
+          let hi'   = mk_expr_safe_to_replicate lets hi type_integer in
+          let wd'   = mk_expr_safe_to_replicate lets wd type_integer in
+          add_check loc asserts (mk_lt_int hi' size');
+          add_check loc asserts (mk_le_int zero wd');
+          add_check loc asserts (mk_le_int wd' (mk_add_int hi' one));
+          Slice_HiWd (hi', wd')
       | Slice_Element (ix, wd) ->
           let size' = mk_expr_safe_to_replicate lets size type_integer in
           let ix'   = mk_expr_safe_to_replicate lets ix type_integer in
@@ -1496,6 +1505,10 @@ and tc_slice (env : Env.t) (loc : Loc.t) (x : AST.slice) :
       let lo' = check_expr env loc type_integer lo in
       let wd' = check_expr env loc type_integer wd in
       (Slice_LoWd (lo', wd'), type_integer)
+  | Slice_HiWd (hi, wd) ->
+      let hi' = check_expr env loc type_integer hi in
+      let wd' = check_expr env loc type_integer wd in
+      (Slice_HiWd (hi', wd'), type_integer)
   | Slice_Element (lo, wd) ->
       let lo' = check_expr env loc type_integer lo in
       let wd' = check_expr env loc type_integer wd in

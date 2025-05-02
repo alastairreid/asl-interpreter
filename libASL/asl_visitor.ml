@@ -108,6 +108,10 @@ and visit_slice (vis : aslVisitor) (x : slice) : slice =
         let lo' = visit_expr vis lo in
         let wd' = visit_expr vis wd in
         if lo == lo' && wd == wd' then x else Slice_LoWd (lo', wd')
+    | Slice_HiWd (hi, wd) ->
+        let hi' = visit_expr vis hi in
+        let wd' = visit_expr vis wd in
+        if hi == hi' && wd == wd' then x else Slice_HiWd (hi', wd')
     | Slice_Element (lo, wd) ->
         let lo' = visit_expr vis lo in
         let wd' = visit_expr vis wd in

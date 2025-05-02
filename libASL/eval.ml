@@ -308,6 +308,11 @@ and eval_slice (loc : Loc.t) (env : Env.t) (x : AST.slice) : value * value =
       let lo' = eval_expr loc env lo in
       let wd' = eval_expr loc env wd in
       (lo', wd')
+  | Slice_HiWd (hi, wd) ->
+      let hi' = eval_expr loc env hi in
+      let wd' = eval_expr loc env wd in
+      let lo' = eval_add_int loc (eval_sub_int loc hi' wd') (VInt Z.one) in
+      (lo', wd')
   | Slice_Element (lo, wd) ->
       let wd' = eval_expr loc env wd in
       let lo' = eval_mul_int loc (eval_expr loc env lo) wd' in

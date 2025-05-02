@@ -40,3 +40,13 @@ begin
     // CHECK: assert asl_le_int.0{}(0, j);
     return r;
 end
+
+func FUT5(x : bits(32), j : integer {0..15}, w : integer) => bits(32)
+begin
+    var r : bits(32) = x;
+    r[j-:w] = Ones(w);
+    // CHECK: assert asl_le_int.0{}(w, asl_add_int.0{}(j, 1));
+    // CHECK: assert asl_le_int.0{}(0, w);
+    // CHECK: assert asl_lt_int.0{}(j, 32);
+    return r;
+end
