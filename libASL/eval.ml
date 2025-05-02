@@ -362,6 +362,24 @@ and eval_expr (loc : Loc.t) (env : Env.t) (x : AST.expr) : value =
           ss
       in
       eval_concat loc vs
+  | Expr_WithChanges (_, e, cs) ->
+      let r = ref (eval_expr loc env e) in
+      List.iter (fun (c, e) ->
+        let v = eval_expr loc env e in
+        ( match c with
+        | Change_Field f ->
+           r := set_field loc !r f v
+        | Change_Slices ss ->
+           let offset = ref (VInt Z.zero) in
+           List.iter (fun s ->
+               let (i, w) = eval_slice loc env s in
+               let x = extract_bits'' loc v !offset w in
+               r := insert_bits loc !r i w x;
+               offset := eval_add_int loc !offset w
+           ) ss
+        ))
+        cs;
+      !r
   | Expr_RecordInit (tc, _, fas) ->
       mk_record tc (List.map (fun (f, e) -> (f, eval_expr loc env e)) fas)
   | Expr_ArrayInit es ->

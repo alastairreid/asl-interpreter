@@ -27,6 +27,7 @@ class type aslVisitor =
     method vvar : access_kind -> Ident.t -> Ident.t visitAction
     method ve_elsif : e_elsif -> e_elsif visitAction
     method vslice : slice -> slice visitAction
+    method vchange : change -> change visitAction
     method vpattern : pattern -> pattern visitAction
     method vexpr : expr -> expr visitAction
     method vconstraint : constraint_range -> constraint_range visitAction
@@ -47,6 +48,7 @@ val visit_alt : aslVisitor -> alt -> alt
 val visit_arg : aslVisitor -> Ident.t * ty -> Ident.t * ty
 val visit_args : aslVisitor -> (Ident.t * ty) list -> (Ident.t * ty) list
 val visit_catcher : aslVisitor -> catcher -> catcher
+val visit_change : aslVisitor -> change -> change
 val visit_constraint_range : aslVisitor -> constraint_range -> constraint_range
 
 val visit_constraints :

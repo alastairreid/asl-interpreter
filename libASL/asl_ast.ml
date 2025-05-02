@@ -76,6 +76,7 @@ and expr =
  | Expr_Field of expr * Ident.t (* field selection *)
  | Expr_Fields of expr * Ident.t list (* multiple field selection *)
  | Expr_Slices of ty * expr * slice list (* bitslice *)
+ | Expr_WithChanges of ty * expr * (change * expr) list (* copy with changes *)
  | Expr_RecordInit of Ident.t * expr list * (Ident.t * expr) list
  | Expr_ArrayInit of expr list
  | Expr_In of expr * pattern (* pattern match *)
@@ -88,6 +89,10 @@ and expr =
  | Expr_Concat of expr list * expr list (* bitvector concatenation *)
  | Expr_Array of expr * expr (* array accesses *)
  | Expr_Lit of Value.value
+
+and change =
+ | Change_Field of Ident.t
+ | Change_Slices of slice list
 
 and e_elsif =
    E_Elsif_Cond of expr * expr

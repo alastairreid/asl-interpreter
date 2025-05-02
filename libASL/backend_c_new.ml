@@ -632,6 +632,47 @@ and expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
   | Expr_Slices (Type_Integer _, e, [Slice_LoWd (lo, wd)]) ->
       let module Runtime = (val (!runtime) : RuntimeLib) in
       Runtime.get_slice_int fmt (const_int_expr loc wd) (mk_expr loc e) (mk_expr loc lo)
+  | Expr_WithChanges (t, e, cs) ->
+      let tmp1 = Ident.mk_ident "__tmp1" in
+      let rt_tmp1 fmt = Ident.pp fmt tmp1 in
+      PP.fprintf fmt "({ ";
+      varty loc fmt tmp1 t;
+      PP.fprintf fmt " = %a; " (expr loc) e;
+      List.iteri (fun i (c, e) ->
+        let c : AST.change = c in
+        ( match c with
+        | Change_Field f ->
+            PP.fprintf fmt "%a.%a = %a; "
+              Ident.pp tmp1
+              Ident.pp f
+              (expr loc) e
+        | Change_Slices ss ->
+            let tmp2 = Ident.mk_ident "__tmp2" in
+            let rt_tmp2 fmt = Ident.pp fmt tmp2 in
+            PP.fprintf fmt "{ ";
+            varty loc fmt tmp2 t;
+            PP.fprintf fmt " = %a; " (expr loc) e;
+            let offset = ref 0 in
+            List.iter (fun s ->
+              ( match (t, s) with
+              | (Type_Bits (n,_), AST.Slice_LoWd (lo, wd)) ->
+                  let n' = const_int_expr loc n in
+                  let offset' fmt = PP.fprintf fmt "%d" !offset in
+                  let lo' fmt = index_expr loc fmt lo in
+                  let wd' = const_int_expr loc wd in
+                  let r fmt = Runtime.get_slice fmt n' wd' rt_tmp2 offset' in
+                  Runtime.set_slice fmt n' wd' rt_tmp1 lo' r;
+                  offset := !offset + wd'
+              | _ ->
+                  let msg = "expr with {...}: " in
+                  let pp fmt = PP.fprintf fmt "%a %a" FMT.ty t FMT.slice s in
+                  raise (Error.Unimplemented (loc, msg, pp))
+              )
+            ) ss;
+            PP.fprintf fmt "} "
+        )
+      ) cs;
+      PP.fprintf fmt "__tmp1; })";
   | Expr_TApply (f, tes, es, throws) ->
       if throws <> NoThrow then
         rethrow_expr fmt (fun _ -> funcall loc fmt f tes es)

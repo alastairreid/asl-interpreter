@@ -306,6 +306,15 @@ and slice (fmt : PP.formatter) (x : AST.slice) : unit =
 and slices (fmt : PP.formatter) (ss : AST.slice list) : unit =
   commasep fmt (slice fmt) ss
 
+and changes (fmt : PP.formatter) (cs : (AST.change * AST.expr) list) : unit =
+  commasep fmt (fun (c, e) -> Format.fprintf fmt "%a = %a" change c expr e) cs
+
+and change (fmt : PP.formatter) (x : AST.change) : unit =
+  ( match x with
+  | Change_Field f -> fieldname fmt f
+  | Change_Slices ss -> brackets fmt (fun _ -> slices fmt ss)
+  )
+
 and ixtype (fmt : PP.formatter) (x : AST.ixtype) : unit =
   match x with
   | Index_Enum tc -> tycon fmt tc
@@ -364,6 +373,11 @@ and expr (fmt : PP.formatter) (x : AST.expr) : unit =
       if !show_type_params then braces fmt (fun _ -> ty fmt t);
       expr fmt e;
       brackets fmt (fun _ -> slices fmt ss)
+  | Expr_WithChanges (t, e, cs) ->
+      if !show_type_params then braces fmt (fun _ -> ty fmt t);
+      Format.fprintf fmt "%a with { %a }"
+        expr e
+        changes cs
   | Expr_RecordInit (tc, tes, fas) ->
       tycon fmt tc;
       if not (Utils.is_empty tes) then parens fmt (fun _ -> exprs fmt tes);

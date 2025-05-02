@@ -69,6 +69,7 @@ let keywords : (string * Asl_parser.token) list = [
     ("when",                   WHEN);
     ("where",                  WHERE);
     ("while",                  WHILE);
+    ("with",                   WITH);
 ]
 
 let update_location lexbuf opt_file line =

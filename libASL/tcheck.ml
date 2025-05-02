@@ -1713,6 +1713,43 @@ and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) :
               (Expr_TApply (fty'.name, fty'.parameters, es, NoThrow), fty'.rty)
           | _ -> tc_slice_expr env loc e ss')
       | _ -> tc_slice_expr env loc e ss')
+  | Expr_WithChanges (_, e, cs) ->
+      let lets = ref [] in
+      let asserts = ref [] in
+      let (e', ty) = tc_expr env loc e in
+      let ty' = derefType (Env.globals env) loc ty in
+      let cs' = List.map (fun (c, e2) ->
+          let (c', cty) =
+              ( match c with
+              | Change_Field f ->
+                  ( match typeFields (Env.globals env) loc ty' with
+                  | FT_Record rfs ->
+                      (Change_Field f, get_recordfield loc rfs f)
+                  | FT_Register rfs ->
+                      let (ss, sty) = get_regfield loc rfs f in
+                      (Change_Slices ss, sty)
+                  )
+              | Change_Slices ss ->
+                  ( match ty' with
+                  | Type_Bits (n, _) ->
+                      let ss' = List.map (tc_slice env loc) ss in
+                      let ss'' = List.map (fun (s, _) -> mk_slice_check loc lets asserts n s) ss' in
+                      let wd = slices_width ss'' in
+                      let sty = type_bits wd in
+                      (Change_Slices ss'', sty)
+                  | _ -> raise (TypeError (loc, "slice changes"))
+                  )
+              )
+          in
+          let e2' = check_expr env loc cty e2 in
+          (c', e2')
+      ) cs
+      in
+      let r = Expr_WithChanges (ty', e', cs')
+              |> mk_assert_exprs !asserts
+              |> mk_let_exprs !lets
+      in
+      (r, ty')
   | Expr_RecordInit (tc, es, fas) ->
       if not (GlobalEnv.isType (Env.globals env) tc) then
         raise (IsNotA (loc, "type constructor", Ident.to_string tc));

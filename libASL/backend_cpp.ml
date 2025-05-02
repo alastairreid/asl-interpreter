@@ -996,6 +996,7 @@ and expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
   | Expr_Slices _
   | Expr_Tuple _
   | Expr_Unknown _
+  | Expr_WithChanges _
   | Expr_Unop _ ->
       raise
         (Error.Unimplemented (loc, "expression", fun fmt -> FMTAST.expr fmt x))

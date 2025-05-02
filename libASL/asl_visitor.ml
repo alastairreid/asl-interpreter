@@ -42,6 +42,7 @@ class type aslVisitor =
     method vvar : access_kind -> Ident.t -> Ident.t visitAction
     method ve_elsif : e_elsif -> e_elsif visitAction
     method vslice : slice -> slice visitAction
+    method vchange : change -> change visitAction
     method vpattern : pattern -> pattern visitAction
     method vexpr : expr -> expr visitAction
     method vconstraint : constraint_range -> constraint_range visitAction
@@ -119,6 +120,23 @@ and visit_slice (vis : aslVisitor) (x : slice) : slice =
   in
   doVisit vis (vis#vslice x) aux x
 
+and visit_change_part (vis : aslVisitor) (x : change * expr) : change * expr =
+  let (c, e) = x in
+  let c' = visit_change vis c in
+  let e' = visit_expr vis e in
+  if c == c' && e == e' then x else (c', e')
+
+and visit_change (vis : aslVisitor) (x : change) : change =
+  let aux (vis : aslVisitor) (x : change) : change =
+    ( match x with
+    | Change_Field f -> x
+    | Change_Slices ss ->
+        let ss' = mapNoCopy (visit_slice vis) ss in
+        if ss == ss' then x else Change_Slices ss'
+    )
+  in
+  doVisit vis (vis#vchange x) aux x
+
 and visit_patterns (vis : aslVisitor) (xs : pattern list) : pattern list =
   mapNoCopy (visit_pattern vis) xs
 
@@ -183,6 +201,11 @@ and visit_expr (vis : aslVisitor) (x : expr) : expr =
         let e' = visit_expr vis e in
         let ss' = mapNoCopy (visit_slice vis) ss in
         if t == t' && e == e' && ss == ss' then x else Expr_Slices (t', e', ss')
+    | Expr_WithChanges (t, e, cs) ->
+        let t' = visit_type vis t in
+        let e' = visit_expr vis e in
+        let cs' = mapNoCopy (visit_change_part vis) cs in
+        if t == t' && e == e' && cs == cs' then x else Expr_WithChanges (t', e', cs')
     | Expr_RecordInit (tc, tes, fas) ->
         let tc' = visit_var vis Type tc in
         let tes' = visit_exprs vis tes in
@@ -640,6 +663,7 @@ class nopAslVisitor : aslVisitor =
     method vvar (_ : access_kind) (_ : Ident.t) = DoChildren
     method ve_elsif (_ : e_elsif) = DoChildren
     method vslice (_ : slice) = DoChildren
+    method vchange (_ : change) = DoChildren
     method vpattern (_ : pattern) = DoChildren
     method vexpr (_ : expr) = DoChildren
     method vconstraint (_ : constraint_range) = DoChildren

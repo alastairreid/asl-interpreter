@@ -112,6 +112,7 @@ let string_of_token (t : Asl_parser.token) : string =
   | WHEN -> "when"
   | WHERE -> "where"
   | WHILE -> "while"
+  | WITH -> "with"
   | XOR -> "xor"
 
 let print_position outx lexbuf =

@@ -108,6 +108,7 @@ let type_unknown = Type_Constructor (Ident.mk_ident "<type_unknown>", [])
 %token ELSIF  (* elsif *)
 %token IN  (* IN *)
 %token UNKNOWN  (* UNKNOWN *)
+%token WITH (* with *)
 
 (* binop tokens *)
 %token AMPERSAND_AMPERSAND  (* && *)
@@ -593,9 +594,15 @@ aexpr:
     { Expr_AsConstraint(e, c) }
 | e = aexpr AS t = ty
     { Expr_AsType(e, t) }
+| e = aexpr WITH LBRACE changes = separated_nonempty_list(COMMA, change) RBRACE
+    { Expr_WithChanges(type_unknown, e, changes) }
 
 field_assignment:
 | ident = ident EQ expr = expr { (ident, expr) }
+
+change:
+| f = ident EQ rhs = expr { (Change_Field f,   rhs) }
+| LBRACK ss = separated_nonempty_list(COMMA, slice) RBRACK EQ rhs = expr { (Change_Slices ss, rhs) }
 
 unop:
 | MINUS { Unop_Negate }
