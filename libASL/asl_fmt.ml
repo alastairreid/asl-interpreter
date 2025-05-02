@@ -155,80 +155,6 @@ let kw_where (fmt : PP.formatter) : unit = keyword fmt "where"
 let kw_while (fmt : PP.formatter) : unit = keyword fmt "while"
 let kw_xor (fmt : PP.formatter) : unit = delimiter fmt "XOR"
 
-type comment = Lexing.position * Lexing.position * string
-
-let comment_list : comment list ref = ref []
-
-let rec get_comments (p : comment -> bool) (acc : comment list) : comment list =
-  match !comment_list with
-  | [] -> List.rev acc
-  | c :: cs ->
-      if p c then (
-        comment_list := cs;
-        get_comments p (c :: acc))
-      else List.rev acc
-
-(* insert all comments up to the current position and a hardline *)
-let insert_comment (fmt : PP.formatter) (p : comment -> bool) : unit =
-  let cs = get_comments p [] in
-  match cs with
-  | [] -> () (* PP.pp_print_string fmt " // no comment"; cut fmt *)
-  | [ (_, _, c) ] ->
-      nbsp fmt;
-      PP.pp_print_string fmt c
-  | _ -> PP.pp_print_string fmt " // HELP: too many comments"
-
-(* insert all comments up to the current position and a hardline *)
-let insert_comments (fmt : PP.formatter) (p : comment -> bool) : unit =
-  let cs = get_comments p [] in
-  match cs with
-  | [] -> () (* PP.pp_print_string fmt " // no comments"; cut fmt *)
-  | cs ->
-      vbox fmt (fun _ ->
-          map fmt
-            (fun (s, f, c) ->
-              PP.pp_print_string fmt c;
-              cut fmt)
-            cs)
-
-let comments_before (fmt : PP.formatter) (loc : Loc.t) : unit =
-  (* is comment before loc? *)
-  let before ((s, f, c) : comment) : bool =
-    match loc with
-    | Range (p1, p2) -> p1.pos_fname = f.pos_fname && p1.pos_lnum > f.pos_lnum
-    | _ -> true
-  in
-  insert_comments fmt before
-
-let comment_start (fmt : PP.formatter) (loc : Loc.t) : unit =
-  (* is comment on same line as loc? *)
-  let here ((s, f, c) : comment) : bool =
-    match loc with
-    | Range (p1, p2) -> p1.pos_fname = s.pos_fname && p1.pos_lnum = s.pos_lnum
-    | _ -> true
-  in
-  insert_comment fmt here
-
-(*
-let comment_end (fmt: PP.formatter) (loc: Loc.t): unit =
-    (* is comment on same line as loc? *)
-    let here ((s, f, c): comment): bool =
-        (match loc with
-        | Range (p1, p2) -> p2.pos_fname = s.pos_fname && p2.pos_lnum = s.pos_lnum
-        | _ -> true
-        )
-    in
-    PP.pp_print_string fmt (AST.Loc.to_string loc);
-    insert_comment fmt here
-*)
-
-let comment_here (fmt : PP.formatter) (pos : Lexing.position) : unit =
-  (* is comment on same line as loc? *)
-  let here ((s, f, c) : comment) : bool =
-    pos.pos_fname = s.pos_fname && pos.pos_lnum = s.pos_lnum
-  in
-  insert_comment fmt here
-
 let varnames (fmt : PP.formatter) (xs : Ident.t list) : unit =
   commasep fmt (varname fmt) xs
 
@@ -602,10 +528,9 @@ let rec decl_item (fmt : PP.formatter) (x : AST.decl_item) : unit =
   | DeclItem_BitTuple dbs -> parens fmt (fun _ -> commasep fmt (decl_bit fmt) dbs)
   | DeclItem_Wildcard ot -> varoty fmt dash_ident ot
 
-let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
+let rec stmt ?(short=false) (fmt : PP.formatter) (x : AST.stmt) : unit =
   match x with
   | Stmt_VarDeclsNoInit (vs, t, loc) ->
-      comments_before fmt loc;
       kw_var fmt;
       nbsp fmt;
       varnames fmt vs;
@@ -613,10 +538,8 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
       colon fmt;
       nbsp fmt;
       ty fmt t;
-      semicolon fmt;
-      comment_start fmt loc
+      semicolon fmt
   | Stmt_VarDecl (di, i, loc) ->
-      comments_before fmt loc;
       kw_var fmt;
       nbsp fmt;
       decl_item fmt di;
@@ -624,10 +547,8 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
       eq fmt;
       nbsp fmt;
       expr fmt i;
-      semicolon fmt;
-      comment_start fmt loc
+      semicolon fmt
   | Stmt_ConstDecl (di, i, loc) ->
-      comments_before fmt loc;
       kw_let fmt;
       nbsp fmt;
       decl_item fmt di;
@@ -635,19 +556,15 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
       eq fmt;
       nbsp fmt;
       expr fmt i;
-      semicolon fmt;
-      comment_start fmt loc
+      semicolon fmt
   | Stmt_Assign (l, r, loc) ->
-      comments_before fmt loc;
       lexpr fmt l;
       nbsp fmt;
       eq fmt;
       nbsp fmt;
       expr fmt r;
-      semicolon fmt;
-      comment_start fmt loc
+      semicolon fmt
   | Stmt_TCall (f, tes, args, can_throw, loc) ->
-      comments_before fmt loc;
       funname fmt f;
       if !show_type_params then (
         lbrace_lbrace fmt;
@@ -655,50 +572,37 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
         rbrace_rbrace fmt);
       throws fmt can_throw;
       parens fmt (fun _ -> exprs fmt args);
-      semicolon fmt;
-      comment_start fmt loc
+      semicolon fmt
   | Stmt_FunReturn (e, loc) ->
-      comments_before fmt loc;
       kw_return fmt;
       nbsp fmt;
       expr fmt e;
-      semicolon fmt;
-      comment_start fmt loc
+      semicolon fmt
   | Stmt_ProcReturn loc ->
-      comments_before fmt loc;
       kw_return fmt;
-      semicolon fmt;
-      comment_start fmt loc
+      semicolon fmt
   | Stmt_Assert (e, loc) ->
-      comments_before fmt loc;
       kw_assert fmt;
       nbsp fmt;
       expr fmt e;
-      semicolon fmt;
-      comment_start fmt loc
+      semicolon fmt
   | Stmt_Throw (e, loc) ->
-      comments_before fmt loc;
       kw_throw fmt;
       nbsp fmt;
       expr fmt e;
-      semicolon fmt;
-      comment_start fmt loc
+      semicolon fmt
   | Stmt_Block (ss, loc) ->
-      comments_before fmt loc;
       kw_begin fmt;
-      comment_start fmt loc;
       indented_block fmt ss;
       cut fmt;
       kw_end fmt
   | Stmt_If (c, t, els, (e, el), loc) ->
-      comments_before fmt loc;
       vbox fmt (fun _ ->
           kw_if fmt;
           nbsp fmt;
           expr fmt c;
           nbsp fmt;
           kw_then fmt;
-          comment_start fmt loc;
           indented_block fmt t;
           map fmt
             (fun (AST.S_Elsif_Cond (c, s, loc)) ->
@@ -708,18 +612,15 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
               expr fmt c;
               nbsp fmt;
               kw_then fmt;
-              comment_start fmt loc;
               indented_block fmt s)
             els;
           if e <> [] then (
             cut fmt;
             kw_else fmt;
-            comment_start fmt el;
             indented_block fmt e);
           cut fmt;
           kw_end fmt)
   | Stmt_Case (e, oty, alts, ob, loc) ->
-      comments_before fmt loc;
       vbox fmt (fun _ ->
           kw_case fmt;
           nbsp fmt;
@@ -730,7 +631,6 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
           );
           nbsp fmt;
           kw_of fmt;
-          comment_start fmt loc;
           indented fmt (fun _ ->
               cutsep fmt
                 (fun (AST.Alt_Alt (ps, oc, ss, loc)) ->
@@ -746,20 +646,17 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
                     fmt oc;
                   nbsp fmt;
                   eq_gt fmt;
-                  comment_start fmt loc;
                   indented_block fmt ss)
                 alts;
               PP.pp_print_option
                 (fun _ (b, bl) ->
                   cut fmt;
                   kw_otherwise fmt;
-                  comment_start fmt bl;
                   indented_block fmt b)
                 fmt ob);
           cut fmt;
           kw_end fmt)
   | Stmt_For (v, typ, f, dir, t, b, loc) ->
-      comments_before fmt loc;
       kw_for fmt;
       nbsp fmt;
       varname fmt v;
@@ -777,54 +674,43 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
       expr fmt t;
       nbsp fmt;
       kw_do fmt;
-      comment_start fmt loc;
       indented_block fmt b;
       cut fmt;
       kw_end fmt
   | Stmt_While (c, b, loc) ->
-      comments_before fmt loc;
       kw_while fmt;
       nbsp fmt;
       expr fmt c;
       nbsp fmt;
       kw_do fmt;
-      comment_start fmt loc;
       indented_block fmt b;
       cut fmt;
       kw_end fmt
   | Stmt_Repeat (b, c, pos, loc) ->
-      comments_before fmt loc;
       kw_repeat fmt;
-      comment_start fmt loc;
       indented_block fmt b;
       cut fmt;
       kw_until fmt;
       nbsp fmt;
       expr fmt c;
-      semicolon fmt;
-      comment_here fmt pos
+      semicolon fmt
   | Stmt_Try (b, pos, cs, ob, loc) ->
-      comments_before fmt loc;
       kw_try fmt;
-      comment_start fmt loc;
       indented_block fmt b;
       cut fmt;
       kw_catch fmt;
-      comment_here fmt pos;
       indented fmt (fun _ ->
           cutsep fmt
             (fun (AST.Catcher_Guarded (v, tc, b, loc)) ->
               Format.fprintf fmt "when %a : %a =>"
                 varname v
                 tycon tc;
-              comment_start fmt loc;
               indented_block fmt b)
             cs;
           PP.pp_print_option
             (fun _ (b, bl) ->
               cut fmt;
               kw_otherwise fmt;
-              comment_start fmt bl;
               indented_block fmt b)
             fmt ob);
       cut fmt;
@@ -874,7 +760,6 @@ let declaration (fmt : PP.formatter) (x : AST.declaration) : unit =
   vbox fmt (fun _ ->
       match x with
       | Decl_BuiltinType (tc, loc) ->
-          comments_before fmt loc;
           kw_underscore_builtin fmt;
           nbsp fmt;
           kw_type fmt;
@@ -882,13 +767,11 @@ let declaration (fmt : PP.formatter) (x : AST.declaration) : unit =
           tycon fmt tc;
           semicolon fmt
       | Decl_Forward (tc, loc) ->
-          comments_before fmt loc;
           kw_type fmt;
           nbsp fmt;
           tycon fmt tc;
           semicolon fmt
       | Decl_Record (tc, ps, fs, loc) ->
-          comments_before fmt loc;
           kw_record fmt;
           nbsp fmt;
           tycon fmt tc;
@@ -908,7 +791,6 @@ let declaration (fmt : PP.formatter) (x : AST.declaration) : unit =
               cut fmt);
           semicolon fmt
       | Decl_Exception (tc, fs, loc) ->
-          comments_before fmt loc;
           kw_record fmt;
           nbsp fmt;
           tycon fmt tc;
@@ -927,7 +809,6 @@ let declaration (fmt : PP.formatter) (x : AST.declaration) : unit =
               cut fmt);
           semicolon fmt
       | Decl_Typedef (tc, ps, t, loc) ->
-          comments_before fmt loc;
           kw_type fmt;
           nbsp fmt;
           tycon fmt tc;
@@ -938,7 +819,6 @@ let declaration (fmt : PP.formatter) (x : AST.declaration) : unit =
           ty fmt t;
           semicolon fmt
       | Decl_Enum (tc, es, loc) ->
-          comments_before fmt loc;
           kw_enumeration fmt;
           nbsp fmt;
           tycon fmt tc;
@@ -946,13 +826,11 @@ let declaration (fmt : PP.formatter) (x : AST.declaration) : unit =
           braces fmt (fun _ -> commasep fmt (varname fmt) es);
           semicolon fmt
       | Decl_Var (v, t, loc) ->
-          comments_before fmt loc;
           kw_var fmt;
           nbsp fmt;
           varty fmt v t;
           semicolon fmt
       | Decl_Const (v, ot, e, loc) ->
-          comments_before fmt loc;
           kw_constant fmt;
           nbsp fmt;
           varoty fmt v ot;
@@ -962,7 +840,6 @@ let declaration (fmt : PP.formatter) (x : AST.declaration) : unit =
           expr fmt e;
           semicolon fmt
       | Decl_BuiltinFunction (f, fty, loc) ->
-          comments_before fmt loc;
           kw_underscore_builtin fmt;
           nbsp fmt;
           kw_func fmt;
@@ -971,7 +848,6 @@ let declaration (fmt : PP.formatter) (x : AST.declaration) : unit =
           function_type fmt fty;
           semicolon fmt
       | Decl_FunType (f, fty, loc) ->
-          comments_before fmt loc;
           ( match (fty.is_getter_setter, fty.setter_arg) with
           | (false, _)      -> kw_func fmt
           | (true,  None)   -> kw_getter fmt
@@ -982,7 +858,6 @@ let declaration (fmt : PP.formatter) (x : AST.declaration) : unit =
           function_type fmt fty;
           semicolon fmt
       | Decl_FunDefn (f, fty, b, loc) ->
-          comments_before fmt loc;
           ( match (fty.is_getter_setter, fty.setter_arg) with
           | (false, _)      -> kw_func fmt
           | (true,  None)   -> kw_getter fmt
@@ -997,7 +872,6 @@ let declaration (fmt : PP.formatter) (x : AST.declaration) : unit =
           cut fmt;
           kw_end fmt
       | Decl_Operator1 (op, fs, loc) ->
-          comments_before fmt loc;
           kw_underscore_operator1 fmt;
           nbsp fmt;
           unop fmt op;
@@ -1007,7 +881,6 @@ let declaration (fmt : PP.formatter) (x : AST.declaration) : unit =
           funnames fmt fs;
           semicolon fmt
       | Decl_Operator2 (op, fs, loc) ->
-          comments_before fmt loc;
           kw_underscore_operator2 fmt;
           nbsp fmt;
           binop fmt op;
@@ -1017,7 +890,6 @@ let declaration (fmt : PP.formatter) (x : AST.declaration) : unit =
           funnames fmt fs;
           semicolon fmt
       | Decl_Config (v, t, e, loc) ->
-          comments_before fmt loc;
           kw_config fmt;
           nbsp fmt;
           varty fmt v t;
