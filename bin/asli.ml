@@ -305,10 +305,10 @@ let _ =
         if Utils.is_empty ds then
           Format.printf "No function selected: try ':show A*'@."
         else
-          List.iter (Format.printf "%a@,@." FMT.declaration) ds;
+          List.iter (Format.printf "%a@,@." (FMT.declaration ~short:false)) ds;
     | filename ->
         Utils.to_file filename (fun fmt ->
-          List.iter (Format.fprintf fmt "%a@,@." FMT.declaration) ds;
+          List.iter (Format.fprintf fmt "%a@,@." (FMT.declaration ~short:false)) ds;
         )
     );
     true
