@@ -549,6 +549,8 @@ and funcall (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (tes : AST.expr lis
   | ([], [x]) when Ident.equal f print_char -> Runtime.print_char fmt (mk_expr loc x)
   | ([], [x]) when Ident.equal f print_str -> Runtime.print_str fmt (mk_expr loc x)
 
+  | ([], [x]) when Ident.equal f asl_end_execution -> Runtime.end_execution fmt (mk_expr loc x)
+
   (* File builtin functions *)
   | _ when Ident.in_list f [ asl_file_getc; asl_file_open; asl_file_write ] ->
       let pp fmt = FMT.funname fmt f in

@@ -116,6 +116,7 @@ val asl_fake_return_value : Ident.t
 val asl_error_unmatched_case : Ident.t
 val asl_extract_bits : Ident.t
 val asl_extract_int : Ident.t
+val asl_end_execution : Ident.t
 val asl_file_open : Ident.t
 val asl_file_write : Ident.t
 val asl_file_getc : Ident.t

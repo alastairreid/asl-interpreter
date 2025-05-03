@@ -135,6 +135,8 @@ module type RuntimeLib = sig
   val print_char : PP.formatter -> rt_expr -> unit
   val print_str : PP.formatter -> rt_expr -> unit
 
+  val end_execution : PP.formatter -> rt_expr -> unit
+
   (* Foreign Function Interface (FFI) *)
   (* convert to/from sint64_t *)
   val ffi_c2asl_integer_small  : PP.formatter -> rt_expr -> unit

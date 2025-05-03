@@ -177,6 +177,8 @@ __builtin func print_bits_hex(x : bits(N)) => ();
 
 __builtin func pragma(x : string) => ();
 
+__builtin func asl_end_execution(success : boolean) => ();
+
 __builtin func asl_file_open(name : string, mode : string) => integer;
 __builtin func asl_file_write(fd : integer, data : string) => integer;
 __builtin func asl_file_getc(fd : integer) => integer;
@@ -775,7 +777,7 @@ func Unreachable()
 begin
     println("Unreachable() function called.");
     println("This should be impossible - report a bug in the specification");
-    assert FALSE;
+    asl_end_execution(FALSE);
 end
 
 ////////////////////////////////////////////////////////////////

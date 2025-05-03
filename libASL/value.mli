@@ -24,6 +24,7 @@ type value =
 exception Return of value option
 exception EvalError of (Loc.t * string)
 exception Throw of (Loc.t * value)
+exception EndExecution of Loc.t
 
 val pp_value : Format.formatter -> value -> unit
 val string_of_value : value -> string

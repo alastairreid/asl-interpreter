@@ -718,6 +718,7 @@ and eval_funcall (loc : Loc.t) (env : Env.t) (f : Ident.t) (tvs : value list)
       Tracer.trace_function ~is_prim:false ~is_return:true f [] [v];
       v
   | Throw (l, exc) -> raise (Throw (l, exc))
+  | EndExecution _ as e -> raise e
   | ex ->
     Printf.printf "  %s: runtime exception thrown in %s\n%!" (Loc.to_string loc) (Ident.to_string f);
     raise ex
@@ -725,10 +726,17 @@ and eval_funcall (loc : Loc.t) (env : Env.t) (f : Ident.t) (tvs : value list)
 (** Evaluate call to procedure *)
 and eval_proccall (loc : Loc.t) (env : Env.t) (f : Ident.t) (tvs : value list)
     (vs : value list) : unit =
+  if Ident.equal f asl_end_execution then begin
+      if to_bool loc (List.hd vs) then
+          raise (EndExecution loc)
+      else
+          raise (EvalError (loc, "end of execution"))
+  end;
   ( try eval_call loc env f tvs vs with
   | Return None -> ()
   | Return (Some (VTuple [])) -> ()
   | Throw (l, exc) -> raise (Throw (l, exc))
+  | EndExecution _ as e -> raise e
   | ex ->
     Printf.printf "  %s: runtime exception thrown in %s\n%!" (Loc.to_string loc) (Ident.to_string f);
     raise ex

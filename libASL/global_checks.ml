@@ -561,6 +561,7 @@ let check_decls (ds : AST.declaration list) : AST.declaration list =
 
   let defn_marker (d : AST.declaration) : (Ident.t * (AST.can_throw * Loc.t)) option =
       ( match d with
+      | Decl_BuiltinFunction (f, fty, loc) -> Some (f, (fty.throws, loc))
       | Decl_FunType (f, fty, loc) -> Some (f, (fty.throws, loc))
       | Decl_FunDefn (f, fty, _, loc) -> Some (f, (fty.throws, loc))
       | _ -> None

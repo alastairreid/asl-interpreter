@@ -164,7 +164,10 @@ let rec repl (tcenv : TC.Env.t) (cpu : Cpu.cpu) : unit =
       LNoise.history_add input |> ignore;
       (try
         process_command tcenv cpu "<stdin>" input
-      with e ->
+      with
+      | Value.EndExecution loc ->
+        ()
+      | e ->
         Error.print_exception e;
         error ();
       );
@@ -450,7 +453,10 @@ let main () =
         repl tcenv cpu
       end;
       cleanup_and_exit 0
-    ) with e -> begin
+    ) with
+    | Value.EndExecution loc ->
+      cleanup_and_exit 0
+    | e -> begin
       Error.print_exception e;
       cleanup_and_exit 1
     end

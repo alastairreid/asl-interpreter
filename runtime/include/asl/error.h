@@ -26,6 +26,8 @@ ASL_NORETURN void ASL_runtime_error(const char *msg);
 
 void ASL_assert(const char* loc, const char* expr, bool c);
 
+ASL_NORETURN void ASL_end_execution(bool success);
+
 #ifdef __cplusplus
 }
 #endif

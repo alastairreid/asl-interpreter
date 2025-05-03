@@ -52,6 +52,8 @@ let print_exception (e : exn) : unit =
       Format.fprintf fmt "ASL error: uncaught exception '%a' taken at %a\n"
         Value.pp_value exc
         ASL_FMT.loc loc
+  | Value.EndExecution loc ->
+      Printf.printf "End execution at %s\n" (Loc.to_string loc)
   | Utils.InternalError (loc, s, pp, ml_loc) ->
       ASL_FMT.show_type_params := true;
       let fmt = Format.std_formatter in

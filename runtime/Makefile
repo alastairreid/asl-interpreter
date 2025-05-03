@@ -24,6 +24,7 @@ C_FILES = bits1024.c \
           bits512.c \
           bits64.c \
           error.c \
+          end_of_execution.c \
           ram.c
 
 OBJ_FILES = $(C_FILES:%.c=$(BUILD_DIR)/%.$(OBJEXT))

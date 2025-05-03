@@ -39,6 +39,7 @@ type value =
 exception Return of value option
 exception EvalError of (Loc.t * string)
 exception Throw of (Loc.t * value)
+exception EndExecution of Loc.t
 
 (****************************************************************)
 (** {2 Printer for values}                                      *)
@@ -758,6 +759,7 @@ let impure_prims =
     "__TracePageTableWalk";
     "__TraceError";
     "__TraceEvent";
+    "asl_end_execution";
     "asl_file_open";
     "asl_file_write";
     "asl_file_getc";

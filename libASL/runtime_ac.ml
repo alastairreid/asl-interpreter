@@ -614,6 +614,9 @@ module Runtime : RT.RuntimeLib = struct
   let print_str (fmt : PP.formatter) (x : RT.rt_expr) : unit =
     PP.fprintf fmt "fputs(%a, stdout)" RT.pp_expr x
 
+  let end_execution (fmt : PP.formatter) (x : RT.rt_expr) : unit =
+    PP.fprintf fmt "ASL_end_execution(%a)" RT.pp_expr x
+
   (* Foreign Function Interface (FFI) *)
   let ffi_c2asl_integer_small (fmt : PP.formatter) (x : RT.rt_expr) : unit =
     PP.fprintf fmt "((%a)%a)" ty_sint int_width RT.pp_expr x
