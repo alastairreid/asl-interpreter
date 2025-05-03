@@ -742,12 +742,6 @@ begin
     print_char(10);
 end
 
-func println(x : string)
-begin
-    print_str(x);
-    print_char(10);
-end
-
 // Convert an integer to a decimal string, prefixing with '-' if negative.
 func DecStr(x : integer) => string
 begin
@@ -775,8 +769,10 @@ end
 // This can be used to guarantee termination of subprograms on error conditions.
 func Unreachable()
 begin
-    println("Unreachable() function called.");
-    println("This should be impossible - report a bug in the specification");
+    print("Unreachable() function called.");
+    println();
+    print("This should be impossible - report a bug in the specification");
+    println();
     asl_end_execution(FALSE);
 end
 
