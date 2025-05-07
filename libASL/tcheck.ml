@@ -2483,6 +2483,116 @@ let tc_decl_bit (env : Env.t) (loc : Loc.t) (x : (Ident.t option * AST.ty)) : (I
   | _ -> raise (TypeError (loc, "bits type expected"))
   )
 
+(** Convert the format string in a print command into a sequence of
+ *  calls to primitive print functions
+ *)
+let tc_print (env : Env.t) (loc : Loc.t) (args : AST.expr list) : AST.stmt list =
+  let error (msg : string) : exn =
+      let msg = Format.asprintf "Error in Print format string: %s" msg in
+      TypeError (loc, msg)
+  in
+
+  ( match args with
+  | [(Expr_Lit (VString fmt))] ->
+      let result = ref [] in
+      let pending_string = Buffer.create 40 in
+      let flush_buffer _ = if Buffer.length pending_string > 0 then begin
+            let s = Expr_Lit (VString (Buffer.contents pending_string)) in
+            let p = Stmt_TCall (print_str, [], [s], NoThrow, loc) in
+            result := !result @ [p];
+            Buffer.clear pending_string
+          end
+      in
+
+      let is_alpha = function 'a' .. 'z' | 'A' .. 'Z' | '_' -> true | _ -> false in
+      let is_alphanum = function '0' .. '9' | 'a' .. 'z' | 'A' .. 'Z' | '_' -> true | _ -> false in
+
+      let n = String.length fmt in
+      let pos = ref 0 in
+
+      let getc _ : char = String.get fmt !pos in
+      let advance _ : unit = pos := !pos + 1 in
+      let at_end _ : bool = !pos = n in
+
+      let check (expected : char) : unit =
+          if at_end () then begin
+            raise (error "incomplete format string")
+          end else begin
+            let c = getc () in
+            if c <> expected then begin
+              let msg = Format.asprintf "expected '%c' in format string, got '%c'" expected c in
+              raise (error msg)
+            end;
+            advance ()
+          end
+      in
+
+      let ident _ : string option =
+          let c = getc () in
+          if not (is_alpha c) then (
+            None
+          ) else (
+            let s = Buffer.create 16 in
+            Buffer.add_char s c;
+            advance ();
+            while not (at_end ()) && is_alphanum (getc ()) do
+                Buffer.add_char s (getc ());
+            done;
+            Some (Buffer.contents s)
+          )
+      in
+
+      while not (at_end ()) do
+        let c = getc () in
+        if c = '{' then begin
+          flush_buffer ();
+          advance ();
+          if at_end () then begin
+            raise (error "premature end of format string")
+          end else begin
+            ( match ident () with
+            | None -> raise (error "identifier expected")
+            | Some nm ->
+                check '}';
+                let v = Ident.mk_ident nm in
+                ( match Env.getVar env v with
+                | None ->
+                    let msg = Format.asprintf "unknown variable '%s'" nm in
+                    raise (error msg)
+                | Some info ->
+                    let p = ( match info.ty with
+                            | Type_Bits (n, _) ->
+                                Stmt_TCall (print_bits_hex, [n], [Expr_Var v], NoThrow, loc)
+                            | Type_Integer _ ->
+                                Stmt_TCall (print_int_dec, [], [Expr_Var v], NoThrow, loc)
+                            | Type_Constructor (tc, []) when Ident.equal tc boolean_ident ->
+                                Stmt_TCall (print_boolean, [], [Expr_Var v], NoThrow, loc)
+                            | Type_Constructor (tc, []) when Ident.equal tc string_ident ->
+                                Stmt_TCall (print_str, [], [Expr_Var v], NoThrow, loc)
+                            | _ ->
+                               let msg = Format.asprintf "no print function defined for variable %a : %a"
+                                   Ident.pp v
+                                   FMT.ty info.ty
+                               in
+                               raise (error msg)
+                            )
+                    in
+                    result := !result @ [p]
+                )
+            )
+          end
+        end else begin
+          Buffer.add_char pending_string c;
+          advance ()
+        end
+      done;
+      flush_buffer ();
+
+      !result
+  | _ ->
+      raise (error "Print must always be used with a literal format string like \"x = {x}\"")
+  )
+
 (* drop any integer constraints from a type *)
 let drop_constraints (ty : AST.ty) : AST.ty =
   ( match ty with
@@ -2610,7 +2720,11 @@ and tc_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
       let args' = tc_args env loc args in
       let (fty, es) = tc_apply env loc "procedure" f args' in
       check_subtype_satisfies env loc type_unit fty.rty;
-      [Stmt_TCall (fty.name, fty.parameters, es, throws, loc)]
+      if Ident.equal fty.name print then (
+        tc_print env loc es
+      ) else (
+        [Stmt_TCall (fty.name, fty.parameters, es, throws, loc)]
+      )
   | Stmt_FunReturn (e, loc) ->
       let rty =
         match Env.getReturnType env with

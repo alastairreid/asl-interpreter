@@ -164,6 +164,9 @@ let print_char        = Ident.mk_fident "print_char"
 let print_str         = Ident.mk_fident "print_str"
 let print_bits_hex    = Ident.mk_fident "print_bits_hex"
 let print_bits        = Ident.mk_fident "print_bits"
+let print_boolean     = Ident.mk_fident "asl_print_bool"
+
+let print             = Ident.mk_fident "Print"
 
 (* Other identifiers *)
 let boolean_ident   = Ident.mk_ident "boolean"

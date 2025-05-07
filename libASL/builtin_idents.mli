@@ -170,6 +170,8 @@ val cvt_int_sintN    : Ident.t
 val resize_sintN     : Ident.t
 val print_sintN_dec  : Ident.t
 val print_sintN_hex  : Ident.t
+val print            : Ident.t
+val print_boolean    : Ident.t
 
 (****************************************************************
  * End

@@ -680,13 +680,18 @@ begin
     print_str(x);
 end
 
-func print(x : boolean)
+func asl_print_bool(x : boolean)
 begin
     if x then
         print("TRUE");
     else
         print("FALSE");
     end
+end
+
+func print(x : boolean)
+begin
+    asl_print_bool(x);
 end
 
 func print(x : integer)
@@ -698,6 +703,8 @@ func println()
 begin
     print_char(10);
 end
+
+__builtin func Print(x : string) => ();
 
 // Convert an integer to a decimal string, prefixing with '-' if negative.
 func DecStr(x : integer) => string
