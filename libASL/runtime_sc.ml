@@ -277,9 +277,8 @@ module Runtime : RT.RuntimeLib = struct
         RT.pp_expr x
         empty_bits ()
     else
-      PP.fprintf fmt "((%a)((%a)%a))"
+      PP.fprintf fmt "((%a)(%a))"
         ty_uint n
-        ty_uint m
         RT.pp_expr x
 
   let cvt_sintN_int (fmt : PP.formatter) (n : int) (x : RT.rt_expr) : unit =
@@ -533,7 +532,7 @@ module Runtime : RT.RuntimeLib = struct
       PP.fprintf fmt "      leading = false;@,";
       PP.fprintf fmt "    }@,";
       PP.fprintf fmt "  } else {@,";
-      PP.fprintf fmt "    printf(\"%%08lx\", chunk);@,";
+      PP.fprintf fmt "    printf(\"%%016lx\", chunk);@,";
       PP.fprintf fmt "  }@,";
       PP.fprintf fmt "}@,";
       PP.fprintf fmt "}@]"

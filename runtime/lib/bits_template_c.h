@@ -84,11 +84,17 @@ ASL_cvt_int_bits(N, int width, ASL_int_t x)
         if (x < 0) {
                 for (int i = 2; i < ASL_BITS_LIMBS_64; ++i)
                         r.u64[i] = -1ULL;
+        } else {
+                for (int i = 2; i < ASL_BITS_LIMBS_64; ++i)
+                        r.u64[i] = 0ULL;
         }
 #else
         if (x < 0) {
                 for (int i = 1; i < ASL_BITS_LIMBS_64; ++i)
                         r.u64[i] = -1ULL;
+        } else {
+                for (int i = 1; i < ASL_BITS_LIMBS_64; ++i)
+                        r.u64[i] = 0ULL;
         }
 #endif
         return ASL_and_bits(N, width, r, ASL_mk_mask(N, width));

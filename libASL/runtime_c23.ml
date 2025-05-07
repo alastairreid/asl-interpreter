@@ -213,9 +213,8 @@ module Runtime : RT.RuntimeLib = struct
       (* Although we return empty_bits, we may still need to execute 'x' for any side effects *)
       PP.fprintf fmt "({ (void)%a; 0uwb; })" RT.pp_expr x
     else
-      PP.fprintf fmt "((%a)((%a)%a))"
+      PP.fprintf fmt "((%a)(%a))"
         ty_uint n
-        ty_uint m
         RT.pp_expr x
 
   (* A generalization of cvt_bits_ssintN that can either
@@ -506,7 +505,7 @@ module Runtime : RT.RuntimeLib = struct
       PP.fprintf fmt "      leading = false;@,";
       PP.fprintf fmt "    }@,";
       PP.fprintf fmt "  } else {@,";
-      PP.fprintf fmt "    printf(\"%%08llx\", chunk);@,";
+      PP.fprintf fmt "    printf(\"%%016llx\", chunk);@,";
       PP.fprintf fmt "  }@,";
       PP.fprintf fmt "}@,";
       PP.fprintf fmt "@]}"
