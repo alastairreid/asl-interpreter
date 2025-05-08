@@ -540,7 +540,7 @@ begin
     return r[0 +: N];
 end
 
-func Sat(x : integer, N : integer, unsigned : boolean) => bits(N)
+func Saturate(x : integer, N : integer, unsigned : boolean) => bits(N)
 begin
     return (if unsigned then UnsignedSat(x, N) else SignedSat(x, N));
 end
