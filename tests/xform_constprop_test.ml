@@ -56,9 +56,9 @@ let constprop_tests : unit Alcotest.test_case list =
     ("assert expr dead code", `Quick, test_cp_expr globals prelude
        "var x : bits(8);" "__assert TRUE __in x" "x");
     ("assert expr live code 1", `Quick, test_cp_expr globals prelude
-       "var x : bits(8);" "__assert FALSE __in x" "__assert FALSE __in x");
+       "var x : bits(8);" "__assert FALSE __in x" "(__assert FALSE __in x)");
     ("assert expr live code 2", `Quick, test_cp_expr globals prelude
-       "var x : bits(8);" "__assert IsZero(x) __in x" "__assert IsZero.0(x) __in x");
+       "var x : bits(8);" "__assert IsZero(x) __in x" "(__assert IsZero.0(x) __in x)");
 
     ("bits(SIZE)", `Quick, test_cp_decls
      "constant SIZE : integer = 32;"

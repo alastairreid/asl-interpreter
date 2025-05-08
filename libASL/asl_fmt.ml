@@ -321,8 +321,9 @@ and ixtype (fmt : PP.formatter) (x : AST.ixtype) : unit =
   | Index_Int sz -> expr fmt sz
 
 and expr (fmt : PP.formatter) (x : AST.expr) : unit =
-  match x with
+  ( match x with
   | Expr_If (c, t, els, e) ->
+    parens fmt (fun _ ->
       kw_if fmt;
       nbsp fmt;
       expr fmt c;
@@ -345,22 +346,22 @@ and expr (fmt : PP.formatter) (x : AST.expr) : unit =
       kw_else fmt;
       nbsp fmt;
       expr fmt e
+    )
   | Expr_Let (v, t, e, b) ->
-      Format.fprintf fmt "__let %a : %a = %a __in %a"
+      Format.fprintf fmt "(__let %a : %a = %a __in %a)"
         varname v
         ty t
         expr e
         expr b
   | Expr_Assert (e1, e2, loc) ->
-      Format.fprintf fmt "__assert %a __in %a"
+      Format.fprintf fmt "(__assert %a __in %a)"
         expr e1
         expr e2
   | Expr_Binop (a, op, b) ->
-      expr fmt a;
-      nbsp fmt;
-      binop fmt op;
-      nbsp fmt;
-      expr fmt b
+      Format.fprintf fmt "(%a %a %a)"
+        expr a
+        binop op
+        expr b
   | Expr_Field (e, f) ->
       expr fmt e;
       dot fmt;
@@ -375,7 +376,7 @@ and expr (fmt : PP.formatter) (x : AST.expr) : unit =
       brackets fmt (fun _ -> slices fmt ss)
   | Expr_WithChanges (t, e, cs) ->
       if !show_type_params then braces fmt (fun _ -> ty fmt t);
-      Format.fprintf fmt "%a with { %a }"
+      Format.fprintf fmt "(%a with { %a })"
         expr e
         changes cs
   | Expr_RecordInit (tc, tes, fas) ->
@@ -386,11 +387,9 @@ and expr (fmt : PP.formatter) (x : AST.expr) : unit =
       Format.fprintf fmt "array (%a)"
         exprs es
   | Expr_In (e, p) ->
-      expr fmt e;
-      nbsp fmt;
-      kw_in fmt;
-      nbsp fmt;
-      pattern fmt p
+      Format.fprintf fmt "(%a IN %a)"
+        expr e
+        pattern p
   | Expr_Var v -> varname fmt v
   | Expr_TApply (f, tes, [a], throws) when !resugar_operators && Bindings.mem f !unop_table ->
       let op = Bindings.find f !unop_table in
@@ -420,9 +419,9 @@ and expr (fmt : PP.formatter) (x : AST.expr) : unit =
       if !show_type_params then braces fmt (fun _ -> exprs fmt ws);
       brackets fmt (fun _ -> exprs fmt es)
   | Expr_Unop (op, e) ->
-      unop fmt op;
-      nbsp fmt;
-      expr fmt e
+      Format.fprintf fmt "(%a %a)"
+        unop op
+        expr e
   | Expr_Unknown t ->
       kw_unknown fmt;
       nbsp fmt;
@@ -449,6 +448,7 @@ and expr (fmt : PP.formatter) (x : AST.expr) : unit =
         nbsp fmt;
         ty fmt t
       )
+  )
 
 and exprs (fmt : PP.formatter) (es : AST.expr list) : unit =
   commasep fmt (expr fmt) es

@@ -132,7 +132,7 @@ let tests : unit Alcotest.test_case list =
     test_static globals false "literals (string)" "" "\"ab\\tc\"";
     test_static globals false "literals (string)" "" "\"ab\\\\c\"";
     test_static globals false "literals (string)" "" "\"ab\\\"c\"";
-    test_static globals true "let-expressions" "" "__let x : integer = 1 __in x";
+    test_static globals true "let-expressions" "" "(__let x : integer = 1 __in x)";
     test_static globals true "expressions (records)"
       "record Pair{x : integer; y : integer; };" "Pair{x = 1, y = 2}";
     test_static globals true "expressions (UNKNOWN)" "" "UNKNOWN : bits(4)";

@@ -18,7 +18,7 @@ end
 //
 // XFORM-LABEL: func FUT.0{}(x : integer) => __sint(9)
 // XFORM-NEXT:  begin
-// XFORM-NEXT:      let r : integer = if asl_ge_int.0{}(x, asl_cvt_sintN_int.0{10}(i10'x256)) then asl_cvt_sintN_int.0{9}(i9'x255) elsif asl_lt_int.0{}(x, asl_cvt_sintN_int.0{1}(i1'x0)) then asl_cvt_sintN_int.0{1}(i1'x0) else x;
+// XFORM-NEXT:      let r : integer = (if asl_ge_int.0{}(x, asl_cvt_sintN_int.0{10}(i10'x256)) then asl_cvt_sintN_int.0{9}(i9'x255) elsif asl_lt_int.0{}(x, asl_cvt_sintN_int.0{1}(i1'x0)) then asl_cvt_sintN_int.0{1}(i1'x0) else x);
 // XFORM-NEXT:      return asl_cvt_int_sintN.0{9}(r, 9);
 // XFORM-NEXT:  end
 
