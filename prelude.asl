@@ -512,10 +512,10 @@ end
 // Extend a bitvector to a specified width, treating as signed or unsigned.
 // The output width might be narrower than the input, in which case the
 // function is equivalent to a bit slice.
-func Extend{M}(x : bits(M), N : integer, unsigned : boolean) => bits(N)
+func Extend{M}(x : bits(M), N : integer, is_unsigned : boolean) => bits(N)
 begin
     assert N >= M;
-    return (if unsigned then ZeroExtend(x, N) else SignExtend(x, N));
+    return (if is_unsigned then ZeroExtend(x, N) else SignExtend(x, N));
 end
 
 // Return the width of a bitvector argument, without regard to its value.
@@ -540,9 +540,9 @@ begin
     return r[0 +: N];
 end
 
-func Saturate(x : integer, N : integer, unsigned : boolean) => bits(N)
+func Saturate(x : integer, N : integer, is_unsigned : boolean) => bits(N)
 begin
-    return (if unsigned then UnsignedSat(x, N) else SignedSat(x, N));
+    return (if is_unsigned then UnsignedSat(x, N) else SignedSat(x, N));
 end
 
 // Count the number of 1 bits in a bitvector.
