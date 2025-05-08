@@ -720,8 +720,8 @@ and exprs (loc : Loc.t) (fmt : PP.formatter) (es : AST.expr list) : unit =
 and index_expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
   let module Runtime = (val (!runtime) : RuntimeLib) in
   ( match x with
-  | Expr_TApply (f, _, [x'], _) when Ident.equal f cvt_sintN_int ->
-      Runtime.ffi_asl2c_sintN_small fmt (mk_expr loc x')
+  | Expr_TApply (f, [n], [x'], _) when Ident.equal f cvt_sintN_int ->
+      Runtime.ffi_asl2c_sintN_small (const_int_expr loc n) fmt (mk_expr loc x')
   | _ ->
       Runtime.ffi_asl2c_integer_small fmt (mk_expr loc x)
   )
@@ -1454,11 +1454,11 @@ let mk_ffi_conversion (loc : Loc.t) (indirect : bool) (c_name : Ident.t) (asl_na
           PP.fprintf fmt "%a%a = %a;"
             ptr ()
             ident c_name
-            Runtime.ffi_asl2c_sintN_small pp_asl_name);
+            (Runtime.ffi_asl2c_sintN_small (Z.to_int n)) pp_asl_name);
         pp_c_to_asl = (fun fmt ->
           varty loc fmt asl_name asl_type;
           PP.fprintf fmt " = %a;"
-            Runtime.ffi_c2asl_sintN_small pp_c_name);
+            (Runtime.ffi_c2asl_sintN_small (Z.to_int n)) pp_c_name);
       }
   | Type_Bits(Expr_Lit (VInt n), _)
     when List.mem (Z.to_int n) [8; 16; 32; 64]

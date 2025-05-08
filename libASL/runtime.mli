@@ -140,8 +140,8 @@ module type RuntimeLib = sig
   (* convert to/from sint64_t *)
   val ffi_c2asl_integer_small  : PP.formatter -> rt_expr -> unit
   val ffi_asl2c_integer_small  : PP.formatter -> rt_expr -> unit
-  val ffi_c2asl_sintN_small    : PP.formatter -> rt_expr -> unit
-  val ffi_asl2c_sintN_small    : PP.formatter -> rt_expr -> unit
+  val ffi_c2asl_sintN_small    : int -> PP.formatter -> rt_expr -> unit
+  val ffi_asl2c_sintN_small    : int -> PP.formatter -> rt_expr -> unit
   (* convert to/from uint<N>_t for N in {8, 16, 32, 64} *)
   val ffi_c2asl_bits_small     : int -> PP.formatter -> rt_expr -> unit
   val ffi_asl2c_bits_small     : int -> PP.formatter -> rt_expr -> unit

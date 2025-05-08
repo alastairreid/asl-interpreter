@@ -625,10 +625,10 @@ module Runtime : RT.RuntimeLib = struct
   let ffi_asl2c_integer_small (fmt : PP.formatter) (x : RT.rt_expr) : unit =
     PP.fprintf fmt "((int64_t)%a)" RT.pp_expr x
 
-  let ffi_c2asl_sintN_small (fmt : PP.formatter) (x : RT.rt_expr) : unit =
+  let ffi_c2asl_sintN_small (n : int) (fmt : PP.formatter) (x : RT.rt_expr) : unit =
     PP.fprintf fmt "((%a)%a)" ty_sint int_width RT.pp_expr x
 
-  let ffi_asl2c_sintN_small (fmt : PP.formatter) (x : RT.rt_expr) : unit =
+  let ffi_asl2c_sintN_small (n : int) (fmt : PP.formatter) (x : RT.rt_expr) : unit =
     PP.fprintf fmt "((int64_t)%a)" RT.pp_expr x
 
   let ffi_c2asl_bits_small (n : int) (fmt : PP.formatter) (x : RT.rt_expr) : unit =
