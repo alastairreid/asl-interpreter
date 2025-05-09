@@ -384,7 +384,7 @@ let options =
       ("--no-runtime-checks",          Arg.Clear Tcheck.enable_runtime_checks,     "       Do not insert runtime checks");
     ]
 
-let version = "ASLi 1.1.0"
+let version = "ASLi 2.0.0"
 
 let banner =
   [
