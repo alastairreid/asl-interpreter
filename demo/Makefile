@@ -60,9 +60,6 @@ demo: test.elf
 # Build simulator using C backend
 ################################################################
 
-CFLAGS = $(shell ${ASL2C} --print-c-flags)
-LDFLAGS = $(shell ${ASL2C} --print-ld-flags)
-
 CFLAGS += -Wall
 CFLAGS += -g
 CFLAGS += -Wno-unused-but-set-variable
@@ -75,7 +72,7 @@ simulator_% : simulator.c config.json demo.asl
 	@ if ${HAVE_GNU_AS}; then \
 	$(ASL2C) --basename=sim --intermediates=log --split-state --new-ffi --backend=$* > sim.prj ; \
 	env ASL_PATH="${ASL_PATH}" $(ASLI) --nobanner --batchmode --project=sim.prj --configuration=config.json demo.asl ; \
-	$(CC) ${CFLAGS} simulator.c -o $@ ${LDFLAGS} ; \
+	$(CC) ${shell ${ASL2C} --backend=$* --print-c-flags} ${CFLAGS} simulator.c -o $@ ${shell ${ASL2C} --backend=$* --print-ld-flags} ${LDFLAGS} ; \
 	else echo ${REPORT_NOT_GAS}; fi
 
 test_% : simulator_% test.elf test.prj

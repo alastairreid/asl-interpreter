@@ -33,5 +33,4 @@
 (install
  (section bin)
  (files
-  (asl2c.py as asl2c)
-  (asl2cpp.py as asl2cpp)))
+  (asl2c.py as asl2c)))

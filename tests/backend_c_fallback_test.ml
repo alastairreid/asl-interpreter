@@ -8,7 +8,7 @@
 open LibASL
 open Test_utils_backend
 module Test_cases = Test_cases_backend
-module BE = Backend_c_new
+module BE = Backend_c
 module TC = Tcheck
 
 let check_syntax (name : string) (code : string) : unit =

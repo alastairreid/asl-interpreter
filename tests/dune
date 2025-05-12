@@ -6,7 +6,6 @@
  (names
   asl_test
   asl_utils_test
-  backend_c_orig_test
   backend_c_c23_test
   backend_c_fallback_test
   loadasl_test

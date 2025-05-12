@@ -78,10 +78,10 @@ test_backend_%: build
 	env PATH="${CURDIR}/tests/scripts:$${PATH}" ${TEST_ENV} ASL_BACKEND=$* ${LIT} tests/backends $(LIT_VERBOSITY)
 
 
-test_demos: ${addprefix test_demo_, $(filter-out interpreter ac, ${BACKENDS})}
+test_demos: ${addprefix test_demo_, $(filter-out interpreter ac sc, ${BACKENDS})}
 
 test_demo_%: build
-	$(MAKE) -C demo BACKEND=$* test_$*
+	$(MAKE) -C demo clean test_$*
 
 test_demo_interpreter : build
 	$(MAKE) -C demo test

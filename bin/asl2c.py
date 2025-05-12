@@ -243,7 +243,6 @@ backend_c_flags = {
     'c23':         ['-DASL_C23'],
     'interpreter': [],
     'fallback':    ['-DASL_FALLBACK'],
-    'orig':        ['-DASL_FALLBACK'],
     'sc':          ['-DASL_SC'] + sc_types_include,
 }
 
@@ -267,7 +266,6 @@ backend_ld_flags = {
     'c23':         [],
     'interpreter': [],
     'fallback':    [],
-    'orig':        [],
     'sc':          ["-lsystemc"],
 }
 
@@ -300,11 +298,10 @@ def mk_script(args, output_directory):
     ffi = "--new-ffi" if args.build or args.new_ffi else ""
 
     backend_generator = {
-        'ac':          f'generate_c_new {ffi} --runtime=ac',
-        'c23':         f'generate_c_new {ffi} --runtime=c23',
-        'fallback':    f'generate_c_new {ffi} --runtime=fallback',
-        'orig':        'generate_c',
-        'sc':          f'generate_c_new {ffi} --runtime=sc',
+        'ac':          f'generate_c {ffi} --runtime=ac',
+        'c23':         f'generate_c {ffi} --runtime=c23',
+        'fallback':    f'generate_c {ffi} --runtime=fallback',
+        'sc':          f'generate_c {ffi} --runtime=sc',
     }
     generate_c = backend_generator[args.backend]
 
@@ -515,7 +512,7 @@ def main() -> int:
     parser.add_argument("--wrap-variables", help="wrap global variables into functions", action=argparse.BooleanOptionalAction)
     parser.add_argument("-O0", help="perform minimal set of transformations", action=argparse.BooleanOptionalAction)
     parser.add_argument("-Obounded", help="enable integer bounding optimization", action="store_true", default=False)
-    parser.add_argument("--backend", help="select backend (default: orig)", choices=['ac', 'c23', 'interpreter', 'fallback', 'orig', 'sc'], default='orig')
+    parser.add_argument("--backend", help="select backend (default: c23)", choices=['ac', 'c23', 'interpreter', 'fallback', 'sc'], default='c23')
     parser.add_argument("--print-c-flags", help="print the C flags needed to use the selected ASL C runtime", action=argparse.BooleanOptionalAction)
     parser.add_argument("--print-ld-flags", help="print the Linker flags needed to use the selected ASL C runtime", action=argparse.BooleanOptionalAction)
     parser.add_argument("--build", help="compile and link the ASL code", action='store_true')
