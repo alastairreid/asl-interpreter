@@ -21,6 +21,8 @@ val to_string2 : (Format.formatter -> unit) -> string
 
 val to_file : string -> (Format.formatter -> unit) -> unit
 
+val null_formatter : Format.formatter
+
 (****************************************************************
  * List related
  ****************************************************************)

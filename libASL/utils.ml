@@ -31,6 +31,9 @@ let to_file (filename : string) (pp : Format.formatter -> unit) : unit =
   Format.pp_print_flush fmt ();
   close_out chan
 
+let null_formatter : Format.formatter =
+  Format.make_formatter (fun _ _ _ -> ()) (fun _ -> ())
+
 (****************************************************************
  * List related
  ****************************************************************)
