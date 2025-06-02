@@ -596,7 +596,7 @@ def main() -> int:
             if r1.returncode != 0:
                 exit(r1.returncode)
         print(f"# Generated {mlir_file}")
-        mlir_cmd = ["uvx", f"--from={xdsl_asl_dir}", "asl-opt", "--target=exec", mlir_file]
+        mlir_cmd = ["asl-opt", "--target=exec", mlir_file]
         run(mlir_cmd) 
         print(f"# Ran {mlir_file}")
         if not args.save_temps: shutil.rmtree(working_directory)
