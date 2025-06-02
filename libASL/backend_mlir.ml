@@ -380,17 +380,19 @@ and mk_binop (loc : Loc.t) (env : environment) (fmt : PP.formatter) (op : string
 
 and mk_ite (loc : Loc.t) (env : environment) (fmt : PP.formatter)
     (c : AST.expr)
-    (mk_then : 'a -> (Ident.t * AST.ty))
-    (mk_else : 'b -> (Ident.t * AST.ty))
+    (mk_then : PP.formatter -> (Ident.t * AST.ty))
+    (mk_else : PP.formatter -> (Ident.t * AST.ty))
     : (Ident.t * AST.ty)
   =
   let (c', _) = expr loc env fmt c in
   let t = locals#fresh in
-  PP.fprintf fmt "%a = scf.if %a {"
+  let (_, rty) = mk_then Utils.null_formatter in
+  PP.fprintf fmt "%a = scf.if %a -> (%a) {"
     varident t
-    varident c';
+    varident c'
+    (pp_type loc) rty;
   let xty = indented fmt (fun _ ->
-    let (x', xty) = mk_then () in
+    let (x', xty) = mk_then fmt in
     PP.fprintf fmt "scf.yield %a : %a"
       varident x'
       (pp_type loc) xty;
@@ -398,7 +400,7 @@ and mk_ite (loc : Loc.t) (env : environment) (fmt : PP.formatter)
   ) in
   PP.fprintf fmt "@,} else {";
   let _ = indented fmt (fun _ ->
-    let (y', yty) = mk_then () in
+    let (y', yty) = mk_else fmt in
     PP.fprintf fmt "scf.yield %a : %a"
       varident y'
       (pp_type loc) yty;
@@ -449,28 +451,28 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
   | Expr_If (c, t, [], e) ->
       mk_ite loc env fmt
         c
-        (fun _ -> expr loc env fmt t)
-        (fun _ -> expr loc env fmt e)
+        (fun fmt -> expr loc env fmt t)
+        (fun fmt -> expr loc env fmt e)
   | Expr_If (c, t, AST.E_Elsif_Cond (c', t')::els, e) ->
       mk_ite loc env fmt
         c
-        (fun _ -> expr loc env fmt t)
-        (fun _ -> expr loc env fmt (Expr_If (c', t', els, e)))
+        (fun fmt -> expr loc env fmt t)
+        (fun fmt -> expr loc env fmt (Expr_If (c', t', els, e)))
   | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.and_bool ->
       mk_ite loc env fmt
         x
-        (fun _ -> expr loc env fmt y)
-        (fun _ -> mk_bool_const fmt false)
+        (fun fmt -> expr loc env fmt y)
+        (fun fmt -> mk_bool_const fmt false)
   | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.or_bool ->
       mk_ite loc env fmt
         x
-        (fun _ -> mk_bool_const fmt true)
-        (fun _ -> expr loc env fmt y)
+        (fun fmt -> mk_bool_const fmt true)
+        (fun fmt -> expr loc env fmt y)
   | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.implies_bool ->
       mk_ite loc env fmt
         x
-        (fun _ -> expr loc env fmt y)
-        (fun _ -> mk_bool_const fmt true)
+        (fun fmt -> expr loc env fmt y)
+        (fun fmt -> mk_bool_const fmt true)
   | Expr_TApply (f, [], [x; y], NoThrow) when Ident.in_list f [Builtin_idents.eq_bool; Builtin_idents.equiv_bool] ->
       (mk_binop loc env fmt "arith.cmp_i eq," x y, Asl_utils.type_bool)
   | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.ne_bool ->
