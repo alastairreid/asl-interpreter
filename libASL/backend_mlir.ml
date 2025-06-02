@@ -187,6 +187,10 @@ let prim_name (fmt : PP.formatter) (x : Ident.t) : unit =
     PP.fprintf fmt "asl.%s" nm
   end
 
+let enum_size = 8 (* assume this is big enough for all enumerated types *)
+let enums : int Identset.Bindings.t ref = ref Identset.Bindings.empty
+let enum_types : Identset.IdentSet.t ref = ref Identset.IdentSet.empty
+
 let funtypes : AST.function_type Identset.Bindings.t ref = ref Identset.Bindings.empty
 
 let locals = new Asl_utils.nameSupply "%"
@@ -266,6 +270,8 @@ let rec pp_type (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : unit =
       PP.fprintf fmt "!asl.real"
   | Type_Constructor (tc, []) when tc = Builtin_idents.string_ident ->
       PP.fprintf fmt "!asl.string"
+  | Type_Constructor (tc, []) when Identset.IdentSet.mem tc !enum_types ->
+      PP.fprintf fmt "i%d" enum_size
   | Type_Constructor (tc, []) ->
       PP.fprintf fmt "%a" ident tc
   | Type_Constructor (tc, ps) ->
@@ -366,7 +372,7 @@ and user_apply (loc : Loc.t) (env : environment) (fmt : PP.formatter) (f : Ident
     (funtype loc) fty';
   (t, Option.get fty'.rty)
 
-and mk_binop (loc : Loc.t) (fmt : PP.formatter) (op : string) (x : Ident.t) (y : Ident.t) (ty : AST.ty) : (Ident.t * AST.ty) =
+and mk_binop (loc : Loc.t) (fmt : PP.formatter) (op : string) (x : Ident.t) (y : Ident.t) (ty : AST.ty) : Ident.t =
   let t = locals#fresh in
   PP.fprintf fmt "%a = %s %a, %a : %a@,"
     varident t
@@ -374,7 +380,7 @@ and mk_binop (loc : Loc.t) (fmt : PP.formatter) (op : string) (x : Ident.t) (y :
     varident x
     varident y
     (pp_type loc) ty;
-  (t, ty)
+  t
 
 and mk_ite (loc : Loc.t) (env : environment) (fmt : PP.formatter)
     (c : AST.expr)
@@ -439,6 +445,14 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       mk_bool_const fmt false
   | Expr_Var v when Ident.equal v Builtin_idents.true_ident ->
       mk_bool_const fmt true
+  | Expr_Var v when Identset.Bindings.mem v !enums ->
+      let value = Identset.Bindings.find v !enums in
+      let t = locals#fresh in
+      PP.fprintf fmt "%a = arith.constant %d : i%d@,"
+        ident t
+        value
+        enum_size;
+      (t, Asl_utils.type_bits (Asl_utils.mk_litint enum_size))
   | Expr_Var v ->
       (* todo: if v is a global, it needs to be copied into a local *)
       ( match ScopeStack.get env v with
@@ -459,7 +473,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
   | Expr_TApply (f, [], [x], NoThrow) when Ident.equal f Builtin_idents.not_bool ->
       let (x', xty) = expr loc env fmt x in
       let (one, _) = mk_bool_const fmt true in
-      mk_binop loc fmt "arith.subi" one x' Asl_utils.type_bool
+      (mk_binop loc fmt "arith.subi" one x' Asl_utils.type_bool, Asl_utils.type_bool)
   | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.and_bool ->
       mk_ite loc env fmt
         x
@@ -478,19 +492,19 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
   | Expr_TApply (f, [], [x; y], NoThrow) when Ident.in_list f [Builtin_idents.eq_bool; Builtin_idents.equiv_bool] ->
       let (x', _) = expr loc env fmt x in
       let (y', _) = expr loc env fmt y in
-      mk_binop loc fmt "arith.cmpi eq," x' y' Asl_utils.type_bool
+      (mk_binop loc fmt "arith.cmpi eq," x' y' Asl_utils.type_bool, Asl_utils.type_bool)
   | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.ne_bool ->
       let (x', _) = expr loc env fmt x in
       let (y', _) = expr loc env fmt y in
-      mk_binop loc fmt "arith.cmpi ne," x' y' Asl_utils.type_bool
-  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.eq_enum ->
-      let (x', _) = expr loc env fmt x in
-      let (y', _) = expr loc env fmt y in
-      mk_binop loc fmt "arith.cmpi eq," x' y' Asl_utils.type_bool
-  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.ne_enum ->
-      let (x', _) = expr loc env fmt x in
-      let (y', _) = expr loc env fmt y in
-      mk_binop loc fmt "arith.cmpi ne," x' y' Asl_utils.type_bool
+      (mk_binop loc fmt "arith.cmpi ne," x' y' Asl_utils.type_bool, Asl_utils.type_bool)
+  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.matches f ~name:"asl_eq_enum" ->
+      let (x', xty) = expr loc env fmt x in
+      let (y', yty) = expr loc env fmt y in
+      (mk_binop loc fmt "arith.cmpi eq," x' y' xty, Asl_utils.type_bool)
+  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.matches f ~name:"asl_ne_enum" ->
+      let (x', xty) = expr loc env fmt x in
+      let (y', yty) = expr loc env fmt y in
+      (mk_binop loc fmt "arith.cmpi ne," x' y' xty, Asl_utils.type_bool)
   | Expr_TApply (f, [n], [_], NoThrow) when Ident.equal f Builtin_idents.zeros_bits ->
       let t = locals#fresh in
       PP.fprintf fmt "%a = asl.constant_bits 0 : !asl.bits<%a> {attr_dict}@,"
@@ -815,6 +829,17 @@ let _ =
       | AST.Decl_FunType (f, fty, _)
       | AST.Decl_FunDefn (f, fty, _, _)
       -> funtypes := Identset.Bindings.add f fty !funtypes
+      | _ -> ()
+      )
+    ) decls;
+
+    (* record enumeration constants *)
+    List.iter (fun d ->
+      ( match d with
+      | AST.Decl_Enum (tc, es, loc)
+      ->
+         enum_types := Identset.IdentSet.add tc !enum_types;
+         List.iteri (fun i e -> enums := Identset.Bindings.add e i !enums) es
       | _ -> ()
       )
     ) decls;
