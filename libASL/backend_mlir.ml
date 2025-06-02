@@ -459,7 +459,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
   | Expr_TApply (f, [], [x], NoThrow) when Ident.equal f Builtin_idents.not_bool ->
       let (x', xty) = expr loc env fmt x in
       let (one, _) = mk_bool_const fmt true in
-      mk_binop loc fmt "arith.subi" x' one Asl_utils.type_bool
+      mk_binop loc fmt "arith.subi" one x' Asl_utils.type_bool
   | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.and_bool ->
       mk_ite loc env fmt
         x
@@ -491,6 +491,18 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       let (x', _) = expr loc env fmt x in
       let (y', _) = expr loc env fmt y in
       mk_binop loc fmt "arith.cmpi ne," x' y' Asl_utils.type_bool
+  | Expr_TApply (f, [n], [_], NoThrow) when Ident.equal f Builtin_idents.zeros_bits ->
+      let t = locals#fresh in
+      PP.fprintf fmt "%a = asl.constant_bits 0 : !asl.bits<%a> {attr_dict}@,"
+        varident t
+        (simple_expr loc) n;
+      (t, Asl_utils.type_bits n)
+  | Expr_TApply (f, [n], [_], NoThrow) when Ident.equal f Builtin_idents.ones_bits ->
+      let t = locals#fresh in
+      PP.fprintf fmt "%a = asl.constant_bits -1 : !asl.bits<%a> {attr_dict}@,"
+        varident t
+        (simple_expr loc) n;
+      (t, Asl_utils.type_bits n)
   | Expr_TApply (f, ps, args, throws) ->
       if Identset.IdentSet.mem f primitive_operations then (
         prim_apply loc env fmt f ps args
