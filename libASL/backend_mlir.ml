@@ -286,7 +286,7 @@ let rec pp_type (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : unit =
       let pp fmt = FMT.ty fmt x in
       raise (Error.Unimplemented (loc, "type", pp))
   )
-      
+
 let formal_param (loc : Loc.t) (fmt : PP.formatter) (x : (Ident.t * AST.ty option)) : unit =
   let (v, ot) = x in
   (* Note: formal parameters are assumed to be integer (with no constraints) *)
@@ -301,18 +301,18 @@ let formal_params (loc : Loc.t) (fmt : PP.formatter) (xs : (Ident.t * AST.ty opt
       (commasep (formal_param loc)) xs
   end
 
-let formal_arg (loc : Loc.t) (fmt : PP.formatter) (x : (Ident.t * AST.ty)) : unit =
-  let (v, t) = x in
+let formal_arg (loc : Loc.t) (fmt : PP.formatter) (x : (Ident.t * AST.ty * AST.expr option)) : unit =
+  let (v, t, _) = x in
   PP.fprintf fmt "%a : %a"
     varident v
     (pp_type loc) t
 
-let pp_arg_type (loc : Loc.t) (fmt : PP.formatter) (x : (Ident.t * AST.ty)) : unit =
-  let (_, t) = x in
+let pp_arg_type (loc : Loc.t) (fmt : PP.formatter) (x : (Ident.t * AST.ty * AST.expr option)) : unit =
+  let (_, t, _) = x in
   PP.fprintf fmt "%a"
     (pp_type loc) t
 
-let pp_arg_types (loc : Loc.t) (fmt : PP.formatter) (xs : (Ident.t * AST.ty) list) : unit =
+let pp_arg_types (loc : Loc.t) (fmt : PP.formatter) (xs : (Ident.t * AST.ty * AST.expr option) list) : unit =
   ( match xs with
   | [] -> ()
   | [x] -> pp_arg_type loc fmt x
@@ -752,7 +752,7 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
           locals#reset;
           let env : environment = ScopeStack.empty () in
           List.iter (fun (v, oty) -> ScopeStack.add env v (None, Option.get oty)) fty.parameters;
-          List.iter (fun (v, ty) -> ScopeStack.add env v (None, ty)) fty.args;
+          List.iter (fun (v, ty, _) -> ScopeStack.add env v (None, ty)) fty.args;
           PP.fprintf fmt "asl.func @%a%a(%a) -> %a {"
             ident f
             (formal_params loc) fty.parameters
