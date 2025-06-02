@@ -551,20 +551,12 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
   ( match x with
   | Stmt_ConstDecl (DeclItem_Var (v, _), i, loc) ->
       let (i', ty) = expr loc env fmt i in
-      PP.fprintf fmt "%a = asl.copy %a : %a@,"
-        varident v
-        varident i'
-        (pp_type loc) ty;
-      ignore (ScopeStack.set env v (None, ty))
+      ignore (ScopeStack.set env v (Some i', ty))
   | Stmt_ConstDecl (DeclItem_Wildcard _, i, loc) ->
       ignore (expr loc env fmt i)
   | Stmt_VarDecl (DeclItem_Var (v, _), i, loc) ->
       let (i', ty) = expr loc env fmt i in
-      PP.fprintf fmt "%a = asl.copy %a : %a@,"
-        varident v
-        varident i'
-        (pp_type loc) ty;
-      ignore (ScopeStack.add env v (Some v, ty))
+      ignore (ScopeStack.set env v (Some i', ty))
   | Stmt_VarDecl (DeclItem_Wildcard _, i, loc) ->
       ignore (expr loc env fmt i)
   | Stmt_Assign (LExpr_Var v, rhs, loc) ->
