@@ -55,7 +55,6 @@ let primitive_operations = Identset.IdentSet.of_list [
   Builtin_idents.not_bits;
   Builtin_idents.zeros_bits;
   Builtin_idents.ones_bits;
-  Builtin_idents.eq_enum;
   Builtin_idents.eq_int;
   Builtin_idents.le_int;
   Builtin_idents.add_int;
@@ -73,7 +72,6 @@ let primitive_operations = Identset.IdentSet.of_list [
   Builtin_idents.eq_bool;
   Builtin_idents.equiv_bool;
   Builtin_idents.ne_bool;
-  Builtin_idents.ne_enum;
   Builtin_idents.align_int;
   Builtin_idents.exact_div_int;
   Builtin_idents.fdiv_int;
@@ -368,15 +366,15 @@ and user_apply (loc : Loc.t) (env : environment) (fmt : PP.formatter) (f : Ident
     (funtype loc) fty';
   (t, Option.get fty'.rty)
 
-and mk_binop (loc : Loc.t) (env : environment) (fmt : PP.formatter) (op : string) (x : AST.expr) (y : AST.expr) : Ident.t =
-  let (x', _) = expr loc env fmt x in
-  let (y', _) = expr loc env fmt y in
+and mk_binop (loc : Loc.t) (fmt : PP.formatter) (op : string) (x : Ident.t) (y : Ident.t) (ty : AST.ty) : (Ident.t * AST.ty) =
   let t = locals#fresh in
-  PP.fprintf fmt "%s %a %a"
+  PP.fprintf fmt "%a = %s %a, %a : %a@,"
+    varident t
     op
-    varident x'
-    varident y';
-  t
+    varident x
+    varident y
+    (pp_type loc) ty;
+  (t, ty)
 
 and mk_ite (loc : Loc.t) (env : environment) (fmt : PP.formatter)
     (c : AST.expr)
@@ -458,6 +456,10 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
         c
         (fun fmt -> expr loc env fmt t)
         (fun fmt -> expr loc env fmt (Expr_If (c', t', els, e)))
+  | Expr_TApply (f, [], [x], NoThrow) when Ident.equal f Builtin_idents.not_bool ->
+      let (x', xty) = expr loc env fmt x in
+      let (one, _) = mk_bool_const fmt true in
+      mk_binop loc fmt "arith.subi" x' one Asl_utils.type_bool
   | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.and_bool ->
       mk_ite loc env fmt
         x
@@ -474,9 +476,21 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
         (fun fmt -> expr loc env fmt y)
         (fun fmt -> mk_bool_const fmt true)
   | Expr_TApply (f, [], [x; y], NoThrow) when Ident.in_list f [Builtin_idents.eq_bool; Builtin_idents.equiv_bool] ->
-      (mk_binop loc env fmt "arith.cmp_i eq," x y, Asl_utils.type_bool)
+      let (x', _) = expr loc env fmt x in
+      let (y', _) = expr loc env fmt y in
+      mk_binop loc fmt "arith.cmpi eq," x' y' Asl_utils.type_bool
   | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.ne_bool ->
-      (mk_binop loc env fmt "arith.cmp_i ne," x y, Asl_utils.type_bool)
+      let (x', _) = expr loc env fmt x in
+      let (y', _) = expr loc env fmt y in
+      mk_binop loc fmt "arith.cmpi ne," x' y' Asl_utils.type_bool
+  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.eq_enum ->
+      let (x', _) = expr loc env fmt x in
+      let (y', _) = expr loc env fmt y in
+      mk_binop loc fmt "arith.cmpi eq," x' y' Asl_utils.type_bool
+  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.ne_enum ->
+      let (x', _) = expr loc env fmt x in
+      let (y', _) = expr loc env fmt y in
+      mk_binop loc fmt "arith.cmpi ne," x' y' Asl_utils.type_bool
   | Expr_TApply (f, ps, args, throws) ->
       if Identset.IdentSet.mem f primitive_operations then (
         prim_apply loc env fmt f ps args
