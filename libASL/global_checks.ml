@@ -109,8 +109,7 @@ let rec canthrow_stmt (x : AST.stmt) : status =
       | MayThrow -> maythrow
       | AlwaysThrow -> throw
       )
-  | Stmt_FunReturn (e, loc) -> status_seq (canthrow_expr e) return
-  | Stmt_ProcReturn loc -> return
+  | Stmt_Return (e, loc) -> status_seq (canthrow_expr e) return
   | Stmt_Assert (e, loc) -> ok
   | Stmt_Throw (e, loc) -> throw
   | Stmt_Block (b, loc) -> canthrow_stmts b
@@ -183,7 +182,7 @@ class check_defn_exception_class =
                 FMT.funname f
                 fmt_status s
           end;
-          let should_return = Option.is_some fty.rty in
+          let should_return = ( match fty.rty with Type_Tuple([]) -> false | _ -> true ) in
           if s <> fail then begin
               ( match fty.throws with
               | NoThrow when s.exc ->

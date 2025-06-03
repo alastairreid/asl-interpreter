@@ -19,10 +19,11 @@ module AST = Asl_ast
 open Asl_utils
 open Identset
 
-let getFunReturnType (d : AST.declaration) : AST.ty option =
-  match d with
+let getFunReturnType (d : AST.declaration) : AST.ty =
+  ( match d with
   | Decl_FunDefn (f, fty, body, loc) -> fty.rty
-  | _ -> None
+  | _ -> raise (Utils.InternalError (Loc.Unknown, "function definition expected", (fun fmt -> Asl_fmt.declaration fmt d), __LOC__))
+  )
 
 let rmwVariables = new Asl_utils.nameSupply "__rmw"
 
@@ -56,10 +57,8 @@ class replaceClass (ds : AST.declaration list) =
               | AST.LExpr_ReadWrite (f, g, tes, es, throws), v ->
                   let e = AST.Expr_TApply (f, tes, es, throws) in
                   let fd = Option.get (IdentTable.find_opt decl_lookup_table f) in
-                  let rty = Option.get (getFunReturnType fd) in
-                  let r =
-                    AST.Stmt_VarDecl (AST.DeclItem_Var (v, Some rty), e, loc)
-                  in
+                  let rty = getFunReturnType fd in
+                  let r = AST.Stmt_VarDecl (AST.DeclItem_Var (v, Some rty), e, loc) in
                   let w = AST.Stmt_TCall (g, tes, es @ [ Expr_Var v ], throws, loc) in
                   [ r ] @ ss @ [ w ]
               | _ -> ss

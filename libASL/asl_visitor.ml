@@ -465,10 +465,9 @@ and visit_stmt (vis : aslVisitor) (x : stmt) : stmt list =
         let args' = visit_args vis args in
         if f == f' && args == args' then x
         else Stmt_UCall (f', args', throws, loc)
-    | Stmt_FunReturn (e, loc) ->
+    | Stmt_Return (e, loc) ->
         let e' = visit_expr vis e in
-        if e == e' then x else Stmt_FunReturn (e', loc)
-    | Stmt_ProcReturn _ -> x
+        if e == e' then x else Stmt_Return (e', loc)
     | Stmt_Assert (e, loc) ->
         let e' = visit_expr vis e in
         if e == e' then x else Stmt_Assert (e', loc)
@@ -590,7 +589,7 @@ let visit_funtype (vis : aslVisitor) (locals : Ident.t list) (fty : function_typ
   let parameters' = with_locals vis locals (visit_parameters vis) fty.parameters in
   let args' = with_locals vis locals (visit_args vis) fty.args in
   let setter_arg' = mapOptionNoCopy (visit_arg_no_default vis) fty.setter_arg in
-  let rty' = mapOptionNoCopy (fun ty -> with_locals vis locals (visit_type vis) ty) fty.rty in
+  let rty' = with_locals vis locals (visit_type vis) fty.rty in
   if fty.parameters == parameters'
   && fty.args == args'
   && fty.setter_arg == setter_arg'

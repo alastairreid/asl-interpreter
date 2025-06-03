@@ -202,7 +202,7 @@ class monoClass
               List.iter2 (fun nm sz -> Printf.printf " %s->%d" (Ident.to_string nm) (Z.to_int sz)) tvs szs;
               Printf.printf "\n";
             end;
-            let rty' = Option.map (Xform_constprop.xform_ty env) fty.rty in
+            let rty' = Xform_constprop.xform_ty env fty.rty in
             let pnames = List.map fst fty.parameters in
             let atys' = List.filter (fun (v, _, _) -> not (List.mem v pnames)) fty.args
                      |> List.map (fun (v, ty, od) -> (v, Xform_constprop.xform_ty env ty, Option.map (Xform_constprop.xform_expr env) od))

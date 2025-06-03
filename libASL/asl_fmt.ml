@@ -615,14 +615,8 @@ let rec stmt ?(short=false) (fmt : PP.formatter) (x : AST.stmt) : unit =
       throws fmt can_throw;
       parens fmt (fun _ -> pp_args fmt args);
       semicolon fmt;
-  | Stmt_FunReturn (e, loc) ->
-      kw_return fmt;
-      nbsp fmt;
-      expr fmt e;
-      semicolon fmt
-  | Stmt_ProcReturn loc ->
-      kw_return fmt;
-      semicolon fmt
+  | Stmt_Return (e, loc) ->
+      PP.fprintf fmt "return %a;" expr e
   | Stmt_Assert (e, loc) ->
       kw_assert fmt;
       nbsp fmt;
@@ -787,13 +781,7 @@ let function_type (fmt : PP.formatter) (fty : AST.function_type) : unit =
       nbsp fmt;
       varty fmt v ty)
     fmt fty.setter_arg;
-  PP.pp_print_option
-    (fun _ rty ->
-      nbsp fmt;
-      eq_gt fmt;
-      nbsp fmt;
-      ty fmt rty)
-    fmt fty.rty
+  Format.fprintf fmt " => %a" ty fty.rty
 
 let declaration ?(short=false) (fmt : PP.formatter) (x : AST.declaration) : unit =
   vbox fmt (fun _ ->

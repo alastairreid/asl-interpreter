@@ -979,8 +979,11 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
           (direction dir "++" "--")
           ident v
           indented_block b
-  | Stmt_FunReturn (e, loc) ->
-      PP.fprintf fmt "return %a;" (expr loc) e
+  | Stmt_Return (e, loc) ->
+      ( match e with
+      | Expr_Tuple([]) -> PP.fprintf fmt "return;"
+      | e -> PP.fprintf fmt "return %a;" (expr loc) e
+      )
   | Stmt_If (c, t, els, (e, el), loc) ->
       vbox fmt (fun _ ->
           PP.fprintf fmt "if (%a) {%a@,}"
@@ -1004,8 +1007,6 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
       PP.fprintf fmt "do {%a@,} while (!(%a));"
         indented_block b
         (expr loc) c
-  | Stmt_ProcReturn loc ->
-      PP.fprintf fmt "return;"
   | Stmt_TCall (f, tes, args, throws, loc) ->
       funcall loc fmt f tes args;
       semicolon fmt;
@@ -1070,12 +1071,13 @@ let formal (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t * AST.ty * AST.expr o
   varty ~const_ref:(use_const_ref loc t) loc fmt v t
 
 let function_header (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (fty : AST.function_type) : unit =
-  PP.pp_print_option
-    ~none:(fun _ _ -> PP.fprintf fmt "void "; ident fmt f)
-    (fun _ t -> varty loc fmt f t) fmt fty.rty;
+  ( match fty.rty with
+  | Type_Tuple([]) -> PP.fprintf fmt "void "; ident fmt f
+  | t -> varty loc fmt f t
+  );
   parens fmt (fun _ -> commasep (formal loc) fmt fty.args)
 
-let function_body (loc : Loc.t) (fmt : PP.formatter) (b : AST.stmt list) (orty : AST.ty option) : unit =
+let function_body (loc : Loc.t) (fmt : PP.formatter) (b : AST.stmt list) (rty : AST.ty) : unit =
   with_catch_label (fun catcher ->
     braces fmt
       (fun _ ->
@@ -1090,9 +1092,9 @@ let function_body (loc : Loc.t) (fmt : PP.formatter) (b : AST.stmt list) (orty :
             * return the variables. This will make the C compiler emit a warning.
             * *)
            indented fmt (fun _ ->
-             match orty with
-             | None -> PP.fprintf fmt "return;"
-             | Some rty ->
+             ( match rty with
+             | Type_Tuple([]) -> PP.fprintf fmt "return;"
+             | _ ->
                braces fmt (fun _ ->
                  indented fmt (fun _ ->
                    let v = asl_fake_return_value in
@@ -1101,7 +1103,7 @@ let function_body (loc : Loc.t) (fmt : PP.formatter) (b : AST.stmt list) (orty :
                  );
                  cut fmt
                )
-             );
+             ));
            cut fmt
          )
       )
@@ -1571,8 +1573,8 @@ let mk_ffi_export_wrapper
   let (pp_c_ret_type, pp_c_ret_value, pp_output_arg_decls, pp_output_cvts) =
       let pp_void_type fmt = PP.fprintf fmt "void" in
       ( match fty.rty with
-      | None -> (pp_void_type, (fun fmt -> ()), [], [])
-      | Some ty ->
+      | Type_Tuple([]) -> (pp_void_type, (fun fmt -> ()), [], [])
+      | ty ->
           let c_name = Ident.add_prefix asl_ret_name ~prefix:"c_" in
           ( match fields_of_return_type ty with
           | Some fs ->
@@ -1630,8 +1632,8 @@ let mk_ffi_export_wrapper
     pp_funlist pp_input_cvts fmt;
     PP.fprintf fmt "ASL_exception._exc.ASL_tag = ASL_no_exception;@,";
     ( match fty.rty with
-    | None -> ()
-    | Some rty ->
+    | Type_Tuple([]) -> ()
+    | rty ->
         varty loc fmt asl_ret_name rty;
         PP.fprintf fmt " = "
     );
@@ -1704,8 +1706,8 @@ let mk_ffi_import_wrapper
   let (pp_c_ret_type, pp_c_ret_decl, pp_asl_ret_value, pp_output_args, pp_output_arg_decls, pp_output_var_decls, pp_output_cvts) =
       let pp_void_type fmt = PP.fprintf fmt "void" in
       ( match fty.rty with
-      | None -> (pp_void_type, None, (fun fmt -> ()), [], [], [], [])
-      | Some ty ->
+      | Type_Tuple([]) -> (pp_void_type, None, (fun fmt -> ()), [], [], [], [])
+      | ty ->
           let c_name = Ident.add_prefix asl_ret_name ~prefix:"c_" in
           ( match fields_of_return_type ty with
           | Some fs ->
@@ -1888,13 +1890,13 @@ let mk_ffi_config (decls : AST.declaration list) : (string list * AST.declaratio
         parameters = [];
         args = [];
         setter_arg = None;
-        rty = Some ty;
+        rty = ty;
         use_array_syntax = false;
         is_getter_setter = false;
         throws = NoThrow;
       }
     in
-    let getter_body = [ AST.Stmt_FunReturn (Expr_Var v, loc) ] in
+    let getter_body = [ AST.Stmt_Return (Expr_Var v, loc) ] in
     let getter_defn = AST.Decl_FunDefn (getter_id, getter_fty, getter_body, loc) in
     let getter_type = AST.Decl_FunType (getter_id, getter_fty, loc) in
 
@@ -1905,7 +1907,7 @@ let mk_ffi_config (decls : AST.declaration list) : (string list * AST.declaratio
         parameters = [];
         args = [(setter_arg, ty, None)];
         setter_arg = None;
-        rty = None;
+        rty = Type_Tuple([]);
         use_array_syntax = false;
         is_getter_setter = false;
         throws = NoThrow;

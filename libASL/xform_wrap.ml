@@ -74,13 +74,13 @@ let xform_decl (replacer : replaceClass) (d : AST.declaration) :
         parameters=[];
         args=[(i, ixtype_basetype ixty, None)];
         setter_arg=None;
-        rty=Some ty;
+        rty=ty;
         use_array_syntax=false;
         is_getter_setter=false;
         throws=NoThrow
       } in
       let rd_type = AST.Decl_FunType (rd_f, rd_fty, loc) in
-      let rd_body = [ AST.Stmt_FunReturn (Expr_Array (Expr_Var v, Expr_Var i), loc) ] in
+      let rd_body = [ AST.Stmt_Return (Expr_Array (Expr_Var v, Expr_Var i), loc) ] in
       let rd_defn = AST.Decl_FunDefn (rd_f, rd_fty, rd_body, loc) in
 
       let wr_f = mk_write_fident v in
@@ -88,7 +88,7 @@ let xform_decl (replacer : replaceClass) (d : AST.declaration) :
       let wr_fty : AST.function_type = {
         parameters=[];
         args=[(i, ixtype_basetype ixty, None); (vl, ty, None)];
-        rty=None;
+        rty=type_unit;
         setter_arg=None;
         use_array_syntax=false;
         is_getter_setter=false;
@@ -104,14 +104,14 @@ let xform_decl (replacer : replaceClass) (d : AST.declaration) :
       let rd_fty : AST.function_type = {
         parameters=[];
         args=[];
-        rty=Some ty;
+        rty=ty;
         setter_arg=None;
         use_array_syntax=false;
         is_getter_setter=false;
         throws=NoThrow
       } in
       let rd_type = AST.Decl_FunType (rd_f, rd_fty, loc) in
-      let rd_body = [ AST.Stmt_FunReturn (Expr_Var v, loc) ] in
+      let rd_body = [ AST.Stmt_Return (Expr_Var v, loc) ] in
       let rd_defn = AST.Decl_FunDefn (rd_f, rd_fty, rd_body, loc) in
 
       let wr_f = mk_write_fident v in
@@ -119,7 +119,7 @@ let xform_decl (replacer : replaceClass) (d : AST.declaration) :
       let wr_fty : AST.function_type = {
         parameters=[];
         args=[(vl, ty, None)];
-        rty=None;
+        rty=type_unit;
         setter_arg=None;
         use_array_syntax=false;
         is_getter_setter=false;

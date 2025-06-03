@@ -409,11 +409,11 @@ module Env : sig
   val addConstraint : t -> Loc.t -> AST.expr -> unit
   val getConstraints : t -> AST.expr list
   val setReturnType : t -> AST.ty -> unit
-  val getReturnType : t -> AST.ty option
+  val getReturnType : t -> AST.ty
 end = struct
   type t = {
     globals : GlobalEnv.t;
-    mutable rty : AST.ty option;
+    mutable rty : AST.ty;
     (* a stack of nested scopes representing the local type environment *)
     (* Invariant: the stack is never empty *)
     mutable locals : var_info Bindings.t list;
@@ -425,7 +425,7 @@ end = struct
   let mkEnv (globalEnv : GlobalEnv.t) =
     {
       globals = globalEnv;
-      rty = None;
+      rty = type_unit;
       locals = [ Bindings.empty ];
       modified = IdentSet.empty;
       constraints = [];
@@ -485,8 +485,8 @@ end = struct
     env.constraints <- c :: env.constraints
 
   let getConstraints (env : t) : AST.expr list = env.constraints
-  let setReturnType (env : t) (ty : AST.ty) : unit = env.rty <- Some ty
-  let getReturnType (env : t) : AST.ty option = env.rty
+  let setReturnType (env : t) (ty : AST.ty) : unit = env.rty <- ty
+  let getReturnType (env : t) : AST.ty = env.rty
 end
 
 (****************************************************************)
@@ -2725,22 +2725,10 @@ and tc_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
       ) else (
         [Stmt_TCall (fty.name, fty.parameters, es, throws, loc)]
       )
-  | Stmt_FunReturn (e, loc) ->
-      let rty =
-        match Env.getReturnType env with
-        | Some ty -> ty
-        | None -> raise (InternalError
-          (loc, "Stmt_FunReturn", (fun fmt -> FMT.stmt fmt x), __LOC__))
-      in
+  | Stmt_Return (e, loc) ->
+      let rty = Env.getReturnType env in
       let e' = check_expr env loc rty e in
-      [Stmt_FunReturn (e', loc)]
-  | Stmt_ProcReturn loc ->
-      (match Env.getReturnType env with
-      | None -> ()
-      | Some (Type_Tuple []) -> ()
-      | _ -> raise (InternalError
-        (loc, "return type should be None", (fun fmt -> FMT.stmt fmt x), __LOC__)));
-      [Stmt_ProcReturn loc]
+      [Stmt_Return (e', loc)]
   | Stmt_Assert (e, loc) ->
       let e' = check_expr env loc type_bool e in
       [Stmt_Assert (e', loc)]
@@ -2861,10 +2849,10 @@ let tc_setter
 
 let mangle_setter_name (f : Ident.t) (fty : AST.function_type) : Ident.t =
   if fty.is_getter_setter then (
-    if Option.is_none fty.rty then
-      Ident.add_suffix f ~suffix:"write"
-    else
+    if Option.is_none fty.setter_arg then
       Ident.add_suffix f ~suffix:"read"
+    else
+      Ident.add_suffix f ~suffix:"write"
   ) else (
     f
   )
@@ -2873,7 +2861,6 @@ let mangle_setter_name (f : Ident.t) (fty : AST.function_type) : Ident.t =
 (* todo: if this is a getter/setter check that if a setter function exists, it has a compatible type *)
 let tc_funtype (env : Env.t) (loc : Loc.t) (fty : AST.function_type) : AST.function_type =
   let args = List.map (fun (nm, ty, od) -> (nm, ty)) fty.args @ Option.to_list fty.setter_arg in
-  let rty = Option.value fty.rty ~default:type_unit in
 
   let globals = Env.globals env in
   let is_not_global (x : Ident.t) = Option.is_none (GlobalEnv.getGlobalVar globals x) in
@@ -2881,7 +2868,7 @@ let tc_funtype (env : Env.t) (loc : Loc.t) (fty : AST.function_type) : AST.funct
   (* The implicit type parameters are based on the free variables of the function type. *)
   let argtys = List.map snd args in
   let argty_fvs = fv_types argtys |> IdentSet.filter is_not_global in
-  let rty_fvs = fv_type rty |> IdentSet.filter is_not_global in
+  let rty_fvs = fv_type fty.rty |> IdentSet.filter is_not_global in
 
   (* Type parameters in the return type cannot be synthesized directly
    * and must either be an explicit parameter of the function or
@@ -2930,8 +2917,8 @@ let tc_funtype (env : Env.t) (loc : Loc.t) (fty : AST.function_type) : AST.funct
   let ps' = List.map (tc_parameter env loc) (typed_explicit_parameters @ typed_implicit_parameters) in
   let args' = List.map (tc_argument env loc ps') fty.args in
   let setter_arg' = Option.map (tc_setter env loc ps') fty.setter_arg in
-  let rty' = Option.map (tc_type env loc) fty.rty in
-  Env.setReturnType env (Option.value rty' ~default:type_unit);
+  let rty' = tc_type env loc fty.rty in
+  Env.setReturnType env rty';
   { fty with
     parameters=ps';
     args=args';
@@ -2957,9 +2944,8 @@ let addFunction (env : GlobalEnv.t) (loc : Loc.t) (qid : Ident.t) (fty : AST.fun
        *)
       let tag = num_funs in
       let qid' = Ident.mk_fident_with_tag qid ~tag in
-      let rty = Option.value fty.rty ~default:type_unit in
       let ovty = Option.map snd fty.setter_arg in
-      let fty : funtype = { funname=qid'; loc; isArray=fty.use_array_syntax; params=fty.parameters; atys=fty.args; ovty; rty } in
+      let fty : funtype = { funname=qid'; loc; isArray=fty.use_array_syntax; params=fty.parameters; atys=fty.args; ovty; rty=fty.rty } in
       if is_setter then GlobalEnv.addSetterFuns env qid (fty :: funs) else GlobalEnv.addFuns env loc qid (fty :: funs);
       fty
   | [ fty ] ->
@@ -3028,7 +3014,7 @@ let tc_declaration (env : GlobalEnv.t) (d : AST.declaration) :
       let fty = { parameters = [];
                   args = [ (Ident.mk_ident "x", ty, None); (Ident.mk_ident "y", ty, None) ];
                   setter_arg = None;
-                  rty = Some type_bool;
+                  rty = type_bool;
                   is_getter_setter = false;
                   use_array_syntax = false;
                   throws=NoThrow

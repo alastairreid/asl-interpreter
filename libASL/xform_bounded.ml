@@ -267,7 +267,7 @@ let xform_function_type (x : AST.function_type) : AST.function_type =
       parameters = x.parameters;
       args = List.map (fun (v, ty, od) -> (v, xform_type ty, od)) x.args;
       setter_arg = None;
-      rty = Option.map xform_type x.rty;
+      rty = xform_type x.rty;
       use_array_syntax = x.use_array_syntax;
       is_getter_setter = x.is_getter_setter;
       throws = x.throws;
@@ -476,7 +476,7 @@ class boundedClass = object (self)
                 let arg_tys = List.map (fun (nm, ty, od) -> ty) fty.args in
                 let args'' = List.map2 unpack args' arg_tys in
                 let x' = AST.Expr_TApply (f, ps, args'', can_throw) in
-                ChangeTo (pack (range_of_type (Option.get fty.rty)) x')
+                ChangeTo (pack (range_of_type fty.rty) x')
             )
         | None ->
             DoChildren
@@ -518,7 +518,7 @@ class boundedClass = object (self)
     | _ -> None
     )
 
-  val mutable return_type : AST.ty option = None
+  val mutable return_type : AST.ty = Asl_utils.type_unit
 
   method! vstmt x =
     ( match x with
@@ -596,11 +596,10 @@ class boundedClass = object (self)
             DoChildren
         )
 
-    | Stmt_FunReturn (e, loc) ->
-        let rty = Option.get return_type in
+    | Stmt_Return (e, loc) ->
         let e' = Asl_visitor.visit_expr (self :> Asl_visitor.aslVisitor) e in
-        let e'' = unpack e' rty in
-        ChangeTo [Stmt_FunReturn (e'', loc)]
+        let e'' = unpack e' return_type in
+        ChangeTo [Stmt_Return (e'', loc)]
 
     | _ ->
       DoChildren

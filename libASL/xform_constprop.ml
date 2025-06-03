@@ -72,9 +72,6 @@ module Env = struct
   let fun_return (env : t) (r : Values.t) : unit =
     ScopeStack.map_inplace (Fun.const Values.top) env.locals
 
-  let proc_return (env : t) : unit =
-    ScopeStack.map_inplace (Fun.const Values.top) env.locals
-
   let throw (env : t) : unit =
     ScopeStack.map_inplace (Fun.const Values.top) env.locals
 
@@ -468,13 +465,10 @@ and xform_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
       let tes' = xform_exprs env tes in
       let es' = xform_exprs env es in
       [ Stmt_TCall (f, tes', es', throws, loc) ]
-  | Stmt_FunReturn (e, loc) ->
+  | Stmt_Return (e, loc) ->
       let e' = xform_expr env e in
       Env.fun_return env (expr_value env e');
-      [ Stmt_FunReturn (e', loc) ]
-  | Stmt_ProcReturn loc ->
-      Env.proc_return env;
-      [ Stmt_ProcReturn loc ]
+      [ Stmt_Return (e', loc) ]
   | Stmt_Assert (e, loc) ->
       let e' = xform_expr env e in
       if e' = asl_true then

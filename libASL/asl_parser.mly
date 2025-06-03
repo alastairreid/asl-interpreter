@@ -9,6 +9,7 @@
 %{
 open Asl_ast
 open Loc
+module Asl_utils = Asl_utils
 
 (* The following type is used in the parser in places where
  * the typechecker is expected to insert an inferred type that is
@@ -245,21 +246,21 @@ throws:
 
 function_declaration:
 | UNDERSCORE_UNDERSCORE_BUILTIN FUNC f = ident throws=throws ps = parameters_opt LPAREN args = formals_with_default RPAREN EQ_GT ty = ty SEMICOLON
-    { let fty = { parameters=ps; args; setter_arg=None; rty=Some ty; use_array_syntax=false; is_getter_setter=false; throws } in
+    { let fty = { parameters=ps; args; setter_arg=None; rty=ty; use_array_syntax=false; is_getter_setter=false; throws } in
       Decl_BuiltinFunction(f, fty, Range($symbolstartpos, $endpos)) }
 | FUNC f = ident throws=throws ps = parameters_opt LPAREN args = formals_with_default RPAREN EQ_GT ty = ty SEMICOLON
-    { let fty = { parameters=ps; args; setter_arg=None; rty=Some ty; use_array_syntax=false; is_getter_setter=false; throws } in
+    { let fty = { parameters=ps; args; setter_arg=None; rty=ty; use_array_syntax=false; is_getter_setter=false; throws } in
       Decl_FunType(f, fty, Range($symbolstartpos, $endpos)) }
 | FUNC f = ident throws=throws ps = parameters_opt LPAREN args = formals_with_default RPAREN EQ_GT ty = ty BEGIN b = block END
-    { let fty = { parameters=ps; args; setter_arg=None; rty=Some ty; use_array_syntax=false; is_getter_setter=false; throws } in
+    { let fty = { parameters=ps; args; setter_arg=None; rty=ty; use_array_syntax=false; is_getter_setter=false; throws } in
       Decl_FunDefn(f, fty, b, Range($symbolstartpos, $endpos)) }
 
 procedure_declaration:
 | FUNC f = ident throws=throws ps = parameters_opt LPAREN args = formals_with_default RPAREN SEMICOLON
-    { let fty = { parameters=ps; args; setter_arg=None; rty=None; use_array_syntax=false; is_getter_setter=false; throws } in
+    { let fty = { parameters=ps; args; setter_arg=None; rty=Asl_utils.type_unit; use_array_syntax=false; is_getter_setter=false; throws } in
       Decl_FunType(f, fty, Range($symbolstartpos, $endpos)) }
 | FUNC f = ident throws=throws ps = parameters_opt LPAREN args = formals_with_default RPAREN BEGIN b = block END
-    { let fty = { parameters=ps; args; setter_arg=None; rty=None; use_array_syntax=false; is_getter_setter=false; throws } in
+    { let fty = { parameters=ps; args; setter_arg=None; rty=Asl_utils.type_unit; use_array_syntax=false; is_getter_setter=false; throws } in
       Decl_FunDefn(f, fty, b, Range($symbolstartpos, $endpos)) }
 
 parameters_opt:
@@ -291,30 +292,30 @@ formal:
 
 getter_declaration:
 | GETTER f = ident throws=throws ps = parameters_opt EQ_GT ty = ty SEMICOLON
-    { let fty = { parameters=ps; args=[]; setter_arg=None; rty=Some ty; use_array_syntax=false; is_getter_setter=true; throws } in
+    { let fty = { parameters=ps; args=[]; setter_arg=None; rty=ty; use_array_syntax=false; is_getter_setter=true; throws } in
       Decl_FunType(f, fty, Range($symbolstartpos, $endpos)) }
 | GETTER f = ident throws=throws ps = parameters_opt EQ_GT ty = ty BEGIN b = block END
-    { let fty = { parameters=ps; args=[]; setter_arg=None; rty=Some ty; use_array_syntax=false; is_getter_setter=true; throws } in
+    { let fty = { parameters=ps; args=[]; setter_arg=None; rty=ty; use_array_syntax=false; is_getter_setter=true; throws } in
       Decl_FunDefn(f, fty, b, Range($symbolstartpos, $endpos)) }
 | GETTER f = ident throws=throws ps = parameters_opt LBRACK args = formal_list RBRACK EQ_GT ty = ty SEMICOLON
-    { let fty = { parameters=ps; args; setter_arg=None; rty=Some ty; use_array_syntax=true; is_getter_setter=true; throws } in
+    { let fty = { parameters=ps; args; setter_arg=None; rty=ty; use_array_syntax=true; is_getter_setter=true; throws } in
       Decl_FunType(f, fty, Range($symbolstartpos, $endpos)) }
 | GETTER f = ident throws=throws ps = parameters_opt LBRACK args = formal_list RBRACK EQ_GT ty = ty BEGIN b = block END
-    { let fty = { parameters=ps; args; setter_arg=None; rty=Some ty; use_array_syntax=true; is_getter_setter=true; throws } in
+    { let fty = { parameters=ps; args; setter_arg=None; rty=ty; use_array_syntax=true; is_getter_setter=true; throws } in
       Decl_FunDefn(f, fty, b, Range($symbolstartpos, $endpos)) }
 
 setter_declaration:
 | SETTER f = ident throws=throws ps = parameters_opt EQ v = ident COLON ty = ty SEMICOLON
-    { let fty = { parameters=ps; args=[]; setter_arg=Some (v, ty); rty=None; use_array_syntax=false; is_getter_setter=true; throws } in
+    { let fty = { parameters=ps; args=[]; setter_arg=Some (v, ty); rty=Asl_utils.type_unit; use_array_syntax=false; is_getter_setter=true; throws } in
       Decl_FunType(f, fty, Range($symbolstartpos, $endpos)) }
 | SETTER f = ident throws=throws ps = parameters_opt EQ v = ident COLON ty = ty BEGIN b = block END
-    { let fty = { parameters=ps; args=[]; setter_arg=Some (v, ty); rty=None; use_array_syntax=false; is_getter_setter=true; throws } in
+    { let fty = { parameters=ps; args=[]; setter_arg=Some (v, ty); rty=Asl_utils.type_unit; use_array_syntax=false; is_getter_setter=true; throws } in
       Decl_FunDefn(f, fty, b, Range($symbolstartpos, $endpos)) }
 | SETTER f = ident throws=throws ps = parameters_opt LBRACK args = formal_list RBRACK EQ v = ident COLON ty = ty SEMICOLON
-    { let fty = { parameters=ps; args; setter_arg=Some (v, ty); rty=None; use_array_syntax=true; is_getter_setter=true; throws } in
+    { let fty = { parameters=ps; args; setter_arg=Some (v, ty); rty=Asl_utils.type_unit; use_array_syntax=true; is_getter_setter=true; throws } in
       Decl_FunType(f, fty, Range($symbolstartpos, $endpos)) }
 | SETTER f = ident throws=throws ps = parameters_opt LBRACK args = formal_list RBRACK EQ v = ident COLON ty = ty BEGIN b = block END
-    { let fty = { parameters=ps; args; setter_arg=Some (v, ty); rty=None; use_array_syntax=true; is_getter_setter=true; throws } in
+    { let fty = { parameters=ps; args; setter_arg=Some (v, ty); rty=Asl_utils.type_unit; use_array_syntax=true; is_getter_setter=true; throws } in
       Decl_FunDefn(f, fty, b, Range($symbolstartpos, $endpos)) }
 
 internal_definition:
@@ -428,9 +429,9 @@ simple_stmt:
 | f = ident throws1=throws LPAREN args = separated_list(COMMA, arg) RPAREN throws2=throws SEMICOLON
     { Stmt_UCall(f, args, (if throws1<>NoThrow then throws1 else throws2), Range($symbolstartpos, $endpos)) }
 | RETURN e = expr SEMICOLON
-    { Stmt_FunReturn(e, Range($symbolstartpos, $endpos)) }
+    { Stmt_Return(e, Range($symbolstartpos, $endpos)) }
 | RETURN SEMICOLON
-    { Stmt_ProcReturn(Range($symbolstartpos, $endpos)) }
+    { Stmt_Return(Expr_Tuple([]), Range($symbolstartpos, $endpos)) }
 | ASSERT e = expr SEMICOLON
     { Stmt_Assert(e, Range($symbolstartpos, $endpos)) }
 | THROW e = expr SEMICOLON

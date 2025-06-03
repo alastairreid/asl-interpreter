@@ -155,9 +155,8 @@ and stmt =
  | Stmt_VarDecl of decl_item * expr * Loc.t
  | Stmt_ConstDecl of decl_item * expr * Loc.t
  | Stmt_Assign of lexpr * expr * Loc.t
- | Stmt_FunReturn of expr * Loc.t (* function return *)
- | Stmt_ProcReturn of Loc.t (* procedure return *)
- | Stmt_Assert of expr * Loc.t (* assertion *)
+ | Stmt_Return of expr * Loc.t
+ | Stmt_Assert of expr * Loc.t
  | Stmt_Throw of expr * Loc.t
  | Stmt_UCall of Ident.t * (Ident.t option * expr) list * can_throw * Loc.t (* procedure call before typechecking - optional name arguments, no type parameters *)
  | Stmt_TCall of Ident.t * expr list * expr list * can_throw * Loc.t (* procedure call with explicit type parameters *)
@@ -179,7 +178,7 @@ type function_type = {
   parameters : (Ident.t * ty option) list;
   args : (Ident.t * ty * expr option) list;
   setter_arg : (Ident.t * ty) option; (* only present in setter functions *)
-  rty : ty option; (* only present in functions and getter functions *)
+  rty : ty;
   use_array_syntax : bool; (* true for array getter/setter functions *)
   is_getter_setter : bool;
   throws : can_throw;

@@ -592,10 +592,9 @@ and eval_stmt (env : Env.t) (x : AST.stmt) : unit =
       eval_proccall loc env f tvs vs
   | Stmt_UCall (f, es, _, loc) ->
       raise (EvalError (loc, "Untyped statement " ^ pp_stmt x))
-  | Stmt_FunReturn (e, loc) ->
+  | Stmt_Return (e, loc) ->
       let v = eval_expr loc env e in
-      raise (Return (Some v))
-  | Stmt_ProcReturn loc -> raise (Return None)
+      raise (Return v)
   | Stmt_Assert (e, loc) ->
       if not (to_bool loc (eval_expr loc env e)) then
         raise (EvalError (loc, "assertion failure"))
@@ -696,7 +695,7 @@ and eval_call (loc : Loc.t) (env : Env.t) (f : Ident.t) (tvs : value list)
   | Some r ->
       Tracer.trace_function ~is_prim:true ~is_return:false f tvs vs;
       Tracer.trace_function ~is_prim:true ~is_return:true f [] [r];
-      raise (Return (Some r))
+      raise (Return r)
   | None ->
       Tracer.trace_function ~is_prim:false ~is_return:false f tvs vs;
       let targs, args, loc, b =
@@ -717,7 +716,7 @@ and eval_funcall (loc : Loc.t) (env : Env.t) (f : Ident.t) (tvs : value list)
     eval_call loc env f tvs vs;
     raise (EvalError (loc, "no return statement"))
   with
-  | Return (Some v) ->
+  | Return v ->
       let module Tracer = (val (!tracer) : Tracer) in
       Tracer.trace_function ~is_prim:false ~is_return:true f [] [v];
       v
@@ -737,8 +736,7 @@ and eval_proccall (loc : Loc.t) (env : Env.t) (f : Ident.t) (tvs : value list)
           raise (EvalError (loc, "end of execution"))
   end;
   ( try eval_call loc env f tvs vs with
-  | Return None -> ()
-  | Return (Some (VTuple [])) -> ()
+  | Return (VTuple []) -> ()
   | Throw (l, exc) -> raise (Throw (l, exc))
   | EndExecution _ as e -> raise e
   | ex ->

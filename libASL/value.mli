@@ -21,7 +21,7 @@ type value =
   | VRAM of Primops.ram
   | VUninitialized
 
-exception Return of value option
+exception Return of value
 exception EvalError of (Loc.t * string)
 exception Throw of (Loc.t * value)
 exception EndExecution of Loc.t

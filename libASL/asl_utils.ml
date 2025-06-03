@@ -480,8 +480,7 @@ let stmt_loc (x : AST.stmt) : Loc.t =
   | Stmt_Assign (l, r, loc) -> loc
   | Stmt_TCall (f, tes, args, throws, loc) -> loc
   | Stmt_UCall (f, args, throws, loc) -> loc
-  | Stmt_FunReturn (e, loc) -> loc
-  | Stmt_ProcReturn loc -> loc
+  | Stmt_Return (e, loc) -> loc
   | Stmt_Assert (e, loc) -> loc
   | Stmt_Throw (v, loc) -> loc
   | Stmt_Block (b, loc) -> loc
