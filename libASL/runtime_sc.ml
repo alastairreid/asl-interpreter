@@ -257,19 +257,17 @@ module Runtime : RT.RuntimeLib = struct
         RT.pp_expr x
         (intN_literal target_width) Z.one
         (intN_literal target_width) Z.zero
+    end else if target_width <= 64 then begin
+      PP.fprintf fmt "((%a)((%a.to_int64() << %d) >> %d))"
+        ty_sintN target_width
+        RT.pp_expr x
+        (64-n)
+        (64-n)
     end else begin
-      if target_width <= 64 then begin
-        PP.fprintf fmt "((%a)((%a.to_int64() << %d) >> %d))"
-          ty_sintN target_width
-          RT.pp_expr x
-          (64-n)
-          (64-n)
-      end else begin
-        PP.fprintf fmt "((%a)((%a)%a))"
-          ty_sintN target_width
-          ty_sint n
-          RT.pp_expr x
-      end
+      PP.fprintf fmt "((%a)((%a)%a))"
+        ty_sintN target_width
+        ty_sint n
+        RT.pp_expr x
     end
 
   let cvt_bits_ssintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) : unit = cvt_bits_sint_aux fmt n n x
@@ -285,16 +283,15 @@ module Runtime : RT.RuntimeLib = struct
       PP.fprintf fmt "({ (void)%a; %a; })"
         RT.pp_expr x
         (intN_literal n) Z.zero
+    end else if target_width <= 64 then begin
+      PP.fprintf fmt "((%a)(%a.to_uint64()))"
+        ty_sintN target_width
+        RT.pp_expr x
     end else begin
-      if target_width <= 64 then
-        PP.fprintf fmt "((%a)(%a.to_uint64()))"
-          ty_sintN target_width
-          RT.pp_expr x
-      else
-        PP.fprintf fmt "((%a)((%a)%a))"
-          ty_sintN target_width
-          ty_bits target_width
-          RT.pp_expr x
+      PP.fprintf fmt "((%a)((%a)%a))"
+        ty_sintN target_width
+        ty_bits target_width
+        RT.pp_expr x
     end
 
   let cvt_bits_usintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) : unit = cvt_bits_uint_aux fmt n (n+1) x

@@ -52,8 +52,22 @@ module Runtime : RT.RuntimeLib = struct
       "#include \"asl/runtime.hpp\"";
   ]
 
-  let ty_int (fmt : PP.formatter) : unit = ty_sint fmt int_width
-  let ty_sintN (fmt : PP.formatter) (width : int) : unit = ty_sint fmt width
+  (* round up integer sizes to 8/16/32/64 *)
+  let nearest_intsize (width : int) : int =
+      if width <= 8 then 8
+      else if width <= 16 then 16
+      else if width <= 32 then 32
+      else if width <= 64 then 64
+      else failwith "nearest_intsize: called with bad argument"
+
+  let ty_sintN (fmt : PP.formatter) (width : int) : unit =
+      (* Optimization: use standard types when we can *)
+      if width <= 64 then
+          PP.fprintf fmt "int%d_t" (nearest_intsize width)
+      else
+          ty_sint fmt width
+
+  let ty_int (fmt : PP.formatter) : unit = ty_sintN fmt int_width
   let ty_bits (fmt : PP.formatter) (width : int) : unit = ty_uint fmt width
   let ty_ram (fmt : PP.formatter) : unit = asl_keyword fmt "ram_t"
 
@@ -80,7 +94,9 @@ module Runtime : RT.RuntimeLib = struct
     PP.fprintf fmt "}, false)"
 
   let intN_literal (n : int) (fmt : PP.formatter) (x : Z.t) : unit =
-    if Z.gt x min_64bit_signed && Z.leq x max_64bit_signed then begin
+    if n <= 64 then
+      PP.fprintf fmt "(%s)" (Z.format "%d" x)
+    else if Z.gt x min_64bit_signed && Z.leq x max_64bit_signed then begin
       (* Minor optimization to improve readability and efficiency *)
       PP.fprintf fmt "ac_int<%d>(%s)" n (Z.format "%d" x)
     end else if Z.geq x Z.zero then begin
@@ -104,7 +120,7 @@ module Runtime : RT.RuntimeLib = struct
       let num_limbs = (x.n + 31) / 32 in
       let limbs = split_int x.v num_limbs 32 in
       PP.fprintf fmt "ac::bit_fill<%a>((int [%d]){"
-        ty_uint x.n
+        ty_bits x.n
         num_limbs;
       PP.pp_print_list
         ~pp_sep:(fun fmt _ -> PP.pp_print_string fmt ", ")
@@ -147,13 +163,13 @@ module Runtime : RT.RuntimeLib = struct
 
   let fdiv_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit =
     PP.fprintf fmt "({ %a __tmp1 = %a; "
-      ty_sint n
+      ty_sintN n
       RT.pp_expr x;
     PP.fprintf fmt "%a __tmp2 = %a; "
-      ty_sint n
+      ty_sintN n
       RT.pp_expr y;
-    PP.fprintf fmt "%a __tmp3 = __tmp1 / __tmp2; " ty_sint n;
-    PP.fprintf fmt "%a __tmp4 = __tmp1 %% __tmp2; " ty_sint n;
+    PP.fprintf fmt "%a __tmp3 = __tmp1 / __tmp2; " ty_sintN n;
+    PP.fprintf fmt "%a __tmp4 = __tmp1 %% __tmp2; " ty_sintN n;
     PP.fprintf fmt "if (__tmp4 != 0 && (__tmp1 < %a || __tmp2 < %a)) { __tmp3 = __tmp3 - 1; } "
       zero_sintN n
       zero_sintN n;
@@ -161,13 +177,13 @@ module Runtime : RT.RuntimeLib = struct
 
   let frem_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit =
     PP.fprintf fmt "({ %a __tmp1 = %a; "
-      ty_sint n
+      ty_sintN n
       RT.pp_expr x;
     PP.fprintf fmt "%a __tmp2 = %a; "
-      ty_sint n
+      ty_sintN n
       RT.pp_expr y;
-    PP.fprintf fmt "%a __tmp3 = __tmp1 / __tmp2; " ty_sint n;
-    PP.fprintf fmt "%a __tmp4 = __tmp1 %% __tmp2; " ty_sint n;
+    PP.fprintf fmt "%a __tmp3 = __tmp1 / __tmp2; " ty_sintN n;
+    PP.fprintf fmt "%a __tmp4 = __tmp1 %% __tmp2; " ty_sintN n;
     PP.fprintf fmt "if (__tmp4 != 0 && (__tmp1 < %a || __tmp2 < %a)) { __tmp4 = __tmp4 + __tmp2; } "
       zero_sintN n
       zero_sintN n;
@@ -175,30 +191,30 @@ module Runtime : RT.RuntimeLib = struct
 
   let is_pow2_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) : unit =
     PP.fprintf fmt "({ %a __tmp = %a; "
-      ty_sint n
+      ty_sintN n
       RT.pp_expr x;
     PP.fprintf fmt "__tmp != 0 && (__tmp & (__tmp - 1)) == 0; })"
 
   let pow2_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) : unit =
     PP.fprintf fmt "(%a << %a)"
-      int_literal Z.one
+      (intN_literal n) Z.one
       RT.pp_expr x
 
   let align_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit =
     (* x & (~((1 << y) - 1)) *)
     PP.fprintf fmt "(%a & (~((%a << %a) - %a)))"
       RT.pp_expr x
-      int_literal Z.one
+      (intN_literal n) Z.one
       RT.pp_expr y
-      int_literal Z.one
+      (intN_literal n) Z.one
 
   let mod_pow2_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit =
     (* x & ((1 << y) - 1) *)
     PP.fprintf fmt "(%a & ((%a << %a) - %a))"
       RT.pp_expr x
-      int_literal Z.one
+      (intN_literal n) Z.one
       RT.pp_expr y
-      int_literal Z.one
+      (intN_literal n) Z.one
 
   (* A generalization of cvt_bits_ssintN that can either
    * - convert bits(N) to __sint(N)
@@ -217,9 +233,15 @@ module Runtime : RT.RuntimeLib = struct
         RT.pp_expr x
         (intN_literal target_width) Z.one
         (intN_literal target_width) Z.zero
+    end else if target_width <= 64 then begin
+      PP.fprintf fmt "((%a)((%a.to_int64() << %d) >> %d))"
+        ty_sintN target_width
+        RT.pp_expr x
+        (64-n)
+        (64-n)
     end else begin
       PP.fprintf fmt "((%a)((%a)%a))"
-        ty_sint target_width
+        ty_sintN target_width
         ty_sint n
         RT.pp_expr x
     end
@@ -237,10 +259,14 @@ module Runtime : RT.RuntimeLib = struct
       PP.fprintf fmt "({ (void)%a; %a; })"
         RT.pp_expr x
         int_literal Z.zero
+    end else if target_width <= 64 then begin
+      PP.fprintf fmt "((%a)(%a.to_uint64()))"
+        ty_sintN target_width
+        RT.pp_expr x
     end else begin
       PP.fprintf fmt "((%a)((%a)%a))"
-        ty_sint target_width
-        ty_uint target_width
+        ty_sintN target_width
+        ty_bits target_width
         RT.pp_expr x
     end
 
@@ -252,25 +278,55 @@ module Runtime : RT.RuntimeLib = struct
       PP.fprintf fmt "({ (void)%a; %a; })"
         RT.pp_expr x
         empty_bits ()
+    else if n <= 64 then
+      PP.fprintf fmt "(%a(%a))"
+        ty_bits n
+        RT.pp_expr x
     else
       PP.fprintf fmt "((%a)(%a))"
-        ty_uint n
+        ty_bits n
         RT.pp_expr x
 
   let cvt_sintN_int (fmt : PP.formatter) (n : int) (x : RT.rt_expr) : unit =
-    PP.fprintf fmt "((%a)%a)"
-      ty_sint n
-      RT.pp_expr x
+    if n <= 64 then
+      PP.fprintf fmt "(%a(%a))"
+        ty_sintN int_width
+        RT.pp_expr x
+    else
+      PP.fprintf fmt "((%a)%a)"
+        ty_sintN int_width
+        RT.pp_expr x
 
   let cvt_int_sintN (fmt : PP.formatter) (n : int) (x : RT.rt_expr) : unit =
-    PP.fprintf fmt "((%a)%a)"
-      ty_sint int_width
-      RT.pp_expr x
+    if n <= 64 then
+      PP.fprintf fmt "((%a)%a.to_int64())"
+        ty_sintN n
+        RT.pp_expr x
+    else
+      PP.fprintf fmt "((%a)%a)"
+        ty_sint int_width
+        RT.pp_expr x
 
   let resize_sintN (fmt : PP.formatter) (m : int) (n : int) (x : RT.rt_expr) : unit =
-    PP.fprintf fmt "((%a)%a)"
-      ty_sint int_width
-      RT.pp_expr x
+    if m <= 64 then begin
+      if n <= 64 then
+        PP.fprintf fmt "((%a)%a)"
+          ty_sintN n
+          RT.pp_expr x
+      else
+        PP.fprintf fmt "(%a(%a))"
+          ty_sintN n
+          RT.pp_expr x
+    end else begin
+      if n <= 64 then
+        PP.fprintf fmt "((%a)%a.to_int64())"
+          ty_sintN n
+          RT.pp_expr x
+      else
+        PP.fprintf fmt "((%a)%a)"
+          ty_sintN n
+          RT.pp_expr x
+    end
 
   let print_sint64_decimal (fmt : PP.formatter) (n : int) (add_size : bool) (x : string) : unit =
     if add_size then begin
@@ -281,10 +337,10 @@ module Runtime : RT.RuntimeLib = struct
       PP.fprintf fmt "        %s = -%s;@," x x;
       PP.fprintf fmt "        printf(\"-\");@,";
       PP.fprintf fmt "      }@,";
-      PP.fprintf fmt "      printf(\"i%d'd%%llu\", %s.to_uint64());@," n x;
+      PP.fprintf fmt "      printf(\"i%d'd%%llu\", (uint64_t)(%s));@," n x;
       PP.fprintf fmt "    }"
     end else begin
-      PP.fprintf fmt "    printf(\"%%lld\", %s.to_uint64());@," x
+      PP.fprintf fmt "    printf(\"%%lld\", (uint64_t)(%s));@," x
     end
 
   let print_sintN_decimal (fmt : PP.formatter) (n : int) ~(add_size : bool) (x : RT.rt_expr) : unit =
@@ -298,7 +354,12 @@ module Runtime : RT.RuntimeLib = struct
         PP.fprintf fmt "  if (__tmp >= %a && __tmp <= %a) {@,"
           pp_min_sintN 63
           pp_max_sintN 63;
-        print_sint64_decimal fmt n add_size "__tmp";
+        begin
+          if n <= 64 then
+            print_sint64_decimal fmt n add_size "__tmp"
+          else
+            print_sint64_decimal fmt n add_size "__tmp.to_int()"
+        end;
         PP.fprintf fmt "  } else {@,";
         PP.fprintf fmt "    if (__tmp < %a) {@," zero_sintN n;
         PP.fprintf fmt "      __tmp = -__tmp;@,";
@@ -308,7 +369,12 @@ module Runtime : RT.RuntimeLib = struct
                      else PP.fprintf fmt "    printf(\"0x\");@,");
         PP.fprintf fmt "    bool leading = true;@,";
         PP.fprintf fmt "    for(int i = (%d-1)&~3; i >= 0; i -= 4) {@," n;
-        PP.fprintf fmt "      unsigned c = ((unsigned) __tmp.slc<4>(i)) & 15;@,";
+        begin
+          if n <= 64 then
+            PP.fprintf fmt "      unsigned c = (__tmp >> i) & 0xf;@,"
+          else
+            PP.fprintf fmt "      unsigned c = ((unsigned) __tmp.slc<4>(i)) & 15;@,";
+        end;
         PP.fprintf fmt "      if (leading) {@,";
         PP.fprintf fmt "        if (i == 0 || c) {@,";
         PP.fprintf fmt "          printf(\"%%x\", c);@,";
@@ -323,7 +389,7 @@ module Runtime : RT.RuntimeLib = struct
     end
 
   let print_sintN_hexadecimal (fmt : PP.formatter) (n : int) ~(add_size : bool) (x : RT.rt_expr) : unit =
-    PP.fprintf fmt "@[<v>{ %a __tmp = %a;@," ty_sint n RT.pp_expr x;
+    PP.fprintf fmt "@[<v>{ %a __tmp = %a;@," ty_sintN n RT.pp_expr x;
     PP.fprintf fmt "  if (__tmp < %a) {@," zero_sintN n;
     PP.fprintf fmt "    __tmp = -__tmp;@,";
     PP.fprintf fmt "    printf(\"-\");@,";
@@ -332,7 +398,12 @@ module Runtime : RT.RuntimeLib = struct
                  else PP.fprintf fmt "  printf(\"0x\");@,");
     PP.fprintf fmt "  bool leading = true;@,";
     PP.fprintf fmt "  for(int i = (%d-1)&~3; i >= 0; i -= 4) {@," n;
-    PP.fprintf fmt "    unsigned c = ((unsigned) __tmp.slc<4>(i)) & 15;@,";
+    begin
+      if n <= 64 then
+        PP.fprintf fmt "    unsigned c = (__tmp >> i) & 0xf;@,"
+      else
+        PP.fprintf fmt "    unsigned c = ((unsigned) __tmp.slc<4>(i)) & 15;@,";
+    end;
     PP.fprintf fmt "    if (leading) {@,";
     PP.fprintf fmt "      if (i == 0 || c) {@,";
     PP.fprintf fmt "        printf(\"%%x\", c);@,";
@@ -381,7 +452,7 @@ module Runtime : RT.RuntimeLib = struct
   let get_slice_int (fmt : PP.formatter) (w : int) (x : RT.rt_expr) (i : RT.rt_expr) : unit =
     let mask = Z.sub (Z.shift_left Z.one w) Z.one in
     PP.fprintf fmt "((%a)((%a >> %a) & %a))"
-      ty_uint w
+      ty_bits w
       RT.pp_expr x
       RT.pp_expr i
       (intN_literal int_width) mask
@@ -391,10 +462,10 @@ module Runtime : RT.RuntimeLib = struct
     PP.fprintf fmt "%a = ({ int __index = %a; %a __mask = %a << __index; (%a & ~__mask) | (((%a)%a) << __index); });"
       RT.pp_expr l
       RT.pp_expr i
-      ty_sint int_width
+      ty_sintN int_width
       (intN_literal int_width) mask
       RT.pp_expr l
-      ty_sint int_width
+      ty_sintN int_width
       RT.pp_expr r
 
   let print_int_dec (fmt : PP.formatter) (x : RT.rt_expr) : unit =
@@ -449,7 +520,7 @@ module Runtime : RT.RuntimeLib = struct
 
   let asr_bits (fmt : PP.formatter) (n : int) (x : RT.rt_expr) (y : RT.rt_expr) : unit =
     PP.fprintf fmt "((%a)(((%a)%a) >> %a))"
-      ty_uint n
+      ty_bits n
       ty_sint n
       RT.pp_expr x
       RT.pp_expr y
@@ -475,12 +546,12 @@ module Runtime : RT.RuntimeLib = struct
 
   let zero_extend_bits (fmt : PP.formatter) (m : int) (n : int)  (x : RT.rt_expr) : unit =
     PP.fprintf fmt "((%a)%a)"
-    ty_uint n
+    ty_bits n
     RT.pp_expr x
 
   let sign_extend_bits (fmt : PP.formatter) (m : int) (n : int)  (x : RT.rt_expr) : unit =
     PP.fprintf fmt "((%a)(%a)(%a)%a)"
-    ty_uint n
+    ty_bits n
     ty_sint n
     ty_sint m
     RT.pp_expr x
@@ -618,20 +689,20 @@ module Runtime : RT.RuntimeLib = struct
 
   (* Foreign Function Interface (FFI) *)
   let ffi_c2asl_integer_small (fmt : PP.formatter) (x : RT.rt_expr) : unit =
-    PP.fprintf fmt "((%a)%a)" ty_sint int_width RT.pp_expr x
+    PP.fprintf fmt "((%a)%a)" ty_sintN int_width RT.pp_expr x
 
   let ffi_asl2c_integer_small (fmt : PP.formatter) (x : RT.rt_expr) : unit =
     PP.fprintf fmt "%a.to_int64()" RT.pp_expr x
 
   let ffi_c2asl_sintN_small (n : int) (fmt : PP.formatter) (x : RT.rt_expr) : unit =
-    PP.fprintf fmt "((%a)%a)" ty_sint int_width RT.pp_expr x
+    PP.fprintf fmt "((%a)%a)" ty_sintN n RT.pp_expr x
 
   let ffi_asl2c_sintN_small (n : int) (fmt : PP.formatter) (x : RT.rt_expr) : unit =
-    PP.fprintf fmt "((int64_t)%a)" RT.pp_expr x
+    PP.fprintf fmt "((%a)%a)" ty_sintN 64 RT.pp_expr x
 
   let ffi_c2asl_bits_small (n : int) (fmt : PP.formatter) (x : RT.rt_expr) : unit =
     assert (List.mem n [8; 16; 32; 64]);
-    PP.fprintf fmt "((%a) %a)"
+    PP.fprintf fmt "((%a)%a)"
       ty_bits n
       RT.pp_expr x
 
@@ -648,7 +719,7 @@ module Runtime : RT.RuntimeLib = struct
       RT.pp_expr x;
     PP.fprintf fmt "%a = ac::bit_fill<%a>((const int [%d]){"
       RT.pp_expr x
-      ty_uint n
+      ty_bits n
       num_limbs;
     for limb = num_limbs - 1 downto 0 do
       (* generate either "(int)(x[limb] >> 0)" or "(int)(x[limb] >> 32)" *)
