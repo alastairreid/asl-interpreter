@@ -75,15 +75,13 @@ class hoist_lets (ds : AST.declaration list option) = object (self)
           ) else (
             Visitor.ChangeTo (Expr_TApply (f, [], [a'; b'], NoThrow))
           )
-      | Expr_If (c, t, els, e) ->
-          let c' = visit_expr (self :> aslVisitor) c in
-          let t' = self#hoist_lets_to_expression_top t in
+      | Expr_If (els, e) ->
           let els' = Visitor.mapNoCopy (visit_e_elsif (self :> aslVisitor)) els in
           let e' = self#hoist_lets_to_expression_top e in
-          if c == c' && t == t' && els == els' && e == e' then (
+          if els == els' && e == e' then (
             Visitor.SkipChildren
           ) else (
-            Visitor.ChangeTo (Expr_If (c', t', els', e'))
+            Visitor.ChangeTo (Expr_If (els', e'))
           )
       | _ ->
           Visitor.DoChildren
@@ -92,7 +90,10 @@ class hoist_lets (ds : AST.declaration list option) = object (self)
     method! vstmt x =
       assert (Utils.is_empty bindings);
       ( match x with
-      | Stmt_If (c, t, els, (e, el), loc) ->
+      | Stmt_If ([], (e, el), loc) ->
+          let e' = visit_stmts (self :> aslVisitor) e in
+          Visitor.ChangeTo e'
+      | Stmt_If ((c, t, l)::els, (e, el), loc) ->
           let (lets, asserts, c') = self#hoist_lets_out_of_expression c in
           let t' = visit_stmts (self :> aslVisitor) t in
           let els' = Visitor.mapNoCopy (visit_s_elsif (self :> aslVisitor)) els in
@@ -102,7 +103,7 @@ class hoist_lets (ds : AST.declaration list option) = object (self)
           ) else (
             let lets' = Asl_utils.mk_assigns loc lets in
             let asserts' = Asl_utils.mk_assert_stmts asserts in
-            Visitor.ChangeTo (lets' @ asserts' @ [Stmt_If (c', t', els', (e', el), loc)])
+            Visitor.ChangeTo (lets' @ asserts' @ [Stmt_If ((c', t', l)::els', (e', el), loc)])
           )
       | Stmt_While (c, b, loc) ->
           let c' = self#hoist_lets_to_expression_top c in
@@ -138,25 +139,25 @@ class hoist_lets (ds : AST.declaration list option) = object (self)
 
     method !vs_elsif x =
       ( match x with
-      | S_Elsif_Cond (c, b, loc) ->
+      | (c, b, loc) ->
           let c' = self#hoist_lets_to_expression_top c in
           let b' = visit_stmts (self :> aslVisitor) b in
           if c == c' && b == b' then (
             Visitor.SkipChildren
           ) else (
-            Visitor.ChangeTo (S_Elsif_Cond (c', b', loc))
+            Visitor.ChangeTo (c', b', loc)
           )
       )
 
     method !ve_elsif x =
       ( match x with
-      | E_Elsif_Cond (c, e) ->
+      | (c, e) ->
           let c' = self#hoist_lets_to_expression_top c in
           let e' = self#hoist_lets_to_expression_top e in
           if c == c' && e == e' then (
             Visitor.SkipChildren
           ) else (
-            Visitor.ChangeTo (E_Elsif_Cond (c', e'))
+            Visitor.ChangeTo (c', e')
           )
       )
 

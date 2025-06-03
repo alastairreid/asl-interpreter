@@ -321,15 +321,16 @@ and eval_slice (loc : Loc.t) (env : Env.t) (x : AST.slice) : value * value =
 (** Evaluate expression *)
 and eval_expr (loc : Loc.t) (env : Env.t) (x : AST.expr) : value =
   match x with
-  | Expr_If (c, t, els, e) ->
+  | Expr_If (els, e) ->
       let rec eval_if xs d =
-        match xs with
+        ( match xs with
         | [] -> eval_expr loc env d
-        | AST.E_Elsif_Cond (cond, b) :: xs' ->
+        | (cond, b) :: xs' ->
             if to_bool loc (eval_expr loc env cond) then eval_expr loc env b
             else eval_if xs' d
+        )
       in
-      eval_if (E_Elsif_Cond (c, t) :: els) e
+      eval_if els e
   | Expr_Let (v, t, e, b) ->
       Env.nest env (fun env' ->
         let e' = eval_expr loc env e in
@@ -601,15 +602,15 @@ and eval_stmt (env : Env.t) (x : AST.stmt) : unit =
   | Stmt_Throw (e, loc) ->
       raise (Throw (loc, eval_expr loc env e))
   | Stmt_Block (b, loc) -> eval_stmts env b
-  | Stmt_If (c, t, els, (e, el), loc) ->
+  | Stmt_If (els, (e, el), loc) ->
       let rec eval css d =
         match css with
         | [] -> eval_stmts env d
-        | S_Elsif_Cond (c, s, loc) :: css' ->
+        | (c, s, loc) :: css' ->
             if to_bool loc (eval_expr loc env c) then eval_stmts env s
             else eval css' d
       in
-      eval (S_Elsif_Cond (c, t, loc) :: els) e
+      eval els e
   | Stmt_Case (e, oty, alts, odefault, loc) ->
       let rec eval v alts =
         match alts with

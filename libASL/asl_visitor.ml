@@ -95,11 +95,12 @@ and visit_lvar (vis : aslVisitor) (x : Ident.t) : Ident.t =
 
 and visit_e_elsif (vis : aslVisitor) (x : e_elsif) : e_elsif =
   let aux (vis : aslVisitor) (x : e_elsif) : e_elsif =
-    match x with
-    | E_Elsif_Cond (c, e) ->
+    ( match x with
+    | (c, e) ->
         let c' = visit_expr vis c in
         let e' = visit_expr vis e in
-        if c == c' && e == e' then x else E_Elsif_Cond (c', e')
+        if c == c' && e == e' then x else (c', e')
+    )
   in
   doVisit vis (vis#ve_elsif x) aux x
 
@@ -175,13 +176,11 @@ and visit_pattern (vis : aslVisitor) (x : pattern) : pattern =
 and visit_expr (vis : aslVisitor) (x : expr) : expr =
   let aux (vis : aslVisitor) (x : expr) : expr =
     ( match x with
-    | Expr_If (c, t, els, e) ->
-        let c' = visit_expr vis c in
-        let t' = visit_expr vis t in
+    | Expr_If (els, e) ->
         let els' = mapNoCopy (visit_e_elsif vis) els in
         let e' = visit_expr vis e in
-        if c == c' && t == t' && els == els' && e == e' then x
-        else Expr_If (c', t', els', e')
+        if els == els' && e == e' then x
+        else Expr_If (els', e')
     | Expr_Let (v, t, e, b) ->
         let v' = visit_var vis Definition v in
         let t' = visit_type vis t in
@@ -477,13 +476,11 @@ and visit_stmt (vis : aslVisitor) (x : stmt) : stmt list =
     | Stmt_Block (b, loc) ->
         let b' = visit_stmts vis b in
         if b == b' then x else Stmt_Block (b', loc)
-    | Stmt_If (c, t, els, (e, el), loc) ->
-        let c' = visit_expr vis c in
-        let t' = visit_stmts vis t in
+    | Stmt_If (els, (e, el), loc) ->
         let els' = mapNoCopy (visit_s_elsif vis) els in
         let e' = visit_stmts vis e in
-        if c == c' && t == t' && els == els' && e == e' then x
-        else Stmt_If (c', t', els', (e', el), loc)
+        if els == els' && e == e' then x
+        else Stmt_If (els', (e', el), loc)
     | Stmt_Case (e, oty, alts, ob, loc) ->
         let e' = visit_expr vis e in
         let oty' = mapOptionNoCopy (visit_type vis) oty in
@@ -518,11 +515,12 @@ and visit_stmt (vis : aslVisitor) (x : stmt) : stmt list =
 
 and visit_s_elsif (vis : aslVisitor) (x : s_elsif) : s_elsif =
   let aux (vis : aslVisitor) (x : s_elsif) : s_elsif =
-    match x with
-    | S_Elsif_Cond (c, b, loc) ->
+    ( match x with
+    | (c, b, loc) ->
         let c' = visit_expr vis c in
         let b' = visit_stmts vis b in
-        if c == c' && b == b' then x else S_Elsif_Cond (c', b', loc)
+        if c == c' && b == b' then x else (c', b', loc)
+    )
   in
   doVisit vis (vis#vs_elsif x) aux x
 

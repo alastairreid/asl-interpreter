@@ -439,13 +439,14 @@ simple_stmt:
 
 conditional_stmt:
 | IF c = expr THEN t = block els = list(s_elsif) f = optional_else END
-    { Stmt_If(c, t, els, f, Range($symbolstartpos, $endpos)) }
+    { let loc = Range($symbolstartpos, $endpos(t)) in
+      Stmt_If((c, t, loc)::els, f, Range($symbolstartpos, $endpos)) }
 | CASE e = expr OF alts = nonempty_list(alt) ob = opt_otherwise END
     { Stmt_Case(e, None, alts, ob, Range($symbolstartpos, $endpos)) }
 
 s_elsif:
 | ELSIF c = expr THEN b = block
-    { S_Elsif_Cond(c, b, Range($symbolstartpos, $endpos)) }
+    { (c, b, Range($symbolstartpos, $endpos)) }
 
 optional_else:
 | ELSE b = block { (b, Range($symbolstartpos, $endpos)) }
@@ -512,7 +513,7 @@ expr:
 
 conditional_expression:
 | IF c = cexpr THEN t = expr els = list(e_elsif) ELSE e = expr
-    { Expr_If(c, t, els, e) }
+    { Expr_If((c, t)::els, e) }
 | UNDERSCORE_UNDERSCORE_LET v = ident COLON ty = ty EQ e = expr UNDERSCORE_UNDERSCORE_IN b = expr
     { Expr_Let(v, ty, e, b) }
 | UNDERSCORE_UNDERSCORE_ASSERT e1 = expr UNDERSCORE_UNDERSCORE_IN e2 = expr
@@ -520,7 +521,7 @@ conditional_expression:
 | cexpr = cexpr { cexpr }
 
 e_elsif:
-| ELSIF c = expr THEN e = expr { E_Elsif_Cond(c, e) }
+| ELSIF c = expr THEN e = expr { (c, e) }
 
 cexpr:
 | bexpr = bexpr fs = list(factor)

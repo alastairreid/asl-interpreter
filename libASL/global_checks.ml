@@ -113,9 +113,8 @@ let rec canthrow_stmt (x : AST.stmt) : status =
   | Stmt_Assert (e, loc) -> ok
   | Stmt_Throw (e, loc) -> throw
   | Stmt_Block (b, loc) -> canthrow_stmts b
-  | Stmt_If (c, t, els, (e, el), loc) ->
-      let els' = AST.S_Elsif_Cond (c, t, loc) :: els in
-      let rs = List.map (function AST.S_Elsif_Cond(e, b, _) -> status_seq (canthrow_expr e) (canthrow_stmts b)) els' in
+  | Stmt_If (els, (e, el), loc) ->
+      let rs = List.map (function (e, b, _) -> status_seq (canthrow_expr e) (canthrow_stmts b)) els in
       let r = canthrow_stmts e in
       List.fold_left status_merge r rs
   | Stmt_Case (e, oty, alts, ob, loc) ->

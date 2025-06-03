@@ -68,7 +68,7 @@ pattern =
  | Pat_Single of expr
 
 and expr =
-   Expr_If of expr * expr * e_elsif list * expr
+   Expr_If of (expr * expr) list * expr
  | Expr_Let of Ident.t * ty * expr * expr (* IR extension, not intended for use in specs *)
  | Expr_Assert of expr * expr * Loc.t (* IR extension, not intended for use in specs *)
  | Expr_Binop of expr * binop * expr
@@ -91,12 +91,11 @@ and expr =
  | Expr_Array of expr * expr (* array accesses *)
  | Expr_Lit of Value.value
 
+and e_elsif = (expr * expr)
+
 and change =
  | Change_Field of Ident.t
  | Change_Slices of slice list
-
-and e_elsif =
-   E_Elsif_Cond of expr * expr
 
 and slice =
    Slice_Single of expr
@@ -161,15 +160,14 @@ and stmt =
  | Stmt_UCall of Ident.t * (Ident.t option * expr) list * can_throw * Loc.t (* procedure call before typechecking - optional name arguments, no type parameters *)
  | Stmt_TCall of Ident.t * expr list * expr list * can_throw * Loc.t (* procedure call with explicit type parameters *)
  | Stmt_VarDeclsNoInit of Ident.t list * ty * Loc.t
- | Stmt_If of expr * stmt list * s_elsif list * (stmt list * Loc.t) * Loc.t
+ | Stmt_If of s_elsif list * (stmt list * Loc.t) * Loc.t
  | Stmt_Case of expr * ty option * alt list * (stmt list * Loc.t) option * Loc.t
  | Stmt_For of Ident.t * ty * expr * direction * expr * stmt list * Loc.t
  | Stmt_While of expr * stmt list * Loc.t
  | Stmt_Repeat of stmt list * expr * Loc.pos * Loc.t
  | Stmt_Try of stmt list * Loc.pos * catcher list * (stmt list * Loc.t) option * Loc.t
 
-and s_elsif =
-   S_Elsif_Cond of expr * stmt list * Loc.t
+and s_elsif = (expr * stmt list * Loc.t)
 
 and alt =
    Alt_Alt of pattern list * expr option * stmt list * Loc.t

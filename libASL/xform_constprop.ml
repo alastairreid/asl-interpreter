@@ -199,11 +199,11 @@ class constEvalClass (env : Env.t) =
       | Expr_Array (a, i) ->
           let i' = self#eval_expr i in
           ChangeTo (Expr_Array (a, i'))
-      | Expr_If (c, t, els, e) ->
+      | Expr_If (els, e) ->
           let rec xform_if xs =
             ( match xs with
             | [] -> ([], self#eval_expr e)
-            | AST.E_Elsif_Cond (cond, b) :: xs' ->
+            | (cond, b) :: xs' ->
                 let cond' = self#eval_expr cond in
                 if cond' = asl_false then
                   xform_if xs'
@@ -212,13 +212,13 @@ class constEvalClass (env : Env.t) =
                 else
                   let b' = self#eval_expr b in
                   let (els', e') = xform_if xs' in
-                  (E_Elsif_Cond(cond', b') :: els', e')
+                  ((cond', b') :: els', e')
             )
           in
           ChangeTo
-            ( match xform_if (E_Elsif_Cond (c, t) :: els) with
+            ( match xform_if els with
             | ([], e') -> e'
-            | (E_Elsif_Cond(c', t') :: els', e') -> Expr_If(c', t', els', e')
+            | (els', e') -> Expr_If(els', e')
             )
       | Expr_Let (v, t, e, b) ->
           let t' = self#eval_type t in
@@ -481,11 +481,11 @@ and xform_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
       Env.throw env;
       [ Stmt_Throw (e', loc) ]
   | Stmt_Block (ss, loc) -> [ Stmt_Block (xform_stmts env ss, loc) ]
-  | Stmt_If (c, t, els, (e, el), loc) -> (
+  | Stmt_If (els, (e, el), loc) ->
       let rec xform env css =
-        match css with
+        ( match css with
         | [] -> ([], xform_stmts env e)
-        | S_Elsif_Cond (c, s, loc) :: css' ->
+        | (c, s, loc) :: css' ->
             (* todo: each branch should assert c or not c *)
             let c' = xform_expr env c in
             if c' = asl_false then begin
@@ -499,13 +499,14 @@ and xform_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
                   (fun env' -> xform_stmts env' s)
                   (fun env' -> xform env' css')
               in
-              (S_Elsif_Cond (c', s', loc) :: css'', e')
+              ((c', s', loc) :: css'', e')
             end
+        )
       in
-      match xform env (S_Elsif_Cond (c, t, loc) :: els) with
-      | [], e' -> e'
-      | S_Elsif_Cond (c', t', loc) :: els', e' ->
-          [ Stmt_If (c', t', els', (e', el), loc) ])
+      ( match xform env els with
+      | ([], e') -> e'
+      | (els', e') -> [Stmt_If (els', (e', el), loc)]
+      )
   | Stmt_Case (e, oty, alts, odefault, loc) ->
       let e' = xform_expr env e in
       let rec xform env alts =

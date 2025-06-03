@@ -322,25 +322,22 @@ and ixtype (fmt : PP.formatter) (x : AST.ixtype) : unit =
 
 and expr (fmt : PP.formatter) (x : AST.expr) : unit =
   ( match x with
-  | Expr_If (c, t, els, e) ->
+  | Expr_If (els, e) ->
     parens fmt (fun _ ->
-      kw_if fmt;
-      nbsp fmt;
-      expr fmt c;
-      nbsp fmt;
-      kw_then fmt;
-      nbsp fmt;
-      expr fmt t;
+      let first = ref true in
       map fmt
-        (fun (AST.E_Elsif_Cond (c, e)) ->
-          nbsp fmt;
-          kw_elsif fmt;
+        (fun (c, e) ->
+          (if !first
+           then kw_if fmt
+           else begin nbsp fmt; kw_elsif fmt end);
+          first := false;
           nbsp fmt;
           expr fmt c;
           nbsp fmt;
           kw_then fmt;
           nbsp fmt;
-          expr fmt e)
+          expr fmt e
+        )
         els;
       nbsp fmt;
       kw_else fmt;
@@ -632,31 +629,29 @@ let rec stmt ?(short=false) (fmt : PP.formatter) (x : AST.stmt) : unit =
       indented_block ~short fmt ss;
       cut fmt;
       kw_end fmt
-  | Stmt_If (c, t, els, (e, el), loc) ->
+  | Stmt_If (els, (e, el), loc) ->
       vbox fmt (fun _ ->
-          kw_if fmt;
-          nbsp fmt;
-          expr fmt c;
-          nbsp fmt;
-          kw_then fmt;
           if short then
-              Format.fprintf fmt "..."
+              Format.fprintf fmt "if ... then ..."
           else begin
-              indented_block fmt t;
+              let first = ref true in
               map fmt
-                (fun (AST.S_Elsif_Cond (c, s, loc)) ->
-                  cut fmt;
-                  kw_elsif fmt;
+                (fun (c, s, loc) ->
+                  (if !first
+                   then kw_if fmt
+                   else begin cut fmt; kw_elsif fmt end);
+                  first := false;
                   nbsp fmt;
                   expr fmt c;
                   nbsp fmt;
                   kw_then fmt;
                   indented_block fmt s)
                 els;
-              if e <> [] then (
+              if e <> [] then begin
                 cut fmt;
                 kw_else fmt;
-                indented_block fmt e);
+                indented_block fmt e
+              end;
               cut fmt;
               kw_end fmt
           end

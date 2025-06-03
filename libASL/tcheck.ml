@@ -1608,11 +1608,10 @@ and tc_arg (env : Env.t) (loc : Loc.t) (x : (Ident.t option * AST.expr)) : ((Ide
 (** Typecheck 'if c then expr' *)
 and tc_e_elsif (env : Env.t) (loc : Loc.t) (x : AST.e_elsif) :
     AST.e_elsif * AST.ty =
-  match x with
-  | E_Elsif_Cond (c, e) ->
-      let c' = check_expr env loc type_bool c in
-      let e', ty = tc_expr env loc e in
-      (E_Elsif_Cond (c', e'), ty)
+  let (c, e) = x in
+  let c' = check_expr env loc type_bool c in
+  let e', ty = tc_expr env loc e in
+  ((c', e'), ty)
 
 (** Typecheck bitslice indices and insert runtime check *)
 and tc_slice (env : Env.t) (loc : Loc.t) (x : AST.slice) :
@@ -1730,14 +1729,11 @@ and tc_slice_expr (env : Env.t) (loc : Loc.t) (x : expr)
 (** Typecheck expression *)
 and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) : AST.expr * AST.ty =
   ( match x with
-  | Expr_If (c, t, els, e) ->
-      let c' = check_expr env loc type_bool c in
-      let t', tty = tc_expr env loc t in
-      let els', eltys = List.split (List.map (tc_e_elsif env loc) els) in
-      let e', ety = tc_expr env loc e in
-      let ty = List.fold_left (least_supertype env loc) tty eltys in
-      let ty' = least_supertype env loc ty ety in
-      (Expr_If (c', t', els', e'), ty')
+  | Expr_If (els, e) ->
+      let (els', eltys) = List.split (List.map (tc_e_elsif env loc) els) in
+      let (e', ety) = tc_expr env loc e in
+      let ty = List.fold_left (least_supertype env loc) ety eltys in
+      (Expr_If (els', e'), ty)
   | Expr_Let (v, t, e, b) ->
       Env.nest (fun env' ->
           let t' = tc_type env' loc t in
@@ -2644,11 +2640,10 @@ let rec tc_stmts (env : Env.t) (loc : Loc.t) (xs : AST.stmt list) :
 
 (** Typecheck 'if expr then stmt' *)
 and tc_s_elsif (env : Env.t) (x : AST.s_elsif) : AST.s_elsif =
-  match x with
-  | S_Elsif_Cond (c, s, loc) ->
-      let c' = check_expr env loc type_bool c in
-      let s' = tc_stmts env loc s in
-      S_Elsif_Cond (c', s', loc)
+  let (c, s, loc) = x in
+  let c' = check_expr env loc type_bool c in
+  let s' = tc_stmts env loc s in
+  (c', s', loc)
 
 (** Typecheck case alternative *)
 and tc_alt (env : Env.t) (ty : AST.ty) (x : AST.alt) : AST.alt =
@@ -2739,12 +2734,10 @@ and tc_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
   | Stmt_Block (ss, loc) ->
       let ss' = tc_stmts env loc ss in
       [Stmt_Block (ss', loc)]
-  | Stmt_If (c, t, els, (e, el), loc) ->
-      let c' = check_expr env loc type_bool c in
-      let t' = tc_stmts env loc t in
+  | Stmt_If (els, (e, el), loc) ->
       let els' = List.map (tc_s_elsif env) els in
       let e' = tc_stmts env el e in
-      [Stmt_If (c', t', els', (e', el), loc)]
+      [Stmt_If (els', (e', el), loc)]
   | Stmt_Case (e, _, alts, odefault, loc) ->
       let (e', ty') = tc_expr env loc e in
       let alts' = List.map (tc_alt env ty') alts in

@@ -12,10 +12,6 @@ module AST = Asl_ast
 open Asl_utils
 open Builtin_idents
 
-let mk_elsif (x : (AST.expr * AST.stmt list * Loc.t)) : AST.s_elsif =
-  let (e, b, loc) = x in
-  AST.S_Elsif_Cond (e, b, loc)
-
 let mk_if
     (branches : (AST.expr * AST.stmt list * Loc.t) list)
     (d : (AST.stmt list * Loc.t))
@@ -23,7 +19,7 @@ let mk_if
   : AST.stmt list =
   ( match branches with
   | [] -> fst d
-  | ((c, t, loc) :: branches) -> [Stmt_If (c, t, List.map mk_elsif branches, d, loc)]
+  | _ -> [Stmt_If (branches, d, loc)]
   )
 
 let rec match_pattern (loc : Loc.t) (e : AST.expr) (p : AST.pattern) : AST.expr =

@@ -596,9 +596,8 @@ and expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
       PP.fprintf fmt "%a.%a"
         (expr loc) e
         ident f
-  | Expr_If (c, t, els, e) ->
-      let els1 = List.map (function AST.E_Elsif_Cond (c, e) -> (c, e)) els in
-      conds loc fmt ((c, t) :: els1) e
+  | Expr_If (els, e) ->
+      conds loc fmt els e
   | Expr_Let (v, t, e, b) ->
       PP.fprintf fmt "({ const ";
       varty loc fmt v t;
@@ -984,14 +983,16 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
       | Expr_Tuple([]) -> PP.fprintf fmt "return;"
       | e -> PP.fprintf fmt "return %a;" (expr loc) e
       )
-  | Stmt_If (c, t, els, (e, el), loc) ->
+  | Stmt_If (els, (e, el), loc) ->
       vbox fmt (fun _ ->
-          PP.fprintf fmt "if (%a) {%a@,}"
-            (expr loc) c
-            indented_block t;
+          let first = ref true in
           map fmt
-            (fun (AST.S_Elsif_Cond (c, s, loc)) ->
-              PP.fprintf fmt " else if (%a) {%a@,}"
+            (fun ((c, s, loc)) ->
+              (if !first
+               then PP.fprintf fmt "if"
+               else PP.fprintf fmt " else if");
+              first := false;
+              PP.fprintf fmt " (%a) {%a@,}"
                 (expr loc) c
                 indented_block s)
             els;
