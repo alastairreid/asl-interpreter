@@ -399,8 +399,7 @@ let rec locals_of_declitem (x : decl_item) : Ident.t list =
 let locals_of_stmt (x : stmt) : Ident.t list =
   match x with
   | Stmt_VarDeclsNoInit (vs, ty, loc) -> vs
-  | Stmt_VarDecl (dis, i, loc)
-  | Stmt_ConstDecl (dis, i, loc) -> locals_of_declitem dis
+  | Stmt_VarDecl (_, dis, i, loc) -> locals_of_declitem dis
   | _ -> []
 
 let visit_decl_bit (vis : aslVisitor) (x : (Ident.t option * ty)) : (Ident.t option * ty) =
@@ -441,14 +440,10 @@ and visit_stmt (vis : aslVisitor) (x : stmt) : stmt list =
         let ty' = visit_type vis ty in
         let vs' = mapNoCopy (visit_lvar vis) vs in
         if ty == ty' && vs == vs' then x else Stmt_VarDeclsNoInit (vs', ty', loc)
-    | Stmt_VarDecl (di, i, loc) ->
+    | Stmt_VarDecl (is_constant, di, i, loc) ->
         let di' = visit_decl_item vis di in
         let i' = visit_expr vis i in
-        if di == di' && i == i' then x else Stmt_VarDecl (di', i', loc)
-    | Stmt_ConstDecl (di, i, loc) ->
-        let di' = visit_decl_item vis di in
-        let i' = visit_expr vis i in
-        if di == di' && i == i' then x else Stmt_ConstDecl (di', i', loc)
+        if di == di' && i == i' then x else Stmt_VarDecl (is_constant, di', i', loc)
     | Stmt_Assign (l, r, loc) ->
         let l' = visit_lexpr vis l in
         let r' = visit_expr vis r in

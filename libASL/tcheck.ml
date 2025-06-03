@@ -2680,26 +2680,21 @@ and tc_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
       let ty' = tc_type env loc ty in
       List.iter (fun v -> Env.addLocalVar env {name=v; loc; ty=ty'; is_local=true; is_constant=false}) vs;
       [Stmt_VarDeclsNoInit (vs, ty', loc)]
-  | Stmt_VarDecl (di, i, loc) ->
+  | Stmt_VarDecl (is_constant, di, i, loc) ->
       let (i', ity) = tc_expr env loc i in
-      let di' = tc_decl_item env loc false ity di in
-      add_decl_item_vars env loc false di';
-      [Stmt_VarDecl (di', i', loc)]
-  | Stmt_ConstDecl (di, i, loc) ->
-      let (i', ity) = tc_expr env loc i in
-      let di' = tc_decl_item env loc true ity di in
-      add_decl_item_vars env loc true di';
-
-      (* add integer constants to type environment *)
-      (match di' with
-      | DeclItem_Var (v, Some ty) ->
-          ( match ty with
-          | Type_Integer _ -> Env.addConstraint env loc (mk_eq_int (Expr_Var v) i')
-          | _ -> ()
-          )
-      | _ -> ());
-
-      [Stmt_ConstDecl (di', i', loc)]
+      let di' = tc_decl_item env loc is_constant ity di in
+      add_decl_item_vars env loc is_constant di';
+      if is_constant then begin
+        (* add integer constants to type environment *)
+        (match di' with
+        | DeclItem_Var (v, Some ty) ->
+            ( match ty with
+            | Type_Integer _ -> Env.addConstraint env loc (mk_eq_int (Expr_Var v) i')
+            | _ -> ()
+            )
+        | _ -> ());
+        end;
+      [Stmt_VarDecl (is_constant, di', i', loc)]
   | Stmt_Assign (l, r, loc) ->
       let (r', rty) = tc_expr env loc r in
       let lets = ref [] in

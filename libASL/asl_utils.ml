@@ -345,8 +345,7 @@ class localsClass = object (self)
         | s :: ss -> stack <- ss
         | [] -> failwith "leave_scope: empty stack"
     method! vstmt = function
-        | Stmt_VarDecl (id, ty, _, _)
-        | Stmt_ConstDecl (id, ty, _, _) ->
+        | Stmt_VarDecl (_, id, ty, _, _)
             self#add_local (id, ty);
             DoChildren
         | Stmt_VarDeclsNoInit (ids, ty, _) ->
@@ -475,8 +474,7 @@ let decl_loc (x : AST.declaration) : Loc.t =
 let stmt_loc (x : AST.stmt) : Loc.t =
   ( match x with
   | Stmt_VarDeclsNoInit (vs, ty, loc) -> loc
-  | Stmt_VarDecl (di, i, loc) -> loc
-  | Stmt_ConstDecl (di, i, loc) -> loc
+  | Stmt_VarDecl (_, di, i, loc) -> loc
   | Stmt_Assign (l, r, loc) -> loc
   | Stmt_TCall (f, tes, args, throws, loc) -> loc
   | Stmt_UCall (f, args, throws, loc) -> loc
@@ -1133,7 +1131,7 @@ let rec mk_let_exprs (bindings : binding list) (e : AST.expr) : AST.expr =
  *)
 let mk_assigns (loc : Loc.t) (bindings : binding list) : AST.stmt list =
   List.map (fun (v, ty, e) ->
-    AST.Stmt_ConstDecl (DeclItem_Var (v, Some ty), e, loc))
+    AST.Stmt_VarDecl (true, DeclItem_Var (v, Some ty), e, loc))
     bindings
 
 (****************************************************************)

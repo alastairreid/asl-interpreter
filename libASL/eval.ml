@@ -578,12 +578,9 @@ and eval_stmt (env : Env.t) (x : AST.stmt) : unit =
       List.iter
         (fun v -> Env.addLocalVar loc env v (mk_uninitialized loc env ty))
         vs
-  | Stmt_VarDecl (di, i, loc) ->
+  | Stmt_VarDecl (is_constant, di, i, loc) ->
       let i' = eval_expr loc env i in
-      add_decl_item_vars loc env false di i'
-  | Stmt_ConstDecl (di, i, loc) ->
-      let i' = eval_expr loc env i in
-      add_decl_item_vars loc env true di i'
+      add_decl_item_vars loc env is_constant di i'
   | Stmt_Assign (l, r, loc) ->
       let r' = eval_expr loc env r in
       eval_lexpr loc env l r'

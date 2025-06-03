@@ -58,7 +58,7 @@ class replaceClass (ds : AST.declaration list) =
                   let e = AST.Expr_TApply (f, tes, es, throws) in
                   let fd = Option.get (IdentTable.find_opt decl_lookup_table f) in
                   let rty = getFunReturnType fd in
-                  let r = AST.Stmt_VarDecl (AST.DeclItem_Var (v, Some rty), e, loc) in
+                  let r = AST.Stmt_VarDecl (false, AST.DeclItem_Var (v, Some rty), e, loc) in
                   let w = AST.Stmt_TCall (g, tes, es @ [ Expr_Var v ], throws, loc) in
                   [ r ] @ ss @ [ w ]
               | _ -> ss

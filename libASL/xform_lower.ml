@@ -115,7 +115,7 @@ class lower_class = object (self)
           (* Lets from any R-expressions that were lifted out *)
           let pre_lets = List.map (fun (v, ty, e) ->
                                       let decl_item = AST.DeclItem_Var (v, Some ty) in
-                                      AST.Stmt_ConstDecl (decl_item, e, loc)) pre
+                                      AST.Stmt_VarDecl (true, decl_item, e, loc)) pre
           in
 
           (* Vars from any L-expressions that were lifted out *)
@@ -125,7 +125,7 @@ class lower_class = object (self)
                       | None -> raise (Error.Unimplemented (loc, "lower_class", fun fmt -> Asl_fmt.lexpr fmt l))
               in
               let decl_item = AST.DeclItem_Var (v, Some ty) in
-              AST.Stmt_VarDecl (decl_item, e, loc)
+              AST.Stmt_VarDecl (false, decl_item, e, loc)
             )
             (List.rev lifted)
           in

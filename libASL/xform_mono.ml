@@ -283,8 +283,7 @@ class monoClass
 
     method! vstmt s =
       match s with
-      | Stmt_VarDecl (d, e, loc)
-      | Stmt_ConstDecl (d, e, loc) -> (
+      | Stmt_VarDecl (is_constant, d, e, loc) -> (
 
           let rec add_decl (d : AST.decl_item) : unit =
             match d with

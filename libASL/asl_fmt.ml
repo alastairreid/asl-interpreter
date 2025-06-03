@@ -573,17 +573,8 @@ let rec stmt ?(short=false) (fmt : PP.formatter) (x : AST.stmt) : unit =
       nbsp fmt;
       ty fmt t;
       semicolon fmt
-  | Stmt_VarDecl (di, i, loc) ->
-      kw_var fmt;
-      nbsp fmt;
-      decl_item fmt di;
-      nbsp fmt;
-      eq fmt;
-      nbsp fmt;
-      expr fmt i;
-      semicolon fmt
-  | Stmt_ConstDecl (di, i, loc) ->
-      kw_let fmt;
+  | Stmt_VarDecl (is_constant, di, i, loc) ->
+      (if is_constant then kw_let fmt else kw_var fmt);
       nbsp fmt;
       decl_item fmt di;
       nbsp fmt;

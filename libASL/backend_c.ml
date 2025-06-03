@@ -889,7 +889,7 @@ let decl (fmt : PP.formatter) (x : AST.stmt) : unit =
           PP.fprintf fmt ";@,"
       )
       vs
-  | Stmt_VarDecl (di, i, loc) | Stmt_ConstDecl (di, i, loc) -> declitem loc fmt di
+  | Stmt_VarDecl (_, di, i, loc) -> declitem loc fmt di
   | _ -> ()
   )
 
@@ -957,13 +957,11 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
             );
           PP.fprintf fmt "@,}"
       )
-  | Stmt_VarDecl (DeclItem_Var (v, _), i, loc)
-  | Stmt_ConstDecl (DeclItem_Var (v, _), i, loc) ->
+  | Stmt_VarDecl (_, DeclItem_Var (v, _), i, loc) ->
       Format.fprintf fmt "%a = %a;"
         ident v
         (expr loc) i
-  | Stmt_VarDecl (DeclItem_Wildcard _, i, loc)
-  | Stmt_ConstDecl (DeclItem_Wildcard _, i, loc) ->
+  | Stmt_VarDecl (_, DeclItem_Wildcard _, i, loc) ->
       PP.fprintf fmt "(void)%a;"
         (expr loc) i
   | Stmt_For (v, ty, f, dir, t, b, loc) ->
@@ -1052,7 +1050,6 @@ let rec stmt (fmt : PP.formatter) (x : AST.stmt) : unit =
         ));
       PP.fprintf fmt "@,}"
   | Stmt_VarDecl _
-  | Stmt_ConstDecl _
   | Stmt_Case _
   | Stmt_UCall _
   ->

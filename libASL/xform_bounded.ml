@@ -522,7 +522,7 @@ class boundedClass = object (self)
 
   method! vstmt x =
     ( match x with
-    | Stmt_ConstDecl (DeclItem_Var (v, Some ty), e, loc) ->
+    | Stmt_VarDecl (is_constant, DeclItem_Var (v, Some ty), e, loc) ->
         ( match range_of_type ty with
         | Some b ->
             let n = int_of_bounds b in
@@ -530,20 +530,7 @@ class boundedClass = object (self)
             let e' = Asl_visitor.visit_expr (self :> Asl_visitor.aslVisitor) e in
             let e'' = mk_cvt_int_sintN n e' in
             self#add_lrange v (Some b);
-            ChangeTo [Stmt_ConstDecl (DeclItem_Var (v, Some ty'), e'', loc)]
-        | None ->
-            DoChildren
-        )
-
-    | Stmt_VarDecl (DeclItem_Var (v, Some ty), e, loc) ->
-        ( match range_of_type ty with
-        | Some b ->
-            let n = int_of_bounds b in
-            let ty' = xform_type ty in
-            let e' = Asl_visitor.visit_expr (self :> Asl_visitor.aslVisitor) e in
-            let e'' = mk_cvt_int_sintN n e' in
-            self#add_lrange v (Some b);
-            ChangeTo [Stmt_VarDecl (DeclItem_Var (v, Some ty'), e'', loc)]
+            ChangeTo [Stmt_VarDecl (is_constant, DeclItem_Var (v, Some ty'), e'', loc)]
         | None ->
             DoChildren
         )

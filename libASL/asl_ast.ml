@@ -151,8 +151,7 @@ catcher =
 
 and stmt =
    Stmt_Block of stmt list * Loc.t
- | Stmt_VarDecl of decl_item * expr * Loc.t
- | Stmt_ConstDecl of decl_item * expr * Loc.t
+ | Stmt_VarDecl of bool * decl_item * expr * Loc.t (* bool = 'is_constant' *)
  | Stmt_Assign of lexpr * expr * Loc.t
  | Stmt_Return of expr * Loc.t
  | Stmt_Assert of expr * Loc.t

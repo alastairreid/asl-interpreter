@@ -45,40 +45,27 @@ class replaceTupleClass (tc : Ident.t option) =
         Visitor.ChangeTo [AST.Stmt_Return (r, loc)]
 
       (* function calls *)
-      | Stmt_VarDecl (AST.DeclItem_Tuple dis, (AST.Expr_TApply (f, _, _, _) as i), loc) ->
+      | Stmt_VarDecl (is_constant, AST.DeclItem_Tuple dis, (AST.Expr_TApply (f, _, _, _) as i), loc) ->
         let vty = AST.Type_Constructor (mkReturnTypeName f, []) in
         let v = returnVariables#fresh in
-        let s = AST.Stmt_ConstDecl (AST.DeclItem_Var (v, Some vty), i, loc) in
+        let s = AST.Stmt_VarDecl (true, AST.DeclItem_Var (v, Some vty), i, loc) in
         let ss = List.mapi (fun i di ->
-            AST.Stmt_VarDecl (di, Expr_Field (Expr_Var v, mkReturnFieldName i), loc)
-          ) dis in
-        Visitor.ChangeTo (s :: ss)
-
-      | Stmt_ConstDecl (AST.DeclItem_Tuple dis, (AST.Expr_TApply (f, _, _, _) as i), loc) ->
-        let vty = AST.Type_Constructor (mkReturnTypeName f, []) in
-        let v = returnVariables#fresh in
-        let s = AST.Stmt_ConstDecl (AST.DeclItem_Var (v, Some vty), i, loc) in
-        let ss = List.mapi (fun i di ->
-            AST.Stmt_ConstDecl (di, Expr_Field (Expr_Var v, mkReturnFieldName i), loc)
+            AST.Stmt_VarDecl (is_constant, di, Expr_Field (Expr_Var v, mkReturnFieldName i), loc)
           ) dis in
         Visitor.ChangeTo (s :: ss)
 
       | Stmt_Assign (AST.LExpr_Tuple es, (AST.Expr_TApply (f, _, _, _) as i), loc) ->
         let vty = AST.Type_Constructor (mkReturnTypeName f, []) in
         let v = returnVariables#fresh in
-        let s = AST.Stmt_ConstDecl (AST.DeclItem_Var (v, Some vty), i, loc) in
+        let s = AST.Stmt_VarDecl (true, AST.DeclItem_Var (v, Some vty), i, loc) in
         let ss = List.mapi (fun i e ->
             AST.Stmt_Assign (e, Expr_Field (Expr_Var v, mkReturnFieldName i), loc)
           ) es in
         Visitor.ChangeTo (s :: ss)
 
       (* tuple assignment: (a, b) = (x, y); *)
-      | Stmt_ConstDecl (AST.DeclItem_Tuple dis, AST.Expr_Tuple es, loc) ->
-        let ss = List.map2 (fun di e -> AST.Stmt_ConstDecl (di, e, loc)) dis es in
-        Visitor.ChangeTo ss
-
-      | Stmt_VarDecl (AST.DeclItem_Tuple dis, AST.Expr_Tuple es, loc) ->
-        let ss = List.map2 (fun di e -> AST.Stmt_VarDecl (di, e, loc)) dis es in
+      | Stmt_VarDecl (is_constant, AST.DeclItem_Tuple dis, AST.Expr_Tuple es, loc) ->
+        let ss = List.map2 (fun di e -> AST.Stmt_VarDecl (is_constant, di, e, loc)) dis es in
         Visitor.ChangeTo ss
 
       | Stmt_Assign (AST.LExpr_Tuple ls, AST.Expr_Tuple es, loc) ->
@@ -90,31 +77,14 @@ class replaceTupleClass (tc : Ident.t option) =
         let s = cond_assign l els e loc in
         Visitor.ChangeTo (Asl_visitor.visit_stmt (self :> Asl_visitor.aslVisitor) s)
 
-      | Stmt_ConstDecl (AST.DeclItem_Tuple dis, AST.Expr_If (els, e), loc) ->
+      | Stmt_VarDecl (is_constant, AST.DeclItem_Tuple dis, AST.Expr_If (els, e), loc) ->
         let (vs, ds) = List.map (fun di ->
             ( match di with
             | AST.DeclItem_Var (v, Some vty) ->
                 let s = AST.Stmt_VarDeclsNoInit ([v], vty, loc) in
                 (AST.LExpr_Var v, s)
             | _ ->
-                raise (Error.Unimplemented (loc, "tuple let-if", (fun fmt -> Asl_fmt.stmt fmt s)))
-            )
-          )
-          dis
-          |> List.split
-        in
-        let l' = AST.LExpr_Tuple vs in
-        let s = cond_assign l' els e loc in
-        Visitor.ChangeTo (ds @ Asl_visitor.visit_stmt (self :> Asl_visitor.aslVisitor) s)
-
-      | Stmt_VarDecl (AST.DeclItem_Tuple dis, AST.Expr_If (els, e), loc) ->
-        let (vs, ds) = List.map (fun di ->
-            ( match di with
-            | AST.DeclItem_Var (v, Some vty) ->
-                let s = AST.Stmt_VarDeclsNoInit ([v], vty, loc) in
-                (AST.LExpr_Var v, s)
-            | _ ->
-                raise (Error.Unimplemented (loc, "tuple var-if", (fun fmt -> Asl_fmt.stmt fmt s)))
+                raise (Error.Unimplemented (loc, "tuple var/let-if", (fun fmt -> Asl_fmt.stmt fmt s)))
             )
           )
           dis

@@ -447,15 +447,11 @@ and xform_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
       let ty' = xform_ty env ty in
       List.iter (fun v -> Env.addLocalVar env v Values.bottom) vs;
       [ Stmt_VarDeclsNoInit (vs, ty', loc) ]
-  | Stmt_VarDecl (di, i, loc) ->
+  | Stmt_VarDecl (is_constant, di, i, loc) ->
       let i' = xform_expr env i in
-      let di' = xform_declitem env false di (Some i') in
-      [ Stmt_VarDecl (di', i', loc) ]
-  | Stmt_ConstDecl (di, i, loc) ->
-      let i' = xform_expr env i in
-      let di' = xform_declitem env true di (Some i') in
-      (* todo: we should always be able to delete this declaration *)
-      [ Stmt_ConstDecl (di', i', loc) ]
+      let di' = xform_declitem env is_constant di (Some i') in
+      (* todo: if is_constant, we should always be able to delete this declaration *)
+      [ Stmt_VarDecl (is_constant, di', i', loc) ]
   | Stmt_Assign (l, r, loc) ->
       let r' = xform_expr env r in
       let l' = xform_lexpr env loc l (expr_value env r') in

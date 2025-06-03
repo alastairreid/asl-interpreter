@@ -72,13 +72,13 @@ let xform
     ) ls ws ([], Asl_utils.zero) in
 
     let tmp_var = DeclItem_Var (tmp_ident, Some ty) in
-    let tmp_const_decl = Stmt_ConstDecl (tmp_var, r, loc) in
+    let tmp_const_decl = Stmt_VarDecl (true, tmp_var, r, loc) in
     tmp_const_decl :: ss
 
 (* Transform 'let/var [v1, ... vn] = r;' *)
 let xform_dbi
     (loc : Loc.t)
-    (is_const : bool)
+    (is_constant : bool)
     (dbs : (Ident.t option * AST.ty) list)
     (r : AST.expr)
     : AST.stmt list =
@@ -87,7 +87,7 @@ let xform_dbi
     let total_width = Xform_simplify_expr.mk_add_ints widths in
     let tmp_ty = Asl_utils.type_bits total_width in
     let tmp_var = DeclItem_Var (tmp_ident, Some tmp_ty) in
-    let tmp_const_decl = Stmt_ConstDecl (tmp_var, r, loc) in
+    let tmp_const_decl = Stmt_VarDecl (true, tmp_var, r, loc) in
 
     let (ss, _) = List.fold_right (fun (ov, ty) (ss, idx) ->
       let w = Option.get (Asl_utils.width_of_type ty) in
@@ -97,9 +97,7 @@ let xform_dbi
           let slice = Slice_LoWd (idx, w) in
           let r' = Expr_Slices (tmp_ty, Expr_Var tmp_ident, [slice]) in
           let di = DeclItem_Var (v, Some ty) in
-          let s = if is_const then Stmt_ConstDecl (di, r', loc)
-                              else Stmt_VarDecl   (di, r', loc)
-          in
+          let s = Stmt_VarDecl (is_constant, di, r', loc) in
           (s :: ss, idx')
       | None ->
           (ss, idx')
@@ -135,10 +133,8 @@ class replace_bittuples (ds : AST.declaration list option) =
 
     method! vstmt s =
       match s with
-      | Stmt_VarDecl (DeclItem_BitTuple dbs, r, loc) ->
-          Visitor.ChangeTo (xform_dbi loc false dbs r)
-      | Stmt_ConstDecl (DeclItem_BitTuple dbs, r, loc) ->
-          Visitor.ChangeTo (xform_dbi loc true dbs r)
+      | Stmt_VarDecl (is_constant, DeclItem_BitTuple dbs, r, loc) ->
+          Visitor.ChangeTo (xform_dbi loc is_constant dbs r)
       | Stmt_Assign (LExpr_BitTuple (ws, ls), r, loc) ->
           Visitor.ChangeTo (xform loc ws ls r)
       | Stmt_Assign (LExpr_Slices (ty, l, ss), r, loc) when List.length ss > 1 ->

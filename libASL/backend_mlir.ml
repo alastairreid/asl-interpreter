@@ -628,15 +628,10 @@ let pattern (loc : Loc.t) (fmt : PP.formatter) (x : AST.pattern) : unit =
 
 let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
   ( match x with
-  | Stmt_ConstDecl (DeclItem_Var (v, _), i, loc) ->
+  | Stmt_VarDecl (is_constant, DeclItem_Var (v, _), i, loc) ->
       let (i', ty) = expr loc env fmt i in
-      ScopeStack.add env v (Some i', false, ty)
-  | Stmt_ConstDecl (DeclItem_Wildcard _, i, loc) ->
-      ignore (expr loc env fmt i)
-  | Stmt_VarDecl (DeclItem_Var (v, _), i, loc) ->
-      let (i', ty) = expr loc env fmt i in
-      ScopeStack.add env v (Some i', true, ty)
-  | Stmt_VarDecl (DeclItem_Wildcard _, i, loc) ->
+      ScopeStack.add env v (Some i', not is_constant, ty)
+  | Stmt_VarDecl (is_constant, DeclItem_Wildcard _, i, loc) ->
       ignore (expr loc env fmt i)
   | Stmt_Assign (LExpr_Var v, rhs, loc) ->
       let (rhs', ty) = expr loc env fmt rhs in

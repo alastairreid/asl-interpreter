@@ -97,8 +97,7 @@ let canthrow_lexpr (x : AST.lexpr) : status =
 let rec canthrow_stmt (x : AST.stmt) : status =
   ( match x with
   | Stmt_VarDeclsNoInit (vs, ty, loc) -> ok
-  | Stmt_VarDecl (di, i, loc) -> canthrow_expr i
-  | Stmt_ConstDecl (di, i, loc) -> canthrow_expr i
+  | Stmt_VarDecl (_, di, i, loc) -> canthrow_expr i
   | Stmt_Assign (l, r, loc) -> status_merge (canthrow_expr r) (canthrow_lexpr l)
   | Stmt_TCall (f, tes, args, throws, loc) ->
       if String.starts_with ~prefix:"Unimplemented" (Ident.name f) then
