@@ -654,6 +654,18 @@ let mk_fun_env (env : Eval.GlobalEnv.t) (loc : Loc.t) (f : Ident.t) : Env.t =
 let xform_decl (genv : Eval.GlobalEnv.t) (d : AST.declaration) : AST.declaration
     =
   match d with
+  | Decl_Record (v, ps, fs, loc) ->
+      let env = Env.newEnv genv in
+      let fs' = List.map (fun (f, ty) -> (f, xform_ty env ty)) fs in
+      Decl_Record (v, ps, fs', loc)
+  | Decl_Exception (v, fs, loc) ->
+      let env = Env.newEnv genv in
+      let fs' = List.map (fun (f, ty) -> (f, xform_ty env ty)) fs in
+      Decl_Exception (v, fs', loc)
+  | Decl_Typedef (v, ps, ty, loc) ->
+      let env = Env.newEnv genv in
+      let ty' = xform_ty env ty in
+      Decl_Typedef (v, ps, ty', loc)
   | Decl_Var (v, ty, loc) ->
       let env = Env.newEnv genv in
       let ty' = xform_ty env ty in
