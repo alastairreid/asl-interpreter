@@ -77,7 +77,7 @@ and expr =
  | Expr_Fields of expr * Ident.t list (* multiple field selection *)
  | Expr_Slices of ty * expr * slice list (* bitslice *)
  | Expr_WithChanges of ty * expr * (change * expr) list (* copy with changes *)
- | Expr_RecordInit of Ident.t * (Ident.t option * expr) list * (Ident.t * expr) list
+ | Expr_Record of Ident.t * (Ident.t option * expr) list * (Ident.t * expr) list
  | Expr_ArrayInit of expr list
  | Expr_In of expr * pattern (* pattern match *)
  | Expr_Var of Ident.t

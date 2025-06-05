@@ -353,7 +353,7 @@ and expr (fmt : PP.formatter) (x : AST.expr) : unit =
       Format.fprintf fmt "(%a with { %a })"
         expr e
         changes cs
-  | Expr_RecordInit (tc, tes, fas) ->
+  | Expr_Record (tc, tes, fas) ->
       tycon fmt tc;
       if not (Utils.is_empty tes) then parens fmt (fun _ -> pp_args fmt tes);
       braces fmt (fun _ -> commasep fmt (field_assignment fmt) fas)

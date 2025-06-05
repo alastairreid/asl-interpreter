@@ -1871,7 +1871,7 @@ and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) : AST.expr * AST.ty =
               |> mk_let_exprs !lets
       in
       (r, ty')
-  | Expr_RecordInit (tc, args, fas) ->
+  | Expr_Record (tc, args, fas) ->
       if not (GlobalEnv.isType (Env.globals env) tc) then
         raise (IsNotA (loc, "type constructor", Ident.to_string tc));
       let (ps, fs) =
@@ -1900,7 +1900,7 @@ and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) : AST.expr * AST.ty =
           fas
       in
 
-      (Expr_RecordInit (tc, args', fas'), Type_Constructor (tc, es'))
+      (Expr_Record (tc, args', fas'), Type_Constructor (tc, es'))
   | Expr_ArrayInit [] ->
       raise (InternalError (loc, "expr ArrayInit is empty", (fun fmt -> FMT.expr fmt x), __LOC__))
   | Expr_ArrayInit (e::es) ->
@@ -1935,7 +1935,7 @@ and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) : AST.expr * AST.ty =
             in
             raise (TypeError (loc, msg))
           end;
-          (Expr_RecordInit (v, [], []), Type_Constructor (v, []))
+          (Expr_Record (v, [], []), Type_Constructor (v, []))
         | Some _ ->
           raise (IsNotA (loc, "record or exception type", Ident.to_string v));
         | None ->

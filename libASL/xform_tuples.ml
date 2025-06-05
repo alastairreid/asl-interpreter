@@ -41,7 +41,7 @@ class replaceTupleClass (tc : Ident.t option) =
       | Stmt_Return (Expr_Tuple es, loc) when Option.is_some tc && List.length es > 1 ->
         let tc = Option.get tc in
         let fas = List.mapi (fun i e -> (mkReturnFieldName i, e)) es in
-        let r = AST.Expr_RecordInit (tc, [], fas) in
+        let r = AST.Expr_Record (tc, [], fas) in
         Visitor.ChangeTo [AST.Stmt_Return (r, loc)]
 
       (* function calls *)

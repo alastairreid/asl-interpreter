@@ -204,7 +204,7 @@ class freevarClass =
       | Expr_TApply (f, _, _, _) ->
           free_funs <- IdentSet.add f free_funs;
           DoChildren
-      | Expr_RecordInit (tc, _, _) ->
+      | Expr_Record (tc, _, _) ->
           free_tcs <- IdentSet.add tc free_tcs;
           DoChildren
       | _ -> DoChildren

@@ -289,7 +289,7 @@ let add_initializer (struct_name : string) (i : string) : unit =
   initializers := !initializers @ [(struct_name, i)]
 
 (* list of all exception tycons - used to decide whether to insert a tag in
- * Expr_RecordInit
+ * Expr_Record
  *)
 let exception_tcs : Ident.t list ref = ref []
 
@@ -611,7 +611,7 @@ and expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
         (expr loc) e1
         (expr loc) e2;
   | Expr_Lit v -> valueLit loc fmt v
-  | Expr_RecordInit (tc, [], fas) ->
+  | Expr_Record (tc, [], fas) ->
       if List.mem tc !exception_tcs then begin
         PP.fprintf fmt "(ASL_exception_t){ ._%a={ .ASL_tag = tag_%a, " ident tc ident tc;
         commasep
@@ -699,7 +699,7 @@ and expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
   | Expr_Binop _
   | Expr_Fields _
   | Expr_In _
-  | Expr_RecordInit _
+  | Expr_Record _
   | Expr_Slices _
   | Expr_Tuple _
   | Expr_Unknown _

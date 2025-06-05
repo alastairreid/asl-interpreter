@@ -213,11 +213,11 @@ and visit_expr (vis : aslVisitor) (x : expr) : expr =
         let e' = visit_expr vis e in
         let cs' = mapNoCopy (visit_change_part vis) cs in
         if t == t' && e == e' && cs == cs' then x else Expr_WithChanges (t', e', cs')
-    | Expr_RecordInit (tc, tes, fas) ->
+    | Expr_Record (tc, tes, fas) ->
         let tc' = visit_var vis Type tc in
         let tes' = visit_args vis tes in
         let fas' = mapNoCopy (visit_fieldassignment vis) fas in
-        if tc == tc' && tes == tes' && fas == fas' then x else Expr_RecordInit (tc', tes', fas')
+        if tc == tc' && tes == tes' && fas == fas' then x else Expr_Record (tc', tes', fas')
     | Expr_ArrayInit es ->
         let es' = visit_exprs vis es in
         if es == es' then x else Expr_ArrayInit es'

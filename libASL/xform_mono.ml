@@ -238,14 +238,14 @@ class monoClass
 
     method! vexpr x =
       match x with
-      | Expr_RecordInit (tc, args, fs) -> (
+      | Expr_Record (tc, args, fs) -> (
           match Utils.flatten_map_option (fun (nm, e) -> const_int_expr e) args with
           | Some [] -> DoChildren
           | Some sizes ->
               Option.value (
                 Option.bind (IdentTable.find_opt decl_lookup_table tc) (fun d ->
                 Option.bind (self#monomorphize_type genv tc d sizes) (fun tc' ->
-                Some (ChangeDoChildrenPost (AST.Expr_RecordInit (tc', [], fs), Fun.id))
+                Some (ChangeDoChildrenPost (AST.Expr_Record (tc', [], fs), Fun.id))
                 )))
                 ~default:DoChildren
           | None -> DoChildren)
