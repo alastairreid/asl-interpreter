@@ -238,22 +238,35 @@ let _ =
  ****************************************************************)
 
 let _ =
+  let keep_builtins = ref true in
   let group = ref "" in
+  let builtin_funname (d : AST.declaration) : Ident.t option =
+      ( match d with
+      | Decl_BuiltinFunction (f, _, _) -> Some(f)
+      | _ -> None
+      )
+  in
   let cmd (tcenv : Tcheck.Env.t) (cpu : Cpu.cpu) : bool =
     let roots = read_group_idents !group in
+    let prims = if !keep_builtins then List.filter_map builtin_funname !Commands.declarations else [] in
     if Utils.is_empty roots then (
       Printf.printf "Group '%s' is empty in :filter_reachable_from %s\n" !group !group;
       false
     ) else (
-      Commands.declarations := Asl_utils.reachable_decls roots !Commands.declarations;
+      Commands.declarations := Asl_utils.reachable_decls (roots @ prims) !Commands.declarations;
       true
     )
+  in
+  let flags = Arg.align [
+    ("--keep_builtins", Arg.Set keep_builtins, "Output file");
+    ("--no-keep_builtins", Arg.Clear keep_builtins, "Output file")
+  ]
   in
   let args = [
     (group, "config group");
   ]
   in
-  Commands.registerCommand "filter_reachable_from" [] args [] "Discard unreachable definitions" cmd
+  Commands.registerCommand "filter_reachable_from" flags args [] "Discard unreachable definitions" cmd
 
 (****************************************************************
  * Command: :run
