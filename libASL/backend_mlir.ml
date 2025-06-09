@@ -287,6 +287,10 @@ let rec pp_type (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : unit =
       | Some crs -> PP.fprintf fmt "!asl.int%a" (constraints loc) crs
       | None -> PP.fprintf fmt "!asl.int"
       )
+  | Type_Array (Index_Int ixty, elty) ->
+      PP.fprintf fmt "!asl.array<%a x %a>"
+        (simple_expr loc) ixty
+        (pp_type loc) elty
   | Type_Tuple tys ->
       PP.fprintf fmt "(%a)"
         (commasep (pp_type loc)) tys
@@ -470,7 +474,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       | None -> (* global variable *)
           let ty = Identset.Bindings.find v !vartypes in
           let ref = locals#fresh in
-          PP.fprintf fmt "%a = asl.address_of(@%a) : asl.ref<%a>@,"
+          PP.fprintf fmt "%a = asl.address_of(@@%a) : !asl.ref<%a>@,"
             ident ref
             ident v
             (pp_type loc) ty;
@@ -483,6 +487,27 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       | Some (None, mut, ty) -> (v, ty) (* immutable variable *)
       | Some (Some v', mut, ty) -> (v', ty)
       )
+  | Expr_Array (Expr_Var v, ix) ->
+      (* todo: handle local and 2-D arrays too *)
+      let ty = Identset.Bindings.find v !vartypes in
+      let (ixty, elty) = ( match ty with
+        | Type_Array (Index_Int ixty, elty) -> (ixty, elty)
+        | _ -> raise (InternalError (loc, "Array read", (fun fmt -> FMT.ty fmt ty), __LOC__))
+        )
+      in
+      let ref = locals#fresh in
+      PP.fprintf fmt "%a = asl.address_of(@@%a) : !asl.ref<%a>@,"
+        ident ref
+        ident v
+        (pp_type loc) ty;
+      let (ix', _) = expr loc env fmt ix in
+      let t = locals#fresh in
+      PP.fprintf fmt "%a = asl.array_ref(%a, %a) : %a@,"
+        ident t
+        ident ref
+        ident ix'
+        (pp_type loc) ty;
+      (t, elty)
   | Expr_If (els, e) ->
       let rec mk_ites els e : (Ident.t * AST.ty) =
         ( match els with
@@ -646,8 +671,24 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
   | Stmt_VarDecl (is_constant, DeclItem_Wildcard _, i, loc) ->
       ignore (expr loc env fmt i)
   | Stmt_Assign (LExpr_Var v, rhs, loc) ->
+      if Identset.Bindings.mem v !vartypes then begin (* global *)
+        let ty = Identset.Bindings.find v !vartypes in
+        let ref = locals#fresh in
+        PP.fprintf fmt "%a = asl.address_of(@@%a) : !asl.ref<%a>@,"
+          ident ref
+          ident v
+          (pp_type loc) ty;
+        let (rhs', ty) = expr loc env fmt rhs in
+        PP.fprintf fmt "asl.store %a to %a : !asl.ref<%a>@,"
+          ident rhs'
+          ident ref
+          (pp_type loc) ty
+      end else begin
+        let (rhs', ty) = expr loc env fmt rhs in
+        ignore (ScopeStack.set env v (Some rhs', true, ty))
+      end
+  | Stmt_Assign (LExpr_Array (LExpr_Var v, ix), rhs, loc) ->
       let (rhs', ty) = expr loc env fmt rhs in
-      (* todo: check that v is mutable *)
       ignore (ScopeStack.set env v (Some rhs', true, ty))
   | Stmt_Assign (LExpr_Wildcard, rhs, loc) ->
       ignore (expr loc env fmt rhs)
@@ -888,6 +929,10 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
           | _ -> ()
           );
           PP.fprintf fmt "}@.@."
+      | Decl_Var (v, ty, loc) ->
+          PP.fprintf fmt "asl.global @@%a : %a@.@."
+            ident v
+            (pp_type loc) ty
       | _ ->
           ( match Asl_utils.decl_name x with
           | Some nm -> PP.fprintf fmt "// skipping %a\n" ident nm
