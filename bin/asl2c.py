@@ -203,7 +203,7 @@ base_script = """
 // Optionally, global state can be split across multiple structs.
 // (This can be useful when modelling multi-processor systems to separate
 // thread-local state from global state.)
-:{generate_c} --output-dir={output_dir} --basename={basename} --num-c-files={num_c_files}
+:{generate_c}
 
 :quit
 """.strip()
@@ -302,16 +302,21 @@ def mk_script(args, output_directory):
         'c23':         f'generate_c {ffi} --runtime=c23',
         'fallback':    f'generate_c {ffi} --runtime=fallback',
         'sc':          f'generate_c {ffi} --runtime=sc',
+        'mlir':        f'generate_mlir',
     }
     generate_c = backend_generator[args.backend]
 
     if args.const_ref: generate_c += f" --const-ref={args.const_ref}"
     if args.generate_cxx: generate_c += " --generate-cxx"
     if args.split_state: generate_c += " --split-state"
-    if args.line_info:
-        generate_c += " --line-info"
-    else:
-        generate_c += " --no-line-info"
+    if args.backend != 'mlir':
+        generate_c += f" --output-dir={output_directory}"
+        generate_c += f" --basename={args.basename}"
+        generate_c += f" --num-c-files={args.num_c_files}"
+        if args.line_info:
+            generate_c += " --line-info"
+        else:
+            generate_c += " --no-line-info"
 
     if args.O0:
         script = []
@@ -326,10 +331,7 @@ def mk_script(args, output_directory):
 
     substitutions = {
         'command':     " ".join(sys.argv),
-        'basename':    args.basename,
         'generate_c':  generate_c,
-        'num_c_files': args.num_c_files,
-        'output_dir':  output_directory,
         'split_state': "",
         'suppress_bitslice_xform': "",
         'xform_int_bitslices': "",
@@ -352,10 +354,6 @@ def mk_script(args, output_directory):
         substitutions['bounded_int'] = ':xform_bounded'
     else:
         substitutions['bounded_int'] = ''
-    if not args.line_info:
-        substitutions['line_info'] = '--no-line-info'
-    else:
-        substitutions['line_info'] = '--line-info'
     if args.backend in ["ac", "sc"]: substitutions['suppress_bitslice_xform'] = "--notransform"
 
     script = base_script.format(**substitutions)
@@ -413,7 +411,7 @@ def run_asli(asli, args, asl_files, project_file, configurations):
     ]
     asli_cmd.append("--check-call-markers")
     asli_cmd.append("--check-exception-markers")
-    asli_cmd.append("--check-constraints")
+    asli_cmd.append("--check-constraints" if args.constraint_checks else "--no-check-constraints")
     asli_cmd.append("--runtime-checks" if args.runtime_checks else "--no-runtime-checks")
     if args.Obounded: asli_cmd.append("--exec=:xform_bounded")
     asli_cmd.append(f"--project={project_file}")
@@ -499,13 +497,14 @@ def main() -> int:
     parser.add_argument("--configuration", help="compilation configuration files (only use with --build or --run)", metavar="json", action='append', default=[])
     parser.add_argument("--auto-case-split", help="generate case split code automatically", action=argparse.BooleanOptionalAction)
     parser.add_argument("--const-ref", help="use const & for function arguments larger than N", metavar="N", type=int, default=0)
+    parser.add_argument("--constraint-checks", help="perform type contstraint checks", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--extra-c", help="extra C file to be compiled/linked with ASL code (C generation only)", action='append', default=[])
     parser.add_argument("--export", dest="exports", help="export this symbol (C generation only)", action='append', default=[])
     parser.add_argument("--generate-cxx", help="generate C++ code", action="store_true", default=False)
     parser.add_argument("--import", dest="imports", help="import this symbol (C generation only)", action='append', default=[])
     parser.add_argument("--line-info", help="insert line directives into C code", action=argparse.BooleanOptionalAction)
     parser.add_argument("--new-ffi", help="use the new FFI", action="store_true", default=False)
-    parser.add_argument("--runtime-checks", help="perform runtime checks (array bounds, etc.)", action="store_true", default=False)
+    parser.add_argument("--runtime-checks", help="perform runtime checks (array bounds, etc.)", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--split-state", help="split state into multiple structs", action=argparse.BooleanOptionalAction)
     parser.add_argument("--transform-int-slices", help="convert integer slices to bit slices", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--instrument-unknown", help="instrument assignments of UNKNOWN", action=argparse.BooleanOptionalAction)
@@ -565,7 +564,7 @@ def main() -> int:
         ]
         asli_cmd.append("--check-call-markers")
         asli_cmd.append("--check-exception-markers")
-        asli_cmd.append("--check-constraints")
+        asli_cmd.append("--check-constraints" if args.constraint_checks else "--no-check-constraints")
         asli_cmd.append("--runtime-checks" if args.runtime_checks else "--no-runtime-checks")
         if args.Obounded: asli_cmd.append("--exec=:xform_bounded")
         asli_cmd.extend([
