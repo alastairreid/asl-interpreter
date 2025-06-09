@@ -566,31 +566,31 @@ end
 func ReportUndefined!()
 begin
     UnimplementedFeature("ReportUndefined");
-    throw ExceptionTaken;
+    // throw ExceptionTaken;
 end
 
 func MemoryFenceTSO!()
 begin
     UnimplementedFeature("MemoryFenceTSO");
-    throw ExceptionTaken;
+    // throw ExceptionTaken;
 end
 
 func PauseExecution!()
 begin
     UnimplementedFeature("PauseExecution");
-    throw ExceptionTaken;
+    // throw ExceptionTaken;
 end
 
 func EnvironmentCall!()
 begin
     UnimplementedFeature("EnvironmentCall");
-    throw ExceptionTaken;
+    // throw ExceptionTaken;
 end
 
 func EnvironmentBreak!()
 begin
     UnimplementedFeature("EnvironmentBreak");
-    throw ExceptionTaken;
+    // throw ExceptionTaken;
 end
 
 /////////////////////////////////////////////////////////////////
