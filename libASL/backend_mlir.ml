@@ -201,13 +201,13 @@ let locals = new Asl_utils.nameSupply "%"
 let valueLit (loc : Loc.t) (fmt : PP.formatter) (x : Value.value) : AST.ty =
   ( match x with
   | VInt v ->
-      PP.fprintf fmt "asl.constant_int %s {attr_dict}" (Z.to_string v);
+      PP.fprintf fmt "asl.constant_int %s" (Z.to_string v);
       Asl_utils.type_integer
   | VBits v ->
-      PP.fprintf fmt "asl.constant_bits %s : !asl.bits<%d> {attr_dict}" (Z.to_string v.v) v.n;
+      PP.fprintf fmt "asl.constant_bits %s : !asl.bits<%d>" (Z.to_string v.v) v.n;
       Asl_utils.type_bits (Asl_utils.mk_litint v.n)
   | VString v ->
-      PP.fprintf fmt "asl.constant_string \"%s\" {attr_dict}" (String.escaped v);
+      PP.fprintf fmt "asl.constant_string \"%s\"" (String.escaped v);
       Asl_utils.type_string
   | _ -> raise (InternalError (loc, "valueLit", (fun fmt -> Value.pp_value fmt x), __LOC__))
   )
@@ -437,7 +437,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       let (lo', _) = expr loc env fmt lo in
       let (wd', _) = expr loc env fmt wd in
       let t = locals#fresh in
-      PP.fprintf fmt "%a = asl.get_slice %a, %a, %a : (!asl.bits<%s>, !asl.int, !asl.int) -> !asl.bits<%s> {attr_dict}@,"
+      PP.fprintf fmt "%a = asl.get_slice %a, %a, %a : (!asl.bits<%s>, !asl.int, !asl.int) -> !asl.bits<%s>@,"
         varident t
         varident x'
         varident lo'
@@ -447,7 +447,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       (t, Asl_utils.type_bits wd)
   | Expr_Slices (Type_Integer _, Expr_Lit (VInt v), [Slice_LoWd (lo, (Expr_Lit (VInt n) as wd))]) when lo = Asl_utils.zero ->
       let t = locals#fresh in
-      PP.fprintf fmt "%a = asl.constant_bits %s : !asl.bits<%s> {attr_dict}@,"
+      PP.fprintf fmt "%a = asl.constant_bits %s : !asl.bits<%s>@,"
         ident t
         (Z.to_string v)
         (Z.to_string n);
@@ -518,13 +518,13 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       (mk_binop loc fmt "arith.cmpi ne," x' y' xty, Asl_utils.type_bool)
   | Expr_TApply (f, [n], [_], NoThrow) when Ident.equal f Builtin_idents.zeros_bits ->
       let t = locals#fresh in
-      PP.fprintf fmt "%a = asl.constant_bits 0 : !asl.bits<%a> {attr_dict}@,"
+      PP.fprintf fmt "%a = asl.constant_bits 0 : !asl.bits<%a>@,"
         varident t
         (simple_expr loc) n;
       (t, Asl_utils.type_bits n)
   | Expr_TApply (f, [n], [_], NoThrow) when Ident.equal f Builtin_idents.ones_bits ->
       let t = locals#fresh in
-      PP.fprintf fmt "%a = asl.constant_bits -1 : !asl.bits<%a> {attr_dict}@,"
+      PP.fprintf fmt "%a = asl.constant_bits -1 : !asl.bits<%a>@,"
         varident t
         (simple_expr loc) n;
       (t, Asl_utils.type_bits n)
@@ -744,7 +744,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
       let (from', _) = expr loc env fmt efrom in
       let (to', _) = expr loc env fmt eto in
       let step = locals#fresh in
-      PP.fprintf fmt "%a = asl.constant_int 1 {attr_dict}@," varident step;
+      PP.fprintf fmt "%a = asl.constant_int 1@," varident step;
       if not (Utils.is_empty mutables) then begin
         PP.fprintf fmt "%a = "
           (commasep varident) (List.map (fun (_, _, _, finalv, _) -> finalv) mutables)
