@@ -53,8 +53,30 @@ let rec pp_value (fmt : Format.formatter) (x : value) : unit =
   | VReal r -> Format.pp_print_string fmt (prim_cvt_real_str r)
   | VBits b -> Format.pp_print_string fmt (prim_cvt_bits_hexstr (Z.of_int b.n) b)
   | VIntN i -> Format.pp_print_string fmt (prim_cvt_sintN_decstr i)
-  | VMask m -> Format.pp_print_string fmt "todo: mask"
-  | VString s -> Format.fprintf fmt "\"%s\"" s
+  | VMask m ->
+      Format.pp_print_char fmt '\'';
+      for i = m.n-1 downto 0 do
+        if Z.testbit m.m i then begin
+          if Z.testbit m.v i then
+            Format.pp_print_char fmt '1'
+          else
+            Format.pp_print_char fmt '0'
+        end else begin
+          Format.pp_print_char fmt 'x'
+        end
+      done;
+      Format.pp_print_char fmt '\''
+  | VString s ->
+      let escape (c : char) : unit =
+        if c = '\n' then Format.pp_print_string fmt "\\n"
+        else if c = '\t' then Format.pp_print_string fmt "\\t"
+        else if c = '\\' then Format.pp_print_string fmt "\\\\"
+        else if c = '\"' then Format.pp_print_string fmt "\\\""
+        else Format.pp_print_char fmt c
+      in
+      Format.pp_print_char fmt '\"';
+      String.iter escape s;
+      Format.pp_print_char fmt '\"'
   | VTuple vs ->
     Format.fprintf fmt "(%a)"
       (Fun.flip Format_utils.commasep (pp_value fmt)) vs

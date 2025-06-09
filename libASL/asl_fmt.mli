@@ -30,11 +30,6 @@ val varnames : formatter -> Ident.t list -> unit
 val funnames : formatter -> Ident.t list -> unit
 val unop : formatter -> AST.unop -> unit
 val binop : formatter -> AST.binop -> unit
-val intLit : formatter -> AST.intLit -> unit
-val bitsLit : formatter -> AST.intLit -> unit
-val maskLit : formatter -> AST.intLit -> unit
-val realLit : formatter -> AST.intLit -> unit
-val strLit : formatter -> AST.intLit -> unit
 val throws : formatter -> AST.can_throw -> unit
 val ty : formatter -> AST.ty -> unit
 val types : formatter -> AST.ty list -> unit

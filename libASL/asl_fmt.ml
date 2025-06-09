@@ -48,9 +48,6 @@ let delimiter (fmt : PP.formatter) (s : string) : unit =
 let keyword (fmt : PP.formatter) (s : string) : unit =
   with_color fmt ColorT.red (fun _ -> PP.pp_print_string fmt s)
 
-let constant (fmt : PP.formatter) (s : string) : unit =
-  with_color fmt ColorT.blue (fun _ -> PP.pp_print_string fmt s)
-
 let ident (fmt : PP.formatter) (color : ColorT.color4) (x : Ident.t) : unit =
   with_color fmt color (fun _ -> Ident.pp fmt x)
 
@@ -198,26 +195,6 @@ let unop (fmt : PP.formatter) (x : AST.unop) : unit =
   | Unop_Negate -> minus fmt
   | Unop_BoolNot -> bang fmt
   | Unop_BitsNot -> kw_not fmt
-
-let intLit (fmt : PP.formatter) (x : AST.intLit) : unit = constant fmt x
-
-let bitsLit (fmt : PP.formatter) (x : AST.bitsLit) : unit = constant fmt ("'" ^ x ^ "'")
-
-let maskLit (fmt : PP.formatter) (x : AST.maskLit) : unit = constant fmt ("'" ^ x ^ "'")
-
-let realLit (fmt : PP.formatter) (x : AST.realLit) : unit = constant fmt x
-
-let strLit (fmt : PP.formatter) (x : string) : unit =
-  let escape (c : char) : unit =
-    if c = '\n' then constant fmt "\\n"
-    else if c = '\t' then constant fmt "\\t"
-    else if c = '\\' then constant fmt "\\\\"
-    else if c = '\"' then constant fmt "\\\""
-    else constant fmt (String.make 1 c)
-  in
-  constant fmt "\"";
-  String.iter escape x;
-  constant fmt "\""
 
 let throws (fmt : PP.formatter) (x : AST.can_throw) : unit =
   ( match x with
