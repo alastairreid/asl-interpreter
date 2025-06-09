@@ -194,6 +194,7 @@ let enum_size = 8 (* assume this is big enough for all enumerated types *)
 let enums : int Identset.Bindings.t ref = ref Identset.Bindings.empty
 let enum_types : Identset.IdentSet.t ref = ref Identset.IdentSet.empty
 
+let vartypes : AST.ty Identset.Bindings.t ref = ref Identset.Bindings.empty
 let funtypes : AST.function_type Identset.Bindings.t ref = ref Identset.Bindings.empty
 
 let locals = new Asl_utils.nameSupply "%"
@@ -465,9 +466,20 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
         enum_size;
       (t, Asl_utils.type_bits (Asl_utils.mk_litint enum_size))
   | Expr_Var v ->
-      (* todo: if v is a global, it needs to be copied into a local *)
       ( match ScopeStack.get env v with
-      | None -> raise (InternalError (loc, "Expr_Var", (fun fmt -> Ident.pp fmt v), __LOC__))
+      | None -> (* global variable *)
+          let ty = Identset.Bindings.find v !vartypes in
+          let ref = locals#fresh in
+          PP.fprintf fmt "%a = asl.address_of(@%a) : asl.ref<%a>@,"
+            ident ref
+            ident v
+            (pp_type loc) ty;
+          let t = locals#fresh in
+          PP.fprintf fmt "%a = asl.load(%a) : %a@,"
+            ident t
+            ident ref
+            (pp_type loc) ty;
+          (t, ty)
       | Some (None, mut, ty) -> (v, ty) (* immutable variable *)
       | Some (Some v', mut, ty) -> (v', ty)
       )
@@ -901,6 +913,8 @@ let _ =
       | AST.Decl_FunType (f, fty, _)
       | AST.Decl_FunDefn (f, fty, _, _)
       -> funtypes := Identset.Bindings.add f fty !funtypes
+      | AST.Decl_Var (v, ty, _)
+      -> vartypes := Identset.Bindings.add v ty !vartypes
       | _ -> ()
       )
     ) decls;
