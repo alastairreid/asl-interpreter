@@ -55,7 +55,7 @@ base_script = """
 // Multiple configuration files can be loaded if you want to group the set of
 // exports into multiple logical interfaces.
 //
-:filter_reachable_from exports
+:filter_reachable_from --keep-builtins exports
 
 // A series of 'desugaring' passes eliminate features that complicate later transformations.
 // Later transformations will fail if these features have not been removed.
@@ -94,7 +94,7 @@ base_script = """
 // Discard any code not reachable from the list of exported functions.
 // This step is repeated because it deletes any bitwidth-polymorphic functions
 // that have been completely replaced by specialized versions of the functions.
-:filter_reachable_from exports
+:filter_reachable_from --keep-builtins exports
 
 // todo: explain why this needs to be repeated
 :xform_monomorphize {auto_case_split}
@@ -317,6 +317,8 @@ def mk_script(args, output_directory):
             generate_c += " --line-info"
         else:
             generate_c += " --no-line-info"
+    else:
+        generate_c += f" --output-file={output_directory}/asl.mlir"
 
     if args.O0:
         script = []
@@ -582,7 +584,7 @@ def main() -> int:
             "--batchmode",
             f"--configuration={config_file}",
             "--exec=:filter_reachable_from exports",
-            "--exec=:generate_mlir",
+            f"--exec=:generate_mlir --output-file={mlir_file}",
             "--exec=:quit",
         ]
         asli_cmd.extend(args.asl_files)
@@ -590,10 +592,7 @@ def main() -> int:
         xdsl_asl_dir = os.environ.get('XDSL_ASL_DIR')
         if xdsl_asl_dir is None:
             print("Error: XDSL_ASL_DIR environment variable must point at the xdsl_asl checkout")
-        with open(mlir_file, "w") as f:
-            r1 = subprocess.run(asli_cmd, stdout=f)
-            if r1.returncode != 0:
-                exit(r1.returncode)
+        run(asli_cmd)
         print(f"# Generated {mlir_file}")
         mlir_cmd = ["asl-opt", "--target=exec", mlir_file]
         run(mlir_cmd) 

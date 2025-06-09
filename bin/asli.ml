@@ -258,8 +258,8 @@ let _ =
     )
   in
   let flags = Arg.align [
-    ("--keep_builtins", Arg.Set keep_builtins, "Output file");
-    ("--no-keep_builtins", Arg.Clear keep_builtins, "Output file")
+    ("--keep-builtins", Arg.Set keep_builtins, "Output file");
+    ("--no-keep-builtins", Arg.Clear keep_builtins, "Output file")
   ]
   in
   let args = [

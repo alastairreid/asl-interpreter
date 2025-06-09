@@ -365,6 +365,7 @@ let ppEnv (fmt : PP.formatter) (env : environment) : unit =
 
 let rec prim_apply (loc : Loc.t) (env : environment) (fmt : PP.formatter) (f : Ident.t) (ps : AST.expr list) (args : AST.expr list) : (Ident.t * AST.ty) =
   let avs = List.map (fun arg -> fst (expr loc env fmt arg)) args in
+  begin if not (Identset.Bindings.mem f !funtypes) then PP.fprintf fmt "// Can't find %a@," ident f end;
   let fty = Identset.Bindings.find f !funtypes in
   let fty' = instantiate_funtype ps fty in
   let t = locals#fresh in
@@ -472,6 +473,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
   | Expr_Var v ->
       ( match ScopeStack.get env v with
       | None -> (* global variable *)
+          assert (Identset.Bindings.mem v !vartypes);
           let ty = Identset.Bindings.find v !vartypes in
           let ref = locals#fresh in
           PP.fprintf fmt "%a = asl.address_of(@@%a) : !asl.ref<%a>@,"
@@ -518,6 +520,24 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
              (fun fmt -> mk_ites els' e)
         )
       in mk_ites els e
+  | Expr_In (e, Pat_Lit (VMask mask)) ->
+      let (e', ty) = expr loc env fmt e in
+      let v = locals#fresh in
+      PP.fprintf fmt "%a = asl.constant_bits %s : !asl.bits<%d>@," ident v (Z.to_string mask.v) mask.n;
+      let m = locals#fresh in
+      PP.fprintf fmt "%a = asl.constant_bits %s : !asl.bits<%d>@," ident m (Z.to_string mask.m) mask.n;
+      let masked = locals#fresh in
+      PP.fprintf fmt "%a = asl.and_bits(%a, %a) : !asl.bits<%d>@,"
+        ident masked
+        ident e'
+        ident m
+        mask.n;
+      let t = locals#fresh in
+      PP.fprintf fmt "%a = asl.eq_bits(%a, %a) : !asl.boolean@,"
+        ident t
+        ident masked
+        ident v;
+      (t, type_bool)
   | Expr_TApply (f, [], [x], NoThrow) when Ident.equal f Builtin_idents.not_bool ->
       let (x', xty) = expr loc env fmt x in
       let (one, _) = mk_bool_const fmt true in
@@ -695,10 +715,14 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
   | Stmt_Block (ss, loc) ->
       cutsep (stmt env) fmt ss
   | Stmt_Return (e, loc) ->
-      let (t, _) = expr loc env fmt e in
-      PP.fprintf fmt "asl.return %a : %a@."
-        varident t
-        (pp_type loc) !return_type
+      ( match e with
+      | Expr_Tuple [] -> ()
+      | _ ->
+        let (t, _) = expr loc env fmt e in
+        PP.fprintf fmt "asl.return %a : %a@."
+          varident t
+          (pp_type loc) !return_type
+      )
   | Stmt_Assert (e, loc) ->
       let (t, _) = expr loc env fmt e in
       PP.fprintf fmt "asl.assert \"%s\", \"%s\", %a@."
@@ -818,7 +842,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
         PP.fprintf fmt ") -> (%a)"
           (commasep (pp_type loc)) (List.map (fun (_, _, _, _, ty) -> ty) mutables)
       end;
-      PP.fprintf fmt "{";
+      PP.fprintf fmt " {";
       ScopeStack.nest env (fun env' ->
         ScopeStack.add env' ix (None, false, Asl_utils.type_integer);
         indented_block env' fmt b);
@@ -948,51 +972,56 @@ let declarations (fmt : PP.formatter) (xs : AST.declaration list) : unit =
  ****************************************************************)
 
 let _ =
+  let opt_filename = ref "" in
   let cmd (tcenv : Tcheck.Env.t) (cpu : Cpu.cpu) : bool =
-    let decls = !Commands.declarations in
+    Utils.to_file !opt_filename (fun fmt ->
+      let decls = !Commands.declarations in
 
-    (* record function types *)
-    List.iter (fun d ->
-      ( match d with
-      | AST.Decl_BuiltinFunction (f, fty, _)
-      | AST.Decl_FunType (f, fty, _)
-      | AST.Decl_FunDefn (f, fty, _, _)
-      -> funtypes := Identset.Bindings.add f fty !funtypes
-      | AST.Decl_Var (v, ty, _)
-      -> vartypes := Identset.Bindings.add v ty !vartypes
-      | _ -> ()
-      )
-    ) decls;
+      (* record function types *)
+      List.iter (fun d ->
+        ( match d with
+        | AST.Decl_BuiltinFunction (f, fty, _)
+        | AST.Decl_FunType (f, fty, _)
+        | AST.Decl_FunDefn (f, fty, _, _)
+        -> funtypes := Identset.Bindings.add f fty !funtypes
+        | AST.Decl_Var (v, ty, _)
+        -> vartypes := Identset.Bindings.add v ty !vartypes
+        | _ -> ()
+        )
+      ) decls;
 
-    (* record enumeration constants *)
-    List.iter (fun d ->
-      ( match d with
-      | AST.Decl_Enum (tc, es, loc)
-      ->
-         enum_types := Identset.IdentSet.add tc !enum_types;
-         List.iteri (fun i e -> enums := Identset.Bindings.add e i !enums) es
-      | _ -> ()
-      )
-    ) decls;
+      (* record enumeration constants *)
+      List.iter (fun d ->
+        ( match d with
+        | AST.Decl_Enum (tc, es, loc)
+        ->
+           enum_types := Identset.IdentSet.add tc !enum_types;
+           List.iteri (fun i e -> enums := Identset.Bindings.add e i !enums) es
+        | _ -> ()
+        )
+      ) decls;
 
-    Identset.IdentSet.iter (fun f -> 
-      ( match Identset.Bindings.find_opt f !funtypes with
-      | None -> ()
-      | Some fty ->
-          let loc = Loc.Unknown in
-          PP.fprintf Format.std_formatter "asl.func @%a%a(%a) -> %a@,"
-            ident f
-            (formal_params loc) fty.parameters
-            (commasep (formal_arg loc)) fty.args
-            (pp_return_type loc) fty.rty;
-      )
-    ) standard_functions;
-    PP.fprintf Format.std_formatter "@,";
-    declarations Format.std_formatter (List.rev decls);
+      Identset.IdentSet.iter (fun f -> 
+        ( match Identset.Bindings.find_opt f !funtypes with
+        | None -> ()
+        | Some fty ->
+            let loc = Loc.Unknown in
+            PP.fprintf fmt "asl.func @%a%a(%a) -> %a@,"
+              ident f
+              (formal_params loc) fty.parameters
+              (commasep (formal_arg loc)) fty.args
+              (pp_return_type loc) fty.rty;
+        )
+      ) standard_functions;
+
+      PP.fprintf fmt "@,";
+      declarations fmt (List.rev decls)
+    );
     true
   in
 
   let flags = Arg.align [
+        ("--output-file",   Arg.Set_string opt_filename,         "<filename>    Output MLIR file");
       ]
   in
   Commands.registerCommand "generate_mlir" flags [] [] "Generate MLIR" cmd
