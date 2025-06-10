@@ -117,9 +117,9 @@ begin
     case encoding of
         when 'xxxx xxxx xxxx xxxx xxxx xxxx x011 0111' => Instr_LUI  (encoding[31:12], encoding[11:7]);
         when 'xxxx xxxx xxxx xxxx xxxx xxxx x001 0111' => Instr_AUIPC(encoding[31:12], encoding[11:7]);
-        when 'xxxx xxxx xxxx xxxx xxxx xxxx x110 1111' => Instr_JAL  (encoding[31,19:12,20,30:21], encoding[11:7]);
+        when 'xxxx xxxx xxxx xxxx xxxx xxxx x110 1111' => Iform_JAL  (encoding[31,19:12,20,30:21], encoding[11:7]);
         when 'xxxx xxxx xxxx xxxx xxxx xxxx x110 0111' => Instr_JALR (encoding[31:20], encoding[19:15], encoding[11:7]);
-        when 'xxxx xxxx xxxx xxxx x000 xxxx x110 0011' => Instr_BEQ  (encoding[31,7,30:25,11:7], encoding[24:20], encoding[19:15]);
+        when 'xxxx xxxx xxxx xxxx x000 xxxx x110 0011' => Iform_BEQ  (encoding[31,7,30:25,11:7], encoding[24:20], encoding[19:15]);
         when 'xxxx xxxx xxxx xxxx x001 xxxx x110 0011' => Instr_BNE  (encoding[31,7,30:25,11:7], encoding[24:20], encoding[19:15]);
         when 'xxxx xxxx xxxx xxxx x100 xxxx x110 0011' => Instr_BLT  (encoding[31,7,30:25,11:7], encoding[24:20], encoding[19:15]);
         when 'xxxx xxxx xxxx xxxx x101 xxxx x110 0011' => Instr_BGE  (encoding[31,7,30:25,11:7], encoding[24:20], encoding[19:15]);
@@ -179,12 +179,19 @@ begin
     X[d] = PC + SignExtend([imm20, Zeros(12)], XLEN);
 end
 
-func Instr_JAL(imm20 : bits(20), rd : bits(5))
+func Iform_JAL(imm20 : bits(20), rd : bits(5))
 begin
     let d = UInt(rd);
     let offset = SignExtend([imm20, '0'], XLEN);
-    X[d] = _NextPC;
+    let result = Instr_JAL(offset);
+    X[d] = result;
+end
+
+func Instr_JAL(offset : bits(XLEN)) => bits(XLEN)
+begin
+    let result = _NextPC;
     BranchTo(PC + offset);
+    return result;
 end
 
 func Instr_JALR(imm12 : bits(12), rs1 : bits(5), rd : bits(5))
@@ -197,13 +204,21 @@ begin
     BranchTo(target);
 end
 
-func Instr_BEQ(imm13 : bits(13), rs2 : bits(5), rs1 : bits(5))
+func Iform_BEQ(imm13 : bits(13), rs2 : bits(5), rs1 : bits(5))
 begin
     let s1 = UInt(rs1);
     let s2 = UInt(rs2);
+    let src1 = X[s1];
+    let src2 = X[s2];
     let offset = SignExtend([imm13, '0'], XLEN);
     let target = PC + offset;
-    if X[s1] == X[s2] then
+    Instr_BEQ(src1, src2, target);
+    // No register writeback
+end
+
+func Instr_BEQ(src1 : bits(XLEN), src2 : bits(XLEN), target : bits(XLEN))
+begin
+    if src1 == src2 then
         BranchTo(target);
     end
 end
