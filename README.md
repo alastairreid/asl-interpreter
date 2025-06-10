@@ -69,7 +69,7 @@ The following commands are sufficient to install requirements and to build ASLi 
 
     apt update
     apt install -y libgmp-dev opam pkg-config
-    pip3 install filecheck lit
+    pip3 install -r requirement.txt
     opam init --no-setup --disable-sandboxing --compiler=4.14.2
     opam install . --deps-only --with-test --with-doc --yes
     eval $(opam env)
@@ -101,7 +101,7 @@ not work because it limits the use of bit-precise integers to 128 bits.
     opam update
     opam init
     eval $(opam env --switch=default)
-    pip3 install filecheck lit
+    pip3 install -r requirement.txt
     opam init --no-setup --disable-sandboxing --compiler=4.14.20
     opam install . --deps-only --with-test --with-doc --yes
     eval $(opam env)
