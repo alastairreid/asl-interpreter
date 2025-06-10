@@ -136,38 +136,11 @@ let primitive_operations = Identset.IdentSet.of_list [
   Builtin_idents.append_bits;
   Builtin_idents.mk_mask;
   Builtin_idents.mask_int;
-  Builtin_idents.eq_sintN;
-  Builtin_idents.ne_sintN;
-  Builtin_idents.gt_sintN;
-  Builtin_idents.ge_sintN;
-  Builtin_idents.le_sintN;
-  Builtin_idents.lt_sintN;
-  Builtin_idents.add_sintN;
-  Builtin_idents.neg_sintN;
-  Builtin_idents.sub_sintN;
-  Builtin_idents.shl_sintN;
-  Builtin_idents.shr_sintN;
-  Builtin_idents.mul_sintN;
-  Builtin_idents.exact_div_sintN;
-  Builtin_idents.zdiv_sintN;
-  Builtin_idents.zrem_sintN;
-  Builtin_idents.fdiv_sintN;
-  Builtin_idents.frem_sintN;
-  Builtin_idents.is_pow2_sintN;
-  Builtin_idents.pow2_sintN;
-  Builtin_idents.align_sintN;
-  Builtin_idents.mod_pow2_sintN;
-  Builtin_idents.cvt_sintN_bits;
-  Builtin_idents.cvt_bits_ssintN;
-  Builtin_idents.cvt_bits_usintN;
-  Builtin_idents.cvt_sintN_int;
-  Builtin_idents.cvt_int_sintN;
-  Builtin_idents.resize_sintN;
-  Builtin_idents.print_sintN_dec;
-  Builtin_idents.print_sintN_hex;
   Builtin_idents.asl_extract_bits;
   Builtin_idents.asl_extract_int;
-  Builtin_idents.print_bits_hex
+  Builtin_idents.print_bits_hex;
+  Builtin_idents.print_sintN_hex;
+  Builtin_idents.print_sintN_dec
 ]
  
 let standard_functions = Identset.IdentSet.of_list [
@@ -180,6 +153,38 @@ let standard_functions = Identset.IdentSet.of_list [
   Builtin_idents.print_char;
   Builtin_idents.print_str;
   Builtin_idents.print_bits
+]
+
+let arith_functions = Identset.mk_bindings [
+  ( Builtin_idents.eq_sintN,         ("arith.cmpi eq,",   true));
+  ( Builtin_idents.ne_sintN,         ("arith.cmpi ne,",   true));
+  ( Builtin_idents.gt_sintN,         ("arith.cmpi sgt,",  true));
+  ( Builtin_idents.ge_sintN,         ("arith.cmpi sge,",  true));
+  ( Builtin_idents.le_sintN,         ("arith.cmpi sle,",  true));
+  ( Builtin_idents.lt_sintN,         ("arith.cmpi slt,",  true));
+  ( Builtin_idents.add_sintN,        ("arith.addi",       false));
+  (* ( Builtin_idents.neg_sintN,     ("", false)); *)
+  ( Builtin_idents.sub_sintN,        ("arith.subi",       false));
+  ( Builtin_idents.shl_sintN,        ("arith.shli",       false));
+  ( Builtin_idents.shr_sintN,        ("arith.shrsi",      false));
+  ( Builtin_idents.mul_sintN,        ("arith.muli",       false));
+  ( Builtin_idents.exact_div_sintN,  ("arith.divsi",      false));
+  ( Builtin_idents.zdiv_sintN,       ("arith.divsi",      false));
+  ( Builtin_idents.zrem_sintN,       ("arith.remsi",      false));
+  ( Builtin_idents.fdiv_sintN,       ("arith.floordivsi", false))
+  (* ( Builtin_idents.frem_sintN,       ""); *)
+  (*
+  ( Builtin_idents.is_pow2_sintN,    "");
+  ( Builtin_idents.pow2_sintN,       "");
+  ( Builtin_idents.align_sintN,      "");
+  ( Builtin_idents.mod_pow2_sintN,   "");
+  ( Builtin_idents.cvt_sintN_bits,   "");
+  ( Builtin_idents.cvt_bits_ssintN,  "");
+  ( Builtin_idents.cvt_bits_usintN,  "");
+  ( Builtin_idents.cvt_sintN_int,    "");
+  ( Builtin_idents.cvt_int_sintN,    "");
+  ( Builtin_idents.resize_sintN,     "");
+  *)
 ]
 
 let prim_name (fmt : PP.formatter) (x : Ident.t) : unit =
@@ -204,6 +209,9 @@ let valueLit (loc : Loc.t) (fmt : PP.formatter) (x : Value.value) : AST.ty =
   | VInt v ->
       PP.fprintf fmt "asl.constant_int %s" (Z.to_string v);
       Asl_utils.type_integer
+  | VIntN v ->
+      PP.fprintf fmt "arith.constant %s : i%d" (Z.to_string v.v) v.n;
+      Asl_utils.type_sintN (mk_litint v.n)
   | VBits v ->
       PP.fprintf fmt "asl.constant_bits %s : !asl.bits<%d>" (Z.to_string v.v) v.n;
       Asl_utils.type_bits (Asl_utils.mk_litint v.n)
@@ -276,6 +284,8 @@ let rec pp_type (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : unit =
       PP.fprintf fmt "!asl.string"
   | Type_Constructor (tc, []) when Identset.IdentSet.mem tc !enum_types ->
       PP.fprintf fmt "i%d" enum_size
+  | Type_Constructor (i, [n]) when Ident.equal i Builtin_idents.sintN ->
+      PP.fprintf fmt "i%a" (simple_expr loc) n
   | Type_Constructor (tc, []) ->
       PP.fprintf fmt "%a" ident tc
   | Type_Constructor (tc, ps) ->
@@ -538,6 +548,20 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
         ident masked
         ident v;
       (t, type_bool)
+  | Expr_TApply (f, ps, args, NoThrow) when Identset.Bindings.mem f arith_functions ->
+      let (f', is_test) = Identset.Bindings.find f arith_functions in
+      let avs = List.map (fun arg -> fst (expr loc env fmt arg)) args in
+      let fty = Identset.Bindings.find f !funtypes in
+      let fty' = instantiate_funtype ps fty in
+      let snd3 (x,y,z) = y in
+      let ty = snd3 (List.hd fty'.args) in
+      let t = locals#fresh in
+      PP.fprintf fmt "%a = %s %a : %a@,"
+        varident t
+        f'
+        (commasep varident) avs
+        (pp_type loc) ty;
+      (t, fty'.rty)
   | Expr_TApply (f, [], [x], NoThrow) when Ident.equal f Builtin_idents.not_bool ->
       let (x', xty) = expr loc env fmt x in
       let (one, _) = mk_bool_const fmt true in
