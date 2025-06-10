@@ -156,24 +156,24 @@ let standard_functions = Identset.IdentSet.of_list [
 ]
 
 let arith_functions = Identset.mk_bindings [
-  ( Builtin_idents.eq_sintN,         ("arith.cmpi eq,",   true));
-  ( Builtin_idents.ne_sintN,         ("arith.cmpi ne,",   true));
-  ( Builtin_idents.gt_sintN,         ("arith.cmpi sgt,",  true));
-  ( Builtin_idents.ge_sintN,         ("arith.cmpi sge,",  true));
-  ( Builtin_idents.le_sintN,         ("arith.cmpi sle,",  true));
-  ( Builtin_idents.lt_sintN,         ("arith.cmpi slt,",  true));
-  ( Builtin_idents.add_sintN,        ("arith.addi",       false));
-  (* ( Builtin_idents.neg_sintN,     ("", false)); *)
-  ( Builtin_idents.sub_sintN,        ("arith.subi",       false));
-  ( Builtin_idents.shl_sintN,        ("arith.shli",       false));
-  ( Builtin_idents.shr_sintN,        ("arith.shrsi",      false));
-  ( Builtin_idents.mul_sintN,        ("arith.muli",       false));
-  ( Builtin_idents.exact_div_sintN,  ("arith.divsi",      false));
-  ( Builtin_idents.zdiv_sintN,       ("arith.divsi",      false));
-  ( Builtin_idents.zrem_sintN,       ("arith.remsi",      false));
-  ( Builtin_idents.fdiv_sintN,       ("arith.floordivsi", false))
-  (* ( Builtin_idents.frem_sintN,       ""); *)
+  ( Builtin_idents.eq_sintN,         "arith.cmpi eq,");
+  ( Builtin_idents.ne_sintN,         "arith.cmpi ne,");
+  ( Builtin_idents.gt_sintN,         "arith.cmpi sgt,");
+  ( Builtin_idents.ge_sintN,         "arith.cmpi sge,");
+  ( Builtin_idents.le_sintN,         "arith.cmpi sle,");
+  ( Builtin_idents.lt_sintN,         "arith.cmpi slt,");
+  ( Builtin_idents.add_sintN,        "arith.addi");
+  ( Builtin_idents.sub_sintN,        "arith.subi");
+  ( Builtin_idents.shl_sintN,        "arith.shli");
+  ( Builtin_idents.shr_sintN,        "arith.shrsi");
+  ( Builtin_idents.mul_sintN,        "arith.muli");
+  ( Builtin_idents.exact_div_sintN,  "arith.divsi");
+  ( Builtin_idents.zdiv_sintN,       "arith.divsi");
+  ( Builtin_idents.zrem_sintN,       "arith.remsi");
+  ( Builtin_idents.fdiv_sintN,       "arith.floordivsi")
   (*
+  ( Builtin_idents.neg_sintN,        "");
+  ( Builtin_idents.frem_sintN,       "");
   ( Builtin_idents.is_pow2_sintN,    "");
   ( Builtin_idents.pow2_sintN,       "");
   ( Builtin_idents.align_sintN,      "");
@@ -282,6 +282,8 @@ let rec pp_type (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : unit =
       PP.fprintf fmt "!asl.real"
   | Type_Constructor (tc, []) when tc = Builtin_idents.string_ident ->
       PP.fprintf fmt "!asl.string"
+  | Type_Constructor (tc, []) when tc = Builtin_idents.ram ->
+      PP.fprintf fmt "!asl.ram"
   | Type_Constructor (tc, []) when Identset.IdentSet.mem tc !enum_types ->
       PP.fprintf fmt "i%d" enum_size
   | Type_Constructor (i, [n]) when Ident.equal i Builtin_idents.sintN ->
@@ -444,7 +446,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
   ( match x with
   | Expr_Lit l ->
       let v = locals#fresh in
-      PP.fprintf fmt "%a = " ident v;
+      PP.fprintf fmt "%a = " varident v;
       let t = valueLit loc fmt l in
       PP.fprintf fmt "@,";
       (v, t)
@@ -476,7 +478,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       let value = Identset.Bindings.find v !enums in
       let t = locals#fresh in
       PP.fprintf fmt "%a = arith.constant %d : i%d@,"
-        ident t
+        varident t
         value
         enum_size;
       (t, Asl_utils.type_bits (Asl_utils.mk_litint enum_size))
@@ -487,13 +489,13 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
           let ty = Identset.Bindings.find v !vartypes in
           let ref = locals#fresh in
           PP.fprintf fmt "%a = asl.address_of(@@%a) : !asl.ref<%a>@,"
-            ident ref
+            varident ref
             ident v
             (pp_type loc) ty;
           let t = locals#fresh in
           PP.fprintf fmt "%a = asl.load(%a) : %a@,"
-            ident t
-            ident ref
+            varident t
+            varident ref
             (pp_type loc) ty;
           (t, ty)
       | Some (None, mut, ty) -> (v, ty) (* immutable variable *)
@@ -507,17 +509,22 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
         | _ -> raise (InternalError (loc, "Array read", (fun fmt -> FMT.ty fmt ty), __LOC__))
         )
       in
-      let ref = locals#fresh in
+      let aref = locals#fresh in
       PP.fprintf fmt "%a = asl.address_of(@@%a) : !asl.ref<%a>@,"
-        ident ref
+        varident aref
         ident v
         (pp_type loc) ty;
       let (ix', _) = expr loc env fmt ix in
+      let eref = locals#fresh in
+      PP.fprintf fmt "%a = asl.array_ref(%a, %a) : !asl.ref<%a>@,"
+        varident eref
+        varident aref
+        varident ix'
+        (pp_type loc) ty;
       let t = locals#fresh in
-      PP.fprintf fmt "%a = asl.array_ref(%a, %a) : %a@,"
-        ident t
-        ident ref
-        ident ix'
+      PP.fprintf fmt "%a = asl.load(%a) : %a@,"
+        varident t
+        varident eref
         (pp_type loc) ty;
       (t, elty)
   | Expr_If (els, e) ->
@@ -533,23 +540,23 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
   | Expr_In (e, Pat_Lit (VMask mask)) ->
       let (e', ty) = expr loc env fmt e in
       let v = locals#fresh in
-      PP.fprintf fmt "%a = asl.constant_bits %s : !asl.bits<%d>@," ident v (Z.to_string mask.v) mask.n;
+      PP.fprintf fmt "%a = asl.constant_bits %s : !asl.bits<%d>@," varident v (Z.to_string mask.v) mask.n;
       let m = locals#fresh in
-      PP.fprintf fmt "%a = asl.constant_bits %s : !asl.bits<%d>@," ident m (Z.to_string mask.m) mask.n;
+      PP.fprintf fmt "%a = asl.constant_bits %s : !asl.bits<%d>@," varident m (Z.to_string mask.m) mask.n;
       let masked = locals#fresh in
       PP.fprintf fmt "%a = asl.and_bits(%a, %a) : !asl.bits<%d>@,"
-        ident masked
-        ident e'
-        ident m
+        varident masked
+        varident e'
+        varident m
         mask.n;
       let t = locals#fresh in
       PP.fprintf fmt "%a = asl.eq_bits(%a, %a) : !asl.boolean@,"
-        ident t
-        ident masked
-        ident v;
+        varident t
+        varident masked
+        varident v;
       (t, type_bool)
   | Expr_TApply (f, ps, args, NoThrow) when Identset.Bindings.mem f arith_functions ->
-      let (f', is_test) = Identset.Bindings.find f arith_functions in
+      let f' = Identset.Bindings.find f arith_functions in
       let avs = List.map (fun arg -> fst (expr loc env fmt arg)) args in
       let fty = Identset.Bindings.find f !funtypes in
       let fty' = instantiate_funtype ps fty in
@@ -719,21 +726,37 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : unit =
         let ty = Identset.Bindings.find v !vartypes in
         let ref = locals#fresh in
         PP.fprintf fmt "%a = asl.address_of(@@%a) : !asl.ref<%a>@,"
-          ident ref
+          varident ref
           ident v
           (pp_type loc) ty;
         let (rhs', ty) = expr loc env fmt rhs in
-        PP.fprintf fmt "asl.store %a to %a : !asl.ref<%a>@,"
-          ident rhs'
-          ident ref
+        PP.fprintf fmt "asl.store(%a) = %a : %a@,"
+          varident ref
+          varident rhs'
           (pp_type loc) ty
       end else begin
         let (rhs', ty) = expr loc env fmt rhs in
         ignore (ScopeStack.set env v (Some rhs', true, ty))
       end
   | Stmt_Assign (LExpr_Array (LExpr_Var v, ix), rhs, loc) ->
+      let ty = Identset.Bindings.find v !vartypes in
+      let aref = locals#fresh in
+      PP.fprintf fmt "%a = asl.address_of(@@%a) : !asl.ref<%a>@,"
+        varident aref
+        ident v
+        (pp_type loc) ty;
+      let (ix', _) = expr loc env fmt ix in
+      let eref = locals#fresh in
+      PP.fprintf fmt "%a = asl.array_ref(%a, %a) : !asl.ref<%a>@,"
+        varident eref
+        varident aref
+        varident ix'
+        (pp_type loc) ty;
       let (rhs', ty) = expr loc env fmt rhs in
-      ignore (ScopeStack.set env v (Some rhs', true, ty))
+      PP.fprintf fmt "asl.store(%a) = %a : %a@,"
+        varident eref
+        varident rhs'
+        (pp_type loc) ty
   | Stmt_Assign (LExpr_Wildcard, rhs, loc) ->
       ignore (expr loc env fmt rhs)
   | Stmt_Block (ss, loc) ->
@@ -978,7 +1001,7 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
           );
           PP.fprintf fmt "}@.@."
       | Decl_Var (v, ty, loc) ->
-          PP.fprintf fmt "asl.global @@%a : %a@.@."
+          PP.fprintf fmt "asl.global \"%a\" : %a@.@."
             ident v
             (pp_type loc) ty
       | _ ->
