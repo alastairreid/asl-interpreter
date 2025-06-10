@@ -589,9 +589,6 @@ def main() -> int:
         ]
         asli_cmd.extend(args.asl_files)
         generate_config_file(config_file, ["main"] + args.exports, args.imports)
-        xdsl_asl_dir = os.environ.get('XDSL_ASL_DIR')
-        if xdsl_asl_dir is None:
-            print("Error: XDSL_ASL_DIR environment variable must point at the xdsl_asl checkout")
         run(asli_cmd)
         print(f"# Generated {mlir_file}")
         mlir_cmd = ["asl-opt", "--target=exec", mlir_file]
