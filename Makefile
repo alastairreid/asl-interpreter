@@ -17,10 +17,10 @@ OPAM := opam
 LIT := lit
 
 # Control verbosity of testing
-LIT_VERBOSITY = --succinct
-# LIT_VERBOSITY = --verbose
-DUNE_VERBOSITY = ALCOTEST_COMPACT=1
-# DUNE_VERBOSITY =
+# LIT_VERBOSITY = --succinct
+LIT_VERBOSITY = --verbose
+# DUNE_VERBOSITY = ALCOTEST_COMPACT=1
+DUNE_VERBOSITY =
 
 build::
 	$(DUNE) build
