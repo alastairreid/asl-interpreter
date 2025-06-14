@@ -236,7 +236,7 @@ variable_declaration:
     { Decl_Const(v, ty, e, Range($symbolstartpos, $endpos)) }
 
 ixtype:
-| ident = ident { Index_Enum(ident) }
+| TYPE ident = ident { Index_Enum(ident) }
 | expr = expr { Index_Int(expr) }
 
 throws:

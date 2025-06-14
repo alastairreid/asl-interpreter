@@ -236,7 +236,7 @@ let tests : unit Alcotest.test_case list =
            var (h : integer, i : boolean) = (1, TRUE);
            var (j : integer, - : boolean) = (1, TRUE);
            var arr1 : array [8] of integer;
-           var arr2 : array [boolean] of integer;
+           var arr2 : array [type boolean] of integer;
 
            let m : bits(8*N) = UNKNOWN : bits(8*N);
            let n : bits(8*N) = Zeros(8*N);

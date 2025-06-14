@@ -226,7 +226,7 @@ let rec ty (fmt : PP.formatter) (x : AST.ty) : unit =
   | Type_Array (ixty, ety) ->
       kw_array fmt;
       nbsp fmt;
-      brackets fmt (fun _ -> ixtype fmt ixty);
+      ixtype fmt ixty;
       nbsp fmt;
       kw_of fmt;
       nbsp fmt;
@@ -295,7 +295,7 @@ and change (fmt : PP.formatter) (x : AST.change) : unit =
 and ixtype (fmt : PP.formatter) (x : AST.ixtype) : unit =
   match x with
   | Index_Enum tc -> tycon fmt tc
-  | Index_Int sz -> expr fmt sz
+  | Index_Int sz -> brackets fmt (fun _ -> expr fmt sz)
 
 and expr (fmt : PP.formatter) (x : AST.expr) : unit =
   ( match x with

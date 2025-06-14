@@ -266,7 +266,7 @@ Malformed array type.
 The syntax of array types is
     "array [ <expression> ] of <type>"
 or
-    "array [ <enumeration type name> ] of <type>"
+    "array <enumeration type name> of <type>"
 
 expr_command_start: ID AS ARRAY LBRACK WHILE
 ##
@@ -1266,7 +1266,7 @@ Missing "]" in array type.
 The syntax of array types is
     "array [ <expression> ] of <type>"
 or
-    "array [ <enumeration type name> ] of <type>"
+    "array <enumeration type name> of <type>"
 
 expr_command_start: ID AS ARRAY LBRACK BITSLIT RBRACK WHILE
 ##
@@ -1282,7 +1282,7 @@ Missing "]" in array type.
 The syntax of array types is
     "array [ <expression> ] of <type>"
 or
-    "array [ <enumeration type name> ] of <type>"
+    "array <enumeration type name> of <type>"
 
 expr_command_start: ID AS ARRAY LBRACK BITSLIT RBRACK OF WHILE
 ##
@@ -1297,31 +1297,6 @@ expr_command_start: ID AS ARRAY LBRACK BITSLIT RBRACK OF WHILE
 Missing "of" in array type.
 The syntax of array types is
     "array [ $2 ] of <type>"
-
-expr_command_start: ID AS ARRAY LBRACK ID WHILE
-##
-## Ends in an error in state: 122.
-##
-## aexpr -> ident . [ XOR STAR SLASH REM RBRACK QUOT PLUS_PLUS PLUS OR MOD MINUS_MINUS_GT MINUS LT_MINUS_GT LT_LT LT_EQ LT LBRACK IN GT_GT GT_EQ GT EQ_EQ DOT DIVRM DIV CARET BAR_BAR BANG_EQ AS AND AMPERSAND_AMPERSAND ]
-## aexpr -> ident . LPAREN loption(separated_nonempty_list(COMMA,arg)) RPAREN throws [ XOR STAR SLASH REM RBRACK QUOT PLUS_PLUS PLUS OR MOD MINUS_MINUS_GT MINUS LT_MINUS_GT LT_LT LT_EQ LT LBRACK IN GT_GT GT_EQ GT EQ_EQ DOT DIVRM DIV CARET BAR_BAR BANG_EQ AS AND AMPERSAND_AMPERSAND ]
-## aexpr -> ident . QUERY LPAREN loption(separated_nonempty_list(COMMA,arg)) RPAREN [ XOR STAR SLASH REM RBRACK QUOT PLUS_PLUS PLUS OR MOD MINUS_MINUS_GT MINUS LT_MINUS_GT LT_LT LT_EQ LT LBRACK IN GT_GT GT_EQ GT EQ_EQ DOT DIVRM DIV CARET BAR_BAR BANG_EQ AS AND AMPERSAND_AMPERSAND ]
-## aexpr -> ident . LPAREN loption(separated_nonempty_list(COMMA,arg)) RPAREN LBRACE separated_nonempty_list(COMMA,field_assignment) RBRACE [ XOR STAR SLASH REM RBRACK QUOT PLUS_PLUS PLUS OR MOD MINUS_MINUS_GT MINUS LT_MINUS_GT LT_LT LT_EQ LT LBRACK IN GT_GT GT_EQ GT EQ_EQ DOT DIVRM DIV CARET BAR_BAR BANG_EQ AS AND AMPERSAND_AMPERSAND ]
-## aexpr -> ident . LBRACE separated_nonempty_list(COMMA,field_assignment) RBRACE [ XOR STAR SLASH REM RBRACK QUOT PLUS_PLUS PLUS OR MOD MINUS_MINUS_GT MINUS LT_MINUS_GT LT_LT LT_EQ LT LBRACK IN GT_GT GT_EQ GT EQ_EQ DOT DIVRM DIV CARET BAR_BAR BANG_EQ AS AND AMPERSAND_AMPERSAND ]
-## ixtype -> ident . [ RBRACK ]
-##
-## The known suffix of the stack is as follows:
-## ident
-##
-
-Malformed expression starting with identifier.
-The syntax of expressions that start with an identifier is
-    "$0"                                      - variable read or call getter function
-or
-    "$0(<expressions>)"                       - function call
-or
-    "$0{<field assignments>}"                 - record expression
-or
-    "$0(<expressions>){<field assignments>}"  - record expression
 
 expr_command_start: LBRACK ID COMMA ID RPAREN
 ##

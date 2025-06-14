@@ -1072,6 +1072,9 @@ let rec synthesize_type
   | Type_Constructor (tc1, es1), Type_Constructor (tc2, es2) when tc1 = tc2 ->
       assert (List.length es1 = List.length es2);
       List.iter2 (synthesize_equality s) es1 es2
+  | Type_Array (Index_Int n1, elty1), Type_Array (Index_Int n2, elty2) ->
+      synthesize_equality s n1 n2;
+      synthesize_type env loc s elty1 elty2
   | Type_Array (_, elty1), Type_Array (_, elty2) ->
       synthesize_type env loc s elty1 elty2
   | Type_Tuple tys1, Type_Tuple tys2 ->
