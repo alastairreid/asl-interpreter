@@ -63,6 +63,9 @@ val merge_inplace : ('a -> 'b -> 'a) -> 'a t -> 'b t -> unit
 (** [merge_inplace f ss1 ss2] works the same way as [map2] but stores the
     result into [ss1]. *)
 
+val add_local_scope : 'a t -> 'a t
+(** [add_local_scope ss] adds a new empty current scope [s] to [ss]. *)
+
 val nest : 'a t -> ('a t -> 'b) -> 'b
 (** [nest ss f] adds a new empty current scope [s] to [ss] then calls f with
     [s :: ss]. *)

@@ -7,6 +7,7 @@
 
 (* Turn off warnings about unused (debug) functions. *)
 [@@@warning "-32"]
+[@@@warning "-37-39-69"] (* temporary - until new IR is in place *)
 
 (** ASL to MLIR backend *)
 
@@ -14,9 +15,15 @@ module AST = Asl_ast
 module FMT = Asl_fmt
 module PP = Format
 module V = Value
+module Builtins = Builtin_idents
+module HLIR = Hlir
 open Asl_utils
 open Format_utils
 open Utils
+
+(****************************************************************
+ * Pretty printing helpers
+ ****************************************************************)
 
 let commasep (pp : PP.formatter -> 'a -> unit) (fmt : PP.formatter) (xs : 'a list) : unit =
   PP.pp_print_list
@@ -50,6 +57,14 @@ let varident (fmt : PP.formatter) (x : Ident.t) : unit =
     PP.fprintf fmt "%s" (Ident.name x)
   else
     PP.fprintf fmt "%%%s" (Ident.name x)
+
+(****************************************************************
+ * Primop support
+ ****************************************************************)
+
+let instantiate_funtype (ps : AST.expr list) (fty : AST.function_type) : AST.function_type =
+  let env = Identset.mk_bindings (List.map2 (fun (p, _) ty -> (p, ty)) fty.parameters ps) in
+  Asl_utils.subst_funtype env fty
 
 (* set of all primitive operation names - these will be preceded by asl. *)
 let primitive_operations = Identset.IdentSet.of_list [
@@ -143,7 +158,438 @@ let primitive_operations = Identset.IdentSet.of_list [
   Builtin_idents.print_sintN_hex;
   Builtin_idents.print_sintN_dec
 ]
- 
+
+(****************************************************************
+ * 
+ ****************************************************************)
+
+let enum_size = 8 (* assume this is big enough for all enumerated types *)
+let enums : int Identset.Bindings.t ref = ref Identset.Bindings.empty
+let type_of_enum : AST.ty Identset.Bindings.t ref = ref Identset.Bindings.empty
+let enum_types : Identset.IdentSet.t ref = ref Identset.IdentSet.empty
+
+let vartypes : AST.ty Identset.Bindings.t ref = ref Identset.Bindings.empty
+let funtypes : AST.function_type Identset.Bindings.t ref = ref Identset.Bindings.empty
+
+(****************************************************************
+ * HLIR context
+ *
+ * The key operations supported by the context are:
+ * - Tracking information about the current region
+ *   - Operations added to the current region
+ *   - Source level variables assigned to in tthe current region
+ * - Environment support
+ *   - reading and writing the bindings of source language variables
+ *     to HLIR variables
+ *   - listing the variables assigned to in the current region
+ * - Cloning the context (with an empty set of mutable variables and
+ *   a nested scope for immutable variables).
+ * - Providing access to the name supply for this function
+ *   Note that the same name supply is used for the entire function.
+ *
+ * To make it easy to find the modified variables, we maintain two
+ * mappings:
+ * - the initial binding of a source language variable to a value
+ *   (most variables are immutable - so they will be in this mapping)
+ * - the changes to the bindings in the current region
+ ****************************************************************)
+
+(* IR code generators incrementally write code to a codegen context
+ * containing all mutable state.
+ *)
+type context = {
+  var_idents : Asl_utils.nameSupply;
+  operations : HLIR.operation list ref; (* in reverse order *)
+  (* note that both initial_bindings and local_rebindings are internally mutable *)
+  initial_bindings : HLIR.ident ScopeStack.t; (* local variables *)
+  local_rebindings : HLIR.ident Scope.t; (* local modifications *)
+}
+
+let ppContext (fmt : PP.formatter) (ctx : context) : unit =
+    (*
+  let pp_entry (fmt : PP.formatter) (x : hlir_env_entry) : unit =
+      let (v, mut) = x in
+      HLIR.ppIdent fmt v;
+      if mut then PP.fprintf fmt " mutable"
+  in
+  PP.fprintf fmt "{ %a }" (ScopeStack.pp pp_entry) env
+  *)
+    ()
+
+let fresh_context (_ : unit) : context =
+  { var_idents = new nameSupply "%";
+    operations = ref [];
+    initial_bindings = ScopeStack.empty ();
+    local_rebindings = Scope.empty ();
+  }
+
+let clone_context (ctx : context) : context =
+  { var_idents = ctx.var_idents;
+    operations = ref [];
+    initial_bindings = ScopeStack.add_local_scope ctx.initial_bindings;
+    local_rebindings = Scope.empty ()
+  }
+
+let mk_fresh (ctx : context) (t : HLIR.ty) : HLIR.ident =
+  let v = ctx.var_idents#fresh in
+  HLIR.Ident (v, t)
+
+let get_region (ctx : context) (outputs : HLIR.ident list) (inputs : HLIR.ident list) : HLIR.region =
+  let ops = List.rev (!(ctx.operations)) in
+  ctx.operations := [];
+  { inputs; operations = ops; outputs }
+
+let emit_op (ctx : context) (x : HLIR.operation) : unit =
+  ctx.operations := x :: !(ctx.operations)
+
+let get_binding (ctx : context) (v : Ident.t) : HLIR.ident option =
+  ( match Scope.get ctx.local_rebindings v with
+  | Some v' -> Some v'
+  | None -> ScopeStack.get ctx.initial_bindings v
+  )
+
+let add_initial_binding (ctx : context) (v : Ident.t) (v' : HLIR.ident) : unit =
+  ScopeStack.add ctx.initial_bindings v v'
+
+let rebind (ctx : context) (v : Ident.t) (v' : HLIR.ident) : unit =
+  Scope.set ctx.local_rebindings v v'
+
+let get_rebound_variables (old_ctx : context) (ctx : context) : HLIR.ident Scope.t =
+  Scope.filter
+    (fun v v' -> get_binding old_ctx v <> Some v')
+    ctx.local_rebindings
+
+(****************************************************************
+ * HLIR utilities
+ ****************************************************************)
+
+let add_noresult_op (loc : Loc.t) (ctx : context) (op : HLIR.op) (operands : HLIR.ident list) : unit =
+  emit_op ctx { results=[]; op; operands; regions=[]; loc }
+
+let add_simple_op (loc : Loc.t) (ctx : context) (rty : HLIR.ty) (op : HLIR.op) (operands : HLIR.ident list) : HLIR.ident =
+  let r = mk_fresh ctx rty in
+  emit_op ctx { results=[r]; op; operands; regions=[]; loc };
+  r
+
+(****************************************************************
+ * HLIR generation
+ ****************************************************************)
+
+let valueLit (loc : Loc.t) (ctx : context) (x : Value.value) : HLIR.ident =
+  let ty = HLIR.mkType (type_of_value loc x) in
+  add_simple_op loc ctx ty (Constant x) []
+
+let rec expr_to_ir (loc : Loc.t) (ctx : context) (x : AST.expr) : HLIR.ident =
+  ( match x with
+  | Expr_Lit v -> valueLit loc ctx v
+  | Expr_Var v when Ident.equal v Builtin_idents.false_ident -> valueLit loc ctx (VBool false)
+  | Expr_Var v when Ident.equal v Builtin_idents.true_ident -> valueLit loc ctx (VBool true)
+
+  | Expr_Var v when Identset.Bindings.mem v !type_of_enum ->
+      let ty = Identset.Bindings.find v !type_of_enum in
+      add_simple_op loc ctx (Type ty) (Symbol v) []
+
+  | Expr_Var v ->
+      ( match get_binding ctx v with
+      | None -> (* global variable *)
+          assert (Identset.Bindings.mem v !vartypes);
+          let ty = Identset.Bindings.find v !vartypes in
+          let ref = add_simple_op loc ctx (Ref ty) (MkRef v) [] in
+          add_simple_op loc ctx (Type ty) Load [ref]
+      | Some v' -> v' (* local variable *)
+      )
+
+  | Expr_Array (e, ix) ->
+      let e'  = expr_to_ir loc ctx e in
+      let ix' = expr_to_ir loc ctx ix in
+      let ref_ty = HLIR.typeof e' in
+      let elt_ty = ( match ref_ty with
+                   | Ref (Type_Array(_, elt_ty)) -> elt_ty
+                   | _ -> raise (InternalError (loc, "expr", (fun fmt -> HLIR.ppType fmt ref_ty), __LOC__))
+                   )
+      in
+      let eref = add_simple_op loc ctx (Ref elt_ty) AddIndex [e'; ix'] in
+      add_simple_op loc ctx (Type elt_ty) Load [eref]
+
+  | Expr_In (e, Pat_Lit (VMask mask)) ->
+      let e' = expr_to_ir loc ctx e in
+      let ty = HLIR.typeof e' in
+      let (v, m) = Primops.prim_mask_to_bits mask in
+      let value  = add_simple_op loc ctx ty (Constant (VBits v)) [] in
+      let mask   = add_simple_op loc ctx ty (Constant (VBits m)) [] in
+      let masked = add_simple_op loc ctx ty (Builtin Builtins.and_bits) [e'; mask] in
+      add_simple_op loc ctx ty (Builtin Builtins.eq_bits) [masked; value]
+
+  | Expr_If (els, e) ->
+      let rec ir_ites els ctx : HLIR.ident =
+        ( match els with
+        | [] -> expr_to_ir loc ctx e
+        | (c,t)::els' ->
+           let c' = expr_to_ir loc ctx c in
+           let t' = expr_to_region loc ctx t in
+           let e' = expr_to_region loc ctx (AST.Expr_If (els', e)) in
+           ir_ite loc ctx c' t' e'
+        )
+      in ir_ites els ctx
+  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.lazy_and_bool ->
+      let x' = expr_to_ir loc ctx x in
+      let y' = expr_to_region loc ctx y in
+      let ff = value_to_region loc ctx (Value.VBool false) in
+      ir_ite loc ctx x' y' ff
+  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.lazy_or_bool ->
+      let x' = expr_to_ir loc ctx x in
+      let tt = value_to_region loc ctx (Value.VBool true) in
+      let y' = expr_to_region loc ctx y in
+      ir_ite loc ctx x' tt y'
+  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.implies_bool ->
+      let x' = expr_to_ir loc ctx x in
+      let y' = expr_to_region loc ctx y in
+      let tt = value_to_region loc ctx (VBool true) in
+      ir_ite loc ctx x' y' tt
+  | Expr_TApply (f, ps, args, throws) ->
+      let fty = Identset.Bindings.find f !funtypes in
+      let fty' = instantiate_funtype ps fty in
+      let args' = List.map (expr_to_ir loc ctx) args in
+      if Identset.IdentSet.mem f primitive_operations then (
+        (* todo: in the backend, we expect primops to be called with fixed bitwidths *)
+        add_simple_op loc ctx (Type fty'.rty) (Builtin f) args'
+      ) else (
+        let ps' = List.map (expr_to_ir loc ctx) ps in
+        add_simple_op loc ctx (Type fty'.rty) (Call f) (ps' @ args')
+      )
+  (* 
+  | Expr_Slices (Type_Bits (Expr_Lit (VInt m), _), x, [Slice_LoWd (lo, (Expr_Lit (VInt n) as wd))]) ->
+      let (x', _) = expr loc env fmt x in
+      let (lo', _) = expr loc env fmt lo in
+      let (wd', _) = expr loc env fmt wd in
+      let t = locals#fresh in
+      PP.fprintf fmt "%a = asl.get_slice %a, %a, %a : (!asl.bits<%s>, !asl.int, !asl.int) -> !asl.bits<%s>@,"
+        varident t
+        varident x'
+        varident lo'
+        varident wd'
+        (Z.to_string m)
+        (Z.to_string n);
+      (t, Asl_utils.type_bits wd)
+  | Expr_Slices (Type_Integer _, Expr_Lit (VInt v), [Slice_LoWd (lo, (Expr_Lit (VInt n) as wd))]) when lo = Asl_utils.zero ->
+      let t = locals#fresh in
+      PP.fprintf fmt "%a = asl.constant_bits %s : !asl.bits<%s>@,"
+        ident t
+        (Z.to_string v)
+        (Z.to_string n);
+      (t, Asl_utils.type_bits wd)
+  *)
+  | _ ->
+      let pp fmt = FMT.expr fmt x in
+      raise (Error.Unimplemented (loc, "expression", pp))
+  )
+
+and value_to_region (loc : Loc.t) (ctx : context) (v : Value.value) : (HLIR.region * HLIR.ty) =
+  let ctx' = clone_context ctx in
+  let v' = add_simple_op loc ctx' (HLIR.mkType (Asl_utils.type_of_value loc v)) (Constant v) [] in
+  (get_region ctx [v'] [], HLIR.typeof v')
+
+and expr_to_region (loc : Loc.t) (ctx : context) (e : AST.expr) : (HLIR.region * HLIR.ty) =
+  let ctx' = clone_context ctx in
+  let e' = expr_to_ir loc ctx e in
+  (get_region ctx' [e'] [], HLIR.typeof e')
+
+and ir_ite (loc : Loc.t) (ctx : context) (c : HLIR.ident) (t : (HLIR.region * HLIR.ty)) (e : (HLIR.region * HLIR.ty)) : HLIR.ident =
+  let (t', tty) = t in
+  let (e', ety) = e in
+  (* tty and ety should be equivalent *)
+  let r = mk_fresh ctx tty in
+  emit_op ctx { results=[r]; op=If; operands=[c]; regions=[t'; e']; loc };
+  r
+
+let rec stmt_to_ir (ctx : context) (x : AST.stmt) : unit =
+  ( match x with
+  | Stmt_VarDecl (is_constant, DeclItem_Var (v, _), i, loc) ->
+      let i' = expr_to_ir loc ctx i in
+      add_initial_binding ctx v i'
+  | Stmt_VarDecl (is_constant, DeclItem_Wildcard _, i, loc) ->
+      ignore (expr_to_ir loc ctx i)
+  | Stmt_Assign (LExpr_Var v, rhs, loc) ->
+      if Identset.Bindings.mem v !vartypes then begin (* global *)
+        let ty = Identset.Bindings.find v !vartypes in
+        let ref = add_simple_op loc ctx (Ref ty) (MkRef v) [] in
+        let rhs' = expr_to_ir loc ctx rhs in
+        add_noresult_op loc ctx Store [ref; rhs']
+      end else begin
+        let rhs' = expr_to_ir loc ctx rhs in
+        rebind ctx v rhs'
+      end
+      (*
+  | Stmt_Assign (LExpr_Array (LExpr_Var v, ix), rhs, loc) ->
+      let ty = Identset.Bindings.find v !vartypes in
+      let aref = locals#fresh in
+      PP.fprintf fmt "%a = asl.address_of(@@%a) : !asl.ref<%a>@,"
+        varident aref
+        ident v
+        (pp_type loc) ty;
+      let (ix', _) = expr loc env fmt ix in
+      let eref = locals#fresh in
+      PP.fprintf fmt "%a = asl.array_ref(%a, %a) : !asl.ref<%a>@,"
+        varident eref
+        varident aref
+        varident ix'
+        (pp_type loc) ty;
+      let (rhs', ty) = expr loc env fmt rhs in
+      PP.fprintf fmt "asl.store(%a) = %a : %a@,"
+        varident eref
+        varident rhs'
+        (pp_type loc) ty
+        *)
+  | Stmt_Assign (LExpr_Wildcard, rhs, loc) ->
+      ignore (expr_to_ir loc ctx rhs)
+  | Stmt_Block (ss, loc) ->
+      let ctx' = clone_context ctx in
+      List.iter (stmt_to_ir ctx') ss;
+      let changes = get_rebound_variables ctx ctx' in
+      List.iter (emit_op ctx) ((get_region ctx' [] []).operations);
+      Scope.iter (rebind ctx) changes
+  | Stmt_Return (e, loc) ->
+      ( match e with
+      | Expr_Tuple [] -> ()
+      | _ ->
+        let e' = expr_to_ir loc ctx e in
+        add_noresult_op loc ctx Return [e']
+      )
+  | Stmt_Assert (e, loc) ->
+      let e' = expr_to_ir loc ctx e in
+      let msg = String.escaped (Utils.to_string2 (Fun.flip FMT.expr e)) in
+      add_noresult_op loc ctx (Assert msg) [e']
+  | Stmt_TCall (f, ps, args, throws, loc) ->
+      let args' = List.map (expr_to_ir loc ctx) args in
+      if Identset.IdentSet.mem f primitive_operations then (
+        (* todo: in the backend, we expect primops to be called with fixed bitwidths *)
+        add_noresult_op loc ctx (Builtin f) args'
+      ) else (
+        let ps' = List.map (expr_to_ir loc ctx) ps in
+        add_noresult_op loc ctx (Call f) (ps' @ args')
+      )
+  | Stmt_If ([(c, t, loc)], (e, _), _) ->
+      let c' = expr_to_ir loc ctx c in
+
+      let t_ctx = clone_context ctx in
+      List.iter (stmt_to_ir t_ctx) t;
+      let t_changes = Scope.get_bindings (get_rebound_variables ctx t_ctx) in
+
+      let e_ctx = clone_context ctx in
+      List.iter (stmt_to_ir e_ctx) e;
+      let e_changes = Scope.get_bindings (get_rebound_variables ctx e_ctx) in
+
+      let changes = Identset.Bindings.merge
+        (fun v ovt ove ->
+            (* I believe that at least one of ovt or ove is not None and they have the same type *)
+            let ty = Utils.from_option ovt (fun _ -> Option.get ove) |> HLIR.typeof in
+            let vm = mk_fresh ctx ty in
+            let vt' = from_option ovt (fun _ -> get_binding ctx v |> Option.get) in
+            let ve' = from_option ove (fun _ -> get_binding ctx v |> Option.get) in
+            Some (vm, vt', ve')
+        )
+        t_changes
+        e_changes
+      in
+
+      let t_results = List.map (fun (v, (vm,vt,ve)) -> vt) (Identset.Bindings.bindings changes) in
+      let e_results = List.map (fun (v, (vm,vt,ve)) -> ve) (Identset.Bindings.bindings changes) in
+
+      let t_region = get_region t_ctx t_results [] in
+      let e_region = get_region e_ctx e_results [] in
+
+      let results = List.map (fun (v, (vm,vt,ve)) -> rebind ctx v vm; vm) (Identset.Bindings.bindings changes) in
+      emit_op ctx { results; op=If; operands=[c']; regions=[t_region; e_region]; loc }
+
+  | Stmt_While (cond, body, loc) ->
+      let after_ctx = clone_context ctx in
+      List.iter (stmt_to_ir after_ctx) body;
+      let after_changes = Scope.bindings (get_rebound_variables ctx after_ctx) in
+
+      (* TRICKY DETAIL:
+       * The inputs to the after region have the same names as the bindings
+       * of the variables before the loop.
+       * But, they are distinct variables because they exist in the nested
+       * scope of the after region.
+       *
+       * (Trying to allocate completely fresh names for them would require us
+       * to have a list of all modified variables before starting translation
+       * of the body.)
+       *)
+      let after_inputs = List.map (fun (v, _) -> get_binding ctx v |> Option.get) after_changes in
+      let after_results = List.map snd after_changes in
+
+      (* use the list of variables modified in the body as the initial values
+       * required by the condition block
+       *)
+      let before_ctx = clone_context ctx in
+      let cond' = expr_to_ir loc before_ctx cond in
+      let before_inputs = List.map (fun (v, v') ->
+             let vi = mk_fresh ctx (HLIR.typeof v') in
+             rebind before_ctx v vi;
+             vi
+           )
+           after_changes
+      in
+      let before_outputs = cond' :: before_inputs in
+
+      let results = List.map (fun (v, v') ->
+             let vm = mk_fresh ctx (HLIR.typeof v') in
+             rebind ctx v vm;
+             vm
+           )
+           after_changes
+      in
+      let before_region = get_region before_ctx before_outputs before_inputs in
+      let after_region = get_region after_ctx after_results after_inputs in
+      emit_op ctx { results; op=While; operands=after_inputs; regions=[before_region; after_region]; loc }
+  | _ ->
+      let pp fmt = FMT.stmt fmt x in
+      raise (Error.Unimplemented (Loc.Unknown, "statement", pp))
+  )
+
+let declaration_to_ir (x : AST.declaration) : HLIR.global option =
+  ( match x with
+  | Decl_BuiltinType _
+  | Decl_BuiltinFunction _
+  | Decl_Forward _
+  | Decl_Operator1 _
+  | Decl_Operator2 _
+  | Decl_FunType _
+    -> None
+  | Decl_Var (v, ty, loc) ->
+      Some (HLIR.Variable(v, ty, loc))
+  | Decl_FunDefn (f, fty, body, loc) ->
+      let ctx = fresh_context () in
+      let ps' = List.map (fun (v, ot) ->
+          let t' = HLIR.mkType (Option.get ot) in
+          let v' = mk_fresh ctx t' in
+          add_initial_binding ctx v v';
+          v'
+        )
+        fty.parameters
+      in
+      let args' = List.map (fun (v, t, _) ->
+          let t' = HLIR.mkType t in
+          let v' = mk_fresh ctx t' in
+          add_initial_binding ctx v v';
+          v'
+        )
+        fty.args
+      in
+      List.iter (stmt_to_ir ctx) body;
+      let inputs = ps' @ args' in
+      let outputs = [] in (* todo: I guess these come from the return type or from the return stmts? *)
+      let r = get_region ctx inputs outputs in
+      Some (HLIR.Function(f, r, loc))
+  | _ ->
+      None
+  )
+
+(****************************************************************
+ * Primop support
+ ****************************************************************)
+
 let standard_functions = Identset.IdentSet.of_list [
   Builtin_idents.asl_file_open;
   Builtin_idents.asl_file_write;
@@ -196,12 +642,28 @@ let prim_name (fmt : PP.formatter) (x : Ident.t) : unit =
     PP.fprintf fmt "asl.%s" nm
   end
 
-let enum_size = 8 (* assume this is big enough for all enumerated types *)
-let enums : int Identset.Bindings.t ref = ref Identset.Bindings.empty
-let enum_types : Identset.IdentSet.t ref = ref Identset.IdentSet.empty
+(****************************************************************
+ * 
+ ****************************************************************)
 
-let vartypes : AST.ty Identset.Bindings.t ref = ref Identset.Bindings.empty
-let funtypes : AST.function_type Identset.Bindings.t ref = ref Identset.Bindings.empty
+(* the environment tracks the following about local variables
+ * - for mutable variables, what SSA variable holds its current value
+ * - is it a mutable variable (needed for uninitialized variables)
+ * - their type
+ *)
+
+type env_entry = (Ident.t option * bool * AST.ty)
+type environment = env_entry ScopeStack.t
+
+let ppEnv (fmt : PP.formatter) (env : environment) : unit =
+  let pp_entry (fmt : PP.formatter) (x : env_entry) : unit =
+      let (v, mut, ty) = x in
+      PP.fprintf fmt "%a :: %a "
+        (Format.pp_print_option varident) v
+        FMT.ty ty;
+      if mut then PP.fprintf fmt " mutable"
+  in
+  PP.fprintf fmt "{ %a }" (ScopeStack.pp pp_entry) env
 
 let locals = new Asl_utils.nameSupply "%"
 
@@ -266,10 +728,6 @@ let parameters (loc : Loc.t) (fmt : PP.formatter) (ps : AST.expr list) : unit =
     PP.fprintf fmt "<%a>"
       (simple_exprs loc) ps
   end
-
-let instantiate_funtype (ps : AST.expr list) (fty : AST.function_type) : AST.function_type =
-  let env = Identset.mk_bindings (List.map2 (fun (p, _) ty -> (p, ty)) fty.parameters ps) in
-  Asl_utils.subst_funtype env fty
 
 let constraints (loc : Loc.t) (fmt : PP.formatter) (x : AST.constraint_range list) : unit =
   ()
@@ -356,25 +814,6 @@ let funtype (loc : Loc.t) (fmt : PP.formatter) (x : AST.function_type) : unit =
   PP.fprintf fmt "(%a) -> %a"
     (commasep (pp_arg_type loc)) x.args
     (pp_return_type loc) x.rty
-
-(* the environment tracks the following about local variables
- * - for mutable variables, what SSA variable holds its current value
- * - is it a mutable variable (needed for uninitialized variables)
- * - their type
- *)
-
-type env_entry = (Ident.t option * bool * AST.ty)
-type environment = env_entry ScopeStack.t
-
-let ppEnv (fmt : PP.formatter) (env : environment) : unit =
-  let pp_entry (fmt : PP.formatter) (x : env_entry) : unit =
-      let (v, mut, ty) = x in
-      PP.fprintf fmt "%a :: %a "
-        (Format.pp_print_option varident) v
-        FMT.ty ty;
-      if mut then PP.fprintf fmt " mutable"
-  in
-  PP.fprintf fmt "{ %a }" (ScopeStack.pp pp_entry) env
 
 let rec prim_apply (loc : Loc.t) (env : environment) (fmt : PP.formatter) (f : Ident.t) (ps : AST.expr list) (args : AST.expr list) : (Ident.t * AST.ty) =
   let avs = List.map (fun arg -> fst (expr loc env fmt arg)) args in
@@ -1062,6 +1501,11 @@ let _ =
         )
       ) standard_functions;
 
+      List.iter (fun d ->
+          let ir = declaration_to_ir d in
+          Option.iter (HLIR.ppGlobal Format.std_formatter) ir
+        )
+        decls;
       PP.fprintf fmt "@,";
       declarations fmt (List.rev decls)
     );

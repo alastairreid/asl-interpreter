@@ -54,6 +54,9 @@ let map2 (f : 'a -> 'b -> 'c) (ss1 : 'a t) (ss2 : 'b t) : 'c t =
 let merge_inplace (f : 'a -> 'b -> 'a) (ss1 : 'a t) (ss2 : 'b t) : unit =
   List.iter2 (Scope.merge_inplace f) ss1 ss2
 
+let add_local_scope (ss : 'a t) : 'a t =
+  Scope.empty () :: ss
+
 let nest (ss : 'a t) (k : 'a t -> 'b) : 'b =
   let newscope = Scope.empty () in
   k (newscope :: ss)

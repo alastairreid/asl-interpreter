@@ -38,6 +38,7 @@
    flags
    format_utils
    global_checks
+   hlir
    ident
    identset
    lattice
