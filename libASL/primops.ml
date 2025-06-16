@@ -309,6 +309,10 @@ let prim_in_mask (x : bitvector) (m : mask) : bool =
 
 let prim_notin_mask (x : bitvector) (m : mask) : bool = not (prim_in_mask x m)
 
+(* Split a mask into a value bitvector and a mask bitvector *)
+let prim_mask_to_bits (x : mask) : (bitvector * bitvector) =
+  (mkBits x.n x.v, mkBits x.n x.m)
+
 (****************************************************************)
 (** {2 Sized signed integer primops}                            *)
 (****************************************************************)
