@@ -14,6 +14,6 @@ end
 
 // CHECK: let wd : integer = asl_sub_int.0{}(32, i);
 // CHECK: let ix : integer = asl_sub_int.0{}(31, i);
-// CHECK: assert asl_and_bool.0{}(asl_le_int.0{}(0, ix), asl_lt_int.0{}(ix, 32));
-// CHECK: assert asl_and_bool.0{}(asl_le_int.0{}(0, wd), asl_le_int.0{}(asl_add_int.0{}(ix, wd), 32));
+// CHECK: assert asl_lazy_and_bool.0{}(asl_le_int.0{}(0, ix), asl_lt_int.0{}(ix, 32));
+// CHECK: assert asl_lazy_and_bool.0{}(asl_le_int.0{}(0, wd), asl_le_int.0{}(asl_add_int.0{}(ix, wd), 32));
 // CHECK: return IsZero.0{wd}({bits(32)}x[ix +: wd]);

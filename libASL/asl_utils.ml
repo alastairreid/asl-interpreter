@@ -922,14 +922,14 @@ let mk_and (x : AST.expr) (y : AST.expr) : AST.expr =
   if x = asl_false then asl_false
   else if x = asl_true then y
   else if y = asl_true then x
-  else mk_binop and_bool [] x y
+  else mk_binop lazy_and_bool [] x y
 
 (** Construct "x || y" *)
 let mk_or (x : AST.expr) (y : AST.expr) : AST.expr =
   if x = asl_true then asl_true
   else if x = asl_false then y
   else if y = asl_false then x
-  else mk_binop or_bool [] x y
+  else mk_binop lazy_or_bool [] x y
 
 (** Construct "x --> y" *)
 let mk_implies (x : AST.expr) (y : AST.expr) : AST.expr =

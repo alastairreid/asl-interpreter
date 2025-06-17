@@ -7,13 +7,13 @@ begin
 
     // AND
     let r1 = i >= 0 && (__let t : integer = 10 __in i <= t);
-    // CHECK: asl_and_bool.0{}(asl_ge_int.0{}(i, 0), (__let t : integer = 10 __in asl_le_int.0{}(i, t)));
+    // CHECK: asl_lazy_and_bool.0{}(asl_ge_int.0{}(i, 0), (__let t : integer = 10 __in asl_le_int.0{}(i, t)));
     let r2 = i >= 0 && i <= (__let t : integer = 10 __in t);
-    // CHECK: asl_and_bool.0{}(asl_ge_int.0{}(i, 0), (__let t : integer = 10 __in asl_le_int.0{}(i, t)));
+    // CHECK: asl_lazy_and_bool.0{}(asl_ge_int.0{}(i, 0), (__let t : integer = 10 __in asl_le_int.0{}(i, t)));
 
     // OR
     let r3 = i >= 0 || i <= (__let t : integer = 10 __in t);
-    // CHECK: asl_or_bool.0{}(asl_ge_int.0{}(i, 0), (__let t : integer = 10 __in asl_le_int.0{}(i, t)));
+    // CHECK: asl_lazy_or_bool.0{}(asl_ge_int.0{}(i, 0), (__let t : integer = 10 __in asl_le_int.0{}(i, t)));
 
     // IMPLIES
     let r4 = i >= 0 --> i <= (__let t : integer = 10 __in t);

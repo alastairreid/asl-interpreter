@@ -392,21 +392,21 @@ and eval_expr (loc : Loc.t) (env : Env.t) (x : AST.expr) : value =
       (* First deal with &&, || and IMPLIES all of which only evaluate
        * their second argument if they need to
        *)
-      if Ident.equal f and_bool then
+      if Ident.equal f lazy_and_bool then
         match (tes, es) with
         | [], [ x; y ] ->
             if to_bool loc (eval_expr loc env x) then eval_expr loc env y
             else from_bool false
         | _ ->
             raise
-              (EvalError (loc, "malformed and_bool expression " ^ pp_expr x))
-      else if Ident.equal f or_bool then
+              (EvalError (loc, "malformed lazy_and_bool expression " ^ pp_expr x))
+      else if Ident.equal f lazy_or_bool then
         match (tes, es) with
         | [], [ x; y ] ->
             if to_bool loc (eval_expr loc env x) then from_bool true
             else eval_expr loc env y
         | _ ->
-            raise (EvalError (loc, "malformed or_bool expression " ^ pp_expr x))
+            raise (EvalError (loc, "malformed lazy_or_bool expression " ^ pp_expr x))
       else if Ident.equal f implies_bool then
         match (tes, es) with
         | [], [ x; y ] ->

@@ -25,9 +25,8 @@ end
 
 let prim_eq_bool (x : bool) (y : bool) : bool = x = y
 let prim_ne_bool (x : bool) (y : bool) : bool = x <> y
-let prim_and_bool (x : bool) (y : bool) : bool = x && y
-let prim_or_bool (x : bool) (y : bool) : bool = x || y
-let prim_equiv_bool (x : bool) (y : bool) : bool = x = y
+let prim_strict_and_bool (x : bool) (y : bool) : bool = x && y
+let prim_strict_or_bool (x : bool) (y : bool) : bool = x || y
 let prim_not_bool (x : bool) : bool = not x
 
 (****************************************************************)

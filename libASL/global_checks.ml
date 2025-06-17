@@ -440,8 +440,8 @@ let rec check_expression_order (loc : Loc.t) (effects : effects_class) (e : AST.
       ( match e with
       | Expr_If _ -> true
       | Expr_TApply (i, _, _, _) when Ident.in_list i [
-          and_bool;
-          or_bool;
+          lazy_and_bool;
+          lazy_or_bool;
           implies_bool
         ]
         -> true

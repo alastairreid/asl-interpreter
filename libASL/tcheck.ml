@@ -687,9 +687,9 @@ let rec z3_of_expr
       Z3.Arithmetic.mk_ge ctx (z3_of_expr ctx ufs a) (z3_of_expr ctx ufs b)
   | Expr_TApply (i, [], [ a; b ], _) when Ident.equal i gt_int ->
       Z3.Arithmetic.mk_gt ctx (z3_of_expr ctx ufs a) (z3_of_expr ctx ufs b)
-  | Expr_TApply (i, [], [ a; b ], _) when Ident.equal i and_bool ->
+  | Expr_TApply (i, [], [ a; b ], _) when Ident.equal i lazy_and_bool ->
     Z3.Boolean.mk_and ctx [z3_of_expr ctx ufs a; z3_of_expr ctx ufs b]
-  | Expr_TApply (i, [], [ a; b ], _) when Ident.equal i or_bool ->
+  | Expr_TApply (i, [], [ a; b ], _) when Ident.equal i lazy_or_bool ->
     Z3.Boolean.mk_or ctx [z3_of_expr ctx ufs a; z3_of_expr ctx ufs b]
   | Expr_TApply (i, [], [ a; b ], _) when Ident.equal i implies_bool ->
       Z3.Boolean.mk_implies ctx (z3_of_expr ctx ufs a) (z3_of_expr ctx ufs b)

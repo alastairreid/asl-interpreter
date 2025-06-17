@@ -79,9 +79,14 @@ let enable_test (c : bool) (test : unit Alcotest.test_case) : (unit Alcotest.tes
   if c then test else ("skipped test", `Quick, (fun _ -> ()))
 
 let eval tcenv env (input : string) : Value.value =
-  let loc = Loc.Unknown in
-  let e = LoadASL.read_expr tcenv loc input in
-  Eval.eval_expr loc env e
+  ( try
+      let loc = Loc.Unknown in
+      let e = LoadASL.read_expr tcenv loc input in
+      Eval.eval_expr loc env e
+    with exn ->
+      Error.print_exception exn;
+      raise exn
+  )
 
 let test_bool (globals : TC.GlobalEnv.t) (prelude : AST.declaration list) (decls : string)
     (l : string) (r : bool) () : unit =
@@ -359,7 +364,11 @@ let tests : unit Alcotest.test_case list =
       "T == 3");
   ]
 
-let () = Alcotest.run "libASL" [ ("asl", tests) ]
+let () = ( try
+             Alcotest.run "libASL" [ ("asl (static)", tests) ]
+           with
+           | exn -> Error.print_exception exn; raise exn
+         )
 
 (****************************************************************
  * End

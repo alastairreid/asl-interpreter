@@ -12,8 +12,10 @@ val zeros_bits : Ident.t
 val ones_bits : Ident.t
 val is_zero : Ident.t
 val is_ones : Ident.t
-val and_bool : Ident.t
-val or_bool : Ident.t
+val lazy_and_bool : Ident.t
+val strict_and_bool : Ident.t
+val lazy_or_bool : Ident.t
+val strict_or_bool : Ident.t
 val implies_bool : Ident.t
 val eq_enum : Ident.t
 val eq_int : Ident.t
@@ -34,7 +36,6 @@ val len : Ident.t
 val max : Ident.t
 val min : Ident.t
 val eq_bool : Ident.t
-val equiv_bool : Ident.t
 val ne_bool : Ident.t
 val ne_enum : Ident.t
 val align_int : Ident.t

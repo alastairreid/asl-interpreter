@@ -6,13 +6,13 @@ begin
     // Check that asserts are not lifted past sequencing points
     // AND
     let r1 = i >= 0 && (__assert i MOD 2 == 1 __in i <= 10);
-    // CHECK:       asl_and_bool.0{}(asl_ge_int.0{}(i, 0), (__assert asl_eq_int.0{}(asl_frem_int.0{}(i, 2), 1) __in asl_le_int.0{}(i, 10)));
+    // CHECK:       asl_lazy_and_bool.0{}(asl_ge_int.0{}(i, 0), (__assert asl_eq_int.0{}(asl_frem_int.0{}(i, 2), 1) __in asl_le_int.0{}(i, 10)));
     let r2 = i >= 0 && i <= (__assert i MOD 2 == 1 __in 10);
-    // CHECK:       asl_and_bool.0{}(asl_ge_int.0{}(i, 0), (__assert asl_eq_int.0{}(asl_frem_int.0{}(i, 2), 1) __in asl_le_int.0{}(i, 10)));
+    // CHECK:       asl_lazy_and_bool.0{}(asl_ge_int.0{}(i, 0), (__assert asl_eq_int.0{}(asl_frem_int.0{}(i, 2), 1) __in asl_le_int.0{}(i, 10)));
 
     // OR
     let r3 = i >= 0 || i <= (__assert i MOD 2 == 1 __in 10);
-    // CHECK:       asl_or_bool.0{}(asl_ge_int.0{}(i, 0), (__assert asl_eq_int.0{}(asl_frem_int.0{}(i, 2), 1) __in asl_le_int.0{}(i, 10)));
+    // CHECK:       asl_lazy_or_bool.0{}(asl_ge_int.0{}(i, 0), (__assert asl_eq_int.0{}(asl_frem_int.0{}(i, 2), 1) __in asl_le_int.0{}(i, 10)));
 
     // IMPLIES
     let r4 = i >= 0 --> i <= (__assert i MOD 2 == 1 __in 10);
