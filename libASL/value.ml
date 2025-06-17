@@ -470,8 +470,10 @@ let eval_prim (f : Ident.t) (tvs : value list) (vs : value list) : value option 
       Some (VBool (prim_eq_bool x y))
   | [], [ VBool x; VBool y ] when Ident.equal f ne_bool ->
       Some (VBool (prim_ne_bool x y))
-  | [], [ VBool x; VBool y ] when Ident.equal f equiv_bool ->
-      Some (VBool (prim_equiv_bool x y))
+  | [], [ VBool x; VBool y ] when Ident.equal f strict_and_bool ->
+      Some (VBool (prim_strict_and_bool x y))
+  | [], [ VBool x; VBool y ] when Ident.equal f strict_or_bool ->
+      Some (VBool (prim_strict_or_bool x y))
   | [], [ VBool x ] when Ident.equal f not_bool -> Some (VBool (prim_not_bool x))
   | [], [ VInt x; VInt y ] when Ident.equal f eq_int ->
       Some (VBool (prim_eq_int x y))

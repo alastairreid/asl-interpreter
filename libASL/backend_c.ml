@@ -395,13 +395,14 @@ and funcall (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (tes : AST.expr lis
   ( match (const_int_exprs loc tes, args) with
 
   (* Boolean builtin functions *)
-  | ([], [x;y]) when Ident.equal f eq_bool      -> binop loc fmt "==" x y
-  | ([], [x;y]) when Ident.equal f equiv_bool   -> binop loc fmt "==" x y
-  | ([], [x;y]) when Ident.equal f ne_bool      -> binop loc fmt "!=" x y
-  | ([], [x;y]) when Ident.equal f and_bool     -> binop loc fmt "&&" x y
-  | ([], [x;y]) when Ident.equal f or_bool      -> binop loc fmt "||" x y
-  | ([], [x])   when Ident.equal f not_bool     -> unop loc fmt "!" x
-  | ([], [x;y]) when Ident.equal f implies_bool -> cond loc fmt x y Asl_utils.asl_true
+  | ([], [x;y]) when Ident.equal f eq_bool         -> binop loc fmt "==" x y
+  | ([], [x;y]) when Ident.equal f ne_bool         -> binop loc fmt "!=" x y
+  | ([], [x;y]) when Ident.equal f lazy_and_bool   -> binop loc fmt "&&" x y
+  | ([], [x;y]) when Ident.equal f lazy_or_bool    -> binop loc fmt "||" x y
+  | ([], [x;y]) when Ident.equal f strict_and_bool -> binop loc fmt "&" x y
+  | ([], [x;y]) when Ident.equal f strict_or_bool  -> binop loc fmt "|" x y
+  | ([], [x])   when Ident.equal f not_bool        -> unop loc fmt "!" x
+  | ([], [x;y]) when Ident.equal f implies_bool    -> cond loc fmt x y Asl_utils.asl_true
 
   (* Enumeration builtin functions *)
   (* The reason we need direct checks against eq_enum and ne_enum is because

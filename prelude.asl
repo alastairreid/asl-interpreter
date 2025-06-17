@@ -19,9 +19,10 @@ enumeration signal { LOW, HIGH };
 __builtin func asl_eq_bool(x : boolean, y : boolean) => boolean;
 __builtin func asl_ne_bool(x : boolean, y : boolean) => boolean;
 __builtin func asl_not_bool(x : boolean) => boolean;
-__builtin func asl_and_bool(x : boolean, y : boolean) => boolean;
-__builtin func asl_or_bool(x : boolean, y : boolean) => boolean;
-__builtin func asl_equiv_bool(x : boolean, y : boolean) => boolean;
+__builtin func asl_lazy_and_bool(x : boolean, y : boolean) => boolean;
+__builtin func asl_strict_and_bool(x : boolean, y : boolean) => boolean;
+__builtin func asl_lazy_or_bool(x : boolean, y : boolean) => boolean;
+__builtin func asl_strict_or_bool(x : boolean, y : boolean) => boolean;
 __builtin func asl_implies_bool(x : boolean, y : boolean) => boolean;
 
 __builtin func asl_eq_int(x : integer, y : integer) => boolean;
@@ -223,9 +224,9 @@ begin
 end
 
 __operator1 !       = asl_not_bool;
-__operator2 &&      = asl_and_bool;
-__operator2 ||      = asl_or_bool;
-__operator2 <->     = asl_equiv_bool;
+__operator2 &&      = asl_lazy_and_bool;
+__operator2 ||      = asl_lazy_or_bool;
+__operator2 <->     = asl_eq_bool;
 __operator2 -->     = asl_implies_bool;
 
 // omit since they are auto-generated

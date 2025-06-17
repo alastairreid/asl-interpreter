@@ -67,7 +67,7 @@ class hoist_lets (ds : AST.declaration list option) = object (self)
           let e2' = visit_expr (self :> aslVisitor) e2 in
           checks <- (e1', loc) :: checks;
           Visitor.ChangeTo e2'
-      | Expr_TApply (f, [], [a; b], NoThrow) when Ident.in_list f [and_bool; or_bool; implies_bool] ->
+      | Expr_TApply (f, [], [a; b], NoThrow) when Ident.in_list f [lazy_and_bool; lazy_or_bool; implies_bool] ->
           let a' = visit_expr (self :> aslVisitor) a in
           let b' = self#hoist_lets_to_expression_top b in
           if a == a' && b == b' then (

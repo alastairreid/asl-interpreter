@@ -54,6 +54,8 @@ let varident (fmt : PP.formatter) (x : Ident.t) : unit =
 (* set of all primitive operation names - these will be preceded by asl. *)
 let primitive_operations = Identset.IdentSet.of_list [
   Builtin_idents.not_bool;
+  Builtin_idents.strict_and_bool;
+  Builtin_idents.strict_or_bool;
   Builtin_idents.neg_int;
   Builtin_idents.not_bits;
   Builtin_idents.zeros_bits;
@@ -73,7 +75,6 @@ let primitive_operations = Identset.IdentSet.of_list [
   Builtin_idents.lsr_bits;
   Builtin_idents.lsl_bits;
   Builtin_idents.eq_bool;
-  Builtin_idents.equiv_bool;
   Builtin_idents.ne_bool;
   Builtin_idents.align_int;
   Builtin_idents.exact_div_int;
@@ -573,12 +574,12 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       let (x', xty) = expr loc env fmt x in
       let (one, _) = mk_bool_const fmt true in
       (mk_binop loc fmt "arith.subi" one x' Asl_utils.type_bool, Asl_utils.type_bool)
-  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.and_bool ->
+  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.lazy_and_bool ->
       mk_ite loc env fmt
         x
         (fun fmt -> expr loc env fmt y)
         (fun fmt -> mk_bool_const fmt false)
-  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.or_bool ->
+  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.lazy_or_bool ->
       mk_ite loc env fmt
         x
         (fun fmt -> mk_bool_const fmt true)
@@ -588,7 +589,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
         x
         (fun fmt -> expr loc env fmt y)
         (fun fmt -> mk_bool_const fmt true)
-  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.in_list f [Builtin_idents.eq_bool; Builtin_idents.equiv_bool] ->
+  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtin_idents.eq_bool ->
       let (x', _) = expr loc env fmt x in
       let (y', _) = expr loc env fmt y in
       (mk_binop loc fmt "arith.cmpi eq," x' y' Asl_utils.type_bool, Asl_utils.type_bool)
