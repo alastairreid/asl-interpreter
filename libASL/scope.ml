@@ -32,6 +32,9 @@ let set (s : 'a t) (k : Ident.t) (v : 'a) : unit =
 
 let map (f : 'a -> 'b) (s : 'a t) : 'b t = { bs = Bindings.map f s.bs }
 
+let filter (f : Ident.t -> 'a -> bool) (s : 'a t) : 'a t =
+  { bs = Bindings.filter f s.bs }
+
 let filter_map (f : 'a -> 'b option) (s : 'a t) : 'b t =
   { bs = Bindings.filter_map (fun k a -> f a) s.bs }
 
@@ -43,11 +46,16 @@ let map2 (f : 'a -> 'b -> 'c) (s1 : 'a t) (s2 : 'b t) : 'c t =
   in
   { bs = Bindings.merge merge s1.bs s2.bs }
 
+let iter (f : Ident.t -> 'a -> unit) (s : 'a t) : unit =
+  Bindings.iter f s.bs
+
 let merge_inplace (f : 'a -> 'b -> 'a) (s1 : 'a t) (s2 : 'b t) : unit =
   let merge v oa ob =
     match (oa, ob) with Some a, Some b -> Some (f a b) | _ -> None
   in
   s1.bs <- Bindings.merge merge s1.bs s2.bs
+
+let get_bindings (s : 'a t) : 'a Bindings.t = s.bs
 
 let bindings (s : 'a t) : (Ident.t * 'a) list = Bindings.bindings s.bs
 

@@ -35,9 +35,12 @@ val set : 'a t -> Ident.t -> 'a -> unit
 val map : ('a -> 'b) -> 'a t -> 'b t
 (** [map f s] returns a new scope with [f] applied to each element in [s]. *)
 
+val filter : (Ident.t -> 'a -> bool) -> 'a t -> 'a t
+(** [filter f s] returns a new scope containing only elements of [s] that satisfy [f]. *)
+
 val filter_map : ('a -> 'b option) -> 'a t -> 'b t
-(** [map f s] returns a new scope with each element in [s] transformed using
-    [f]. *)
+(** [filter_map f s] returns a new scope with each element in [s] transformed using
+    [f] (or deleted if f returns None). *)
 
 val map_inplace : ('a -> 'a) -> 'a t -> unit
 (** [map_inplace f s] works the same way as [map] but mutates [s] instead of
@@ -47,9 +50,15 @@ val map2 : ('a -> 'b -> 'c) -> 'a t -> 'b t -> 'c t
 (** [map2 f s1 s2] returns a new scope by merging elements from [s1] and [s2]
     using [f]. *)
 
+val iter : (Ident.t -> 'a -> unit) -> 'a t -> unit
+(** [iter f s] applies [f] to each entry in [s]. *)
+
 val merge_inplace : ('a -> 'b -> 'a) -> 'a t -> 'b t -> unit
 (** [merge_inplace f s1 s2] works the same way as [map2] but stores the result
     into [s1]. *)
+
+val get_bindings : 'a t -> 'a Identset.Bindings.t
+(** [get_bindings s] returns the bindings of [s] in a map. *)
 
 val bindings : 'a t -> (Ident.t * 'a) list
 (** [bindings s] returns the bindings of [s] in a list. *)
