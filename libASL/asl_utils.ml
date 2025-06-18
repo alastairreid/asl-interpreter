@@ -921,6 +921,17 @@ let zero      = Expr_Lit (VInt Z.zero)
 let one       = Expr_Lit (VInt Z.one)
 let two       = mk_litint 2
 
+let rec type_of_value (loc : Loc.t) (x : Value.value) : AST.ty =
+  ( match x with
+  | VBits v -> type_bits (mk_litint v.n)
+  | VBool b -> type_bool
+  | VInt v -> type_integer
+  | VIntN v -> type_sintN (mk_litint v.n)
+  | VString v -> type_string
+  | VTuple vs -> Type_Tuple (List.map (type_of_value loc) vs)
+  | _ -> raise (Utils.InternalError (loc, "type_of_value", (fun fmt -> Value.pp_value fmt x), __LOC__))
+  )
+
 let empty_bits = Expr_Lit (VBits Primops.empty_bits)
 
 let mk_unop (op : Ident.t) (tys : AST.expr list) (x : AST.expr) : AST.expr =
