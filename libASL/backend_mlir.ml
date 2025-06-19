@@ -282,6 +282,9 @@ let valueLit (loc : Loc.t) (ctx : context) (x : Value.value) : HLIR.ident =
 let rec expr_to_ir (loc : Loc.t) (ctx : context) (x : AST.expr) : HLIR.ident =
   ( match x with
   | Expr_Lit v -> valueLit loc ctx v
+  | Expr_Slices (Type_Integer _, Expr_Lit v, [Slice_LoWd (lo, Expr_Lit (VInt n))]) when lo = Asl_utils.zero ->
+      (* todo: check that v is an int smaller than 2^n *)
+      valueLit loc ctx v
   | Expr_Var v when Ident.equal v Builtin_idents.false_ident -> valueLit loc ctx (VBool false)
   | Expr_Var v when Ident.equal v Builtin_idents.true_ident -> valueLit loc ctx (VBool true)
 
@@ -359,8 +362,8 @@ let rec expr_to_ir (loc : Loc.t) (ctx : context) (x : AST.expr) : HLIR.ident =
       )
   (* 
   | Expr_Slices (Type_Bits (Expr_Lit (VInt m), _), x, [Slice_LoWd (lo, (Expr_Lit (VInt n) as wd))]) ->
-      let (x', _) = expr loc env fmt x in
-      let (lo', _) = expr loc env fmt lo in
+      let x' = expr_to_ir loc ctx x in
+      let lo' = expr_to_ir loc ctx lo in
       let (wd', _) = expr loc env fmt wd in
       let t = locals#fresh in
       PP.fprintf fmt "%a = asl.get_slice %a, %a, %a : (!asl.bits<%s>, !asl.int, !asl.int) -> !asl.bits<%s>@,"
@@ -369,13 +372,6 @@ let rec expr_to_ir (loc : Loc.t) (ctx : context) (x : AST.expr) : HLIR.ident =
         varident lo'
         varident wd'
         (Z.to_string m)
-        (Z.to_string n);
-      (t, Asl_utils.type_bits wd)
-  | Expr_Slices (Type_Integer _, Expr_Lit (VInt v), [Slice_LoWd (lo, (Expr_Lit (VInt n) as wd))]) when lo = Asl_utils.zero ->
-      let t = locals#fresh in
-      PP.fprintf fmt "%a = asl.constant_bits %s : !asl.bits<%s>@,"
-        ident t
-        (Z.to_string v)
         (Z.to_string n);
       (t, Asl_utils.type_bits wd)
   *)
@@ -558,7 +554,8 @@ let declaration_to_ir (x : AST.declaration) : HLIR.global option =
   | Decl_FunType _
     -> None
   | Decl_Var (v, ty, loc) ->
-      Some (HLIR.Variable(v, ty, loc))
+      let ty' = HLIR.mkType ty in
+      Some (HLIR.Variable(v, ty', loc))
   | Decl_FunDefn (f, fty, body, loc) ->
       let ctx = fresh_context () in
       let ps' = List.map (fun (v, ot) ->
@@ -580,7 +577,7 @@ let declaration_to_ir (x : AST.declaration) : HLIR.global option =
       List.iter (stmt_to_ir ctx) body;
       let inputs = ps' @ args' in
       let outputs = [] in (* todo: I guess these come from the return type or from the return stmts? *)
-      let r = get_region ctx inputs outputs in
+      let r = get_region ctx outputs inputs in
       Some (HLIR.Function(f, r, loc))
   | _ ->
       None
@@ -602,7 +599,52 @@ let standard_functions = Identset.IdentSet.of_list [
   Builtin_idents.print_bits
 ]
 
-let arith_functions = Identset.mk_bindings [
+(* mapping from HLIR builtins to MLIR builtins (when mapping is 1:1) *)
+let mlir_function_mapping = Identset.mk_bindings [
+  (* bigint *)
+  ( Builtin_idents.eq_int,           "asl.eq_int");
+  ( Builtin_idents.ne_int,           "asl.ne_int");
+  ( Builtin_idents.le_int,           "asl.le_int");
+  ( Builtin_idents.lt_int,           "asl.lt_int");
+  ( Builtin_idents.ge_int,           "asl.ge_int");
+  ( Builtin_idents.gt_int,           "asl.gt_int");
+  ( Builtin_idents.add_int,          "asl.add_int");
+  ( Builtin_idents.sub_int,          "asl.sub_int");
+  ( Builtin_idents.mul_int,          "asl.mul_int");
+  ( Builtin_idents.exact_div_int,    "asl.exact_div_int");
+  ( Builtin_idents.fdiv_int,         "asl.fdiv_int");
+  ( Builtin_idents.frem_int,         "asl.frem_int");
+  ( Builtin_idents.zdiv_int,         "asl.zdiv_int");
+  ( Builtin_idents.zrem_int,         "asl.zrem_int");
+  ( Builtin_idents.align_int,        "asl.align_int");
+  ( Builtin_idents.is_pow2_int,      "asl.is_pow2_int");
+  ( Builtin_idents.mod_pow2_int,     "asl.mod_pow2_int");
+  ( Builtin_idents.pow2_int,         "asl.pow2_int");
+  ( Builtin_idents.pow_int_int,      "asl.pow_int_int");
+  ( Builtin_idents.shl_int,          "asl.shl_int");
+  ( Builtin_idents.shr_int,          "asl.shr_int");
+
+  (* bool: mapped to i1 *)
+  ( Builtin_idents.eq_bool,          "arith.cmpi eq,");
+  ( Builtin_idents.ne_bool,          "arith.cmpi ne,");
+  ( Builtin_idents.strict_and_bool,  "arith.andi");
+  ( Builtin_idents.strict_or_bool,   "arith.ori");
+
+  (* bitvectors: mapped to i{n} *)
+  ( Builtin_idents.eq_bits,          "arith.cmpi eq,");
+  ( Builtin_idents.ne_bits,          "arith.cmpi ne,");
+  ( Builtin_idents.add_bits,         "arith.addi");
+  ( Builtin_idents.sub_bits,         "arith.subi");
+  ( Builtin_idents.mul_bits,         "arith.muli");
+  ( Builtin_idents.and_bits,         "arith.andi");
+  ( Builtin_idents.or_bits,          "arith.ori");
+  ( Builtin_idents.xor_bits,         "arith.xori");
+  ( Builtin_idents.not_bits,         "arith.noti");
+  ( Builtin_idents.lsl_bits,         "arith.shli");
+  ( Builtin_idents.lsr_bits,         "arith.shrui");
+  ( Builtin_idents.asr_bits,         "arith.shrsi");
+
+  (* sized, signed integers: mapped to i{n} *)
   ( Builtin_idents.eq_sintN,         "arith.cmpi eq,");
   ( Builtin_idents.ne_sintN,         "arith.cmpi ne,");
   ( Builtin_idents.gt_sintN,         "arith.cmpi sgt,");
@@ -617,8 +659,12 @@ let arith_functions = Identset.mk_bindings [
   ( Builtin_idents.exact_div_sintN,  "arith.divsi");
   ( Builtin_idents.zdiv_sintN,       "arith.divsi");
   ( Builtin_idents.zrem_sintN,       "arith.remsi");
-  ( Builtin_idents.fdiv_sintN,       "arith.floordivsi")
-  (*
+  ( Builtin_idents.fdiv_sintN,       "arith.floordivsi");
+
+  ( Builtin_idents.print_bits_hex,   "asl.print_bits_hex");
+  ( Builtin_idents.print_int_hex,    "asl.print_int_hex");
+
+  (* todo
   ( Builtin_idents.neg_sintN,        "");
   ( Builtin_idents.frem_sintN,       "");
   ( Builtin_idents.is_pow2_sintN,    "");
@@ -634,13 +680,267 @@ let arith_functions = Identset.mk_bindings [
   *)
 ]
 
-let prim_name (fmt : PP.formatter) (x : Ident.t) : unit =
-  let nm = Ident.name x in 
-  if String.starts_with ~prefix:"asl_" nm then begin
-    PP.fprintf fmt "asl.%s" (Utils.string_drop 4 nm)
-  end else begin
-    PP.fprintf fmt "asl.%s" nm
+(****************************************************************
+ * Generating MLIR types
+ ****************************************************************)
+
+(****************************************************************
+ * Converting HLIR control flow operations to cf-like basic blocks
+ ****************************************************************)
+
+type cf_label = Ident.t
+type cf_target = (cf_label * HLIR.ident list)
+type cf_terminator = (string * HLIR.ident list * cf_target list)
+type cf_block = (cf_target * HLIR.operation list * cf_terminator)
+
+type cf_context = {
+  label_idents : Asl_utils.nameSupply;
+  start : cf_target ref;
+  operations : HLIR.operation list ref;
+  terminator : cf_terminator option ref;
+  blocks : cf_block list ref;
+}
+
+let fresh_cf_context (_ : unit) : cf_context =
+  let dummy_target = (Builtins.wildcard_ident, []) in
+  { label_idents = new nameSupply "^bb";
+    start = ref dummy_target;
+    operations = ref [];
+    terminator = ref None;
+    blocks = ref [];
+  }
+
+let clone_cf_context (ctx : cf_context) (start : cf_target) : cf_context =
+  { label_idents = ctx.label_idents;
+    start = ref start;
+    operations = ref [];
+    terminator = ref None;
+    blocks = ctx.blocks;
+  }
+
+let start_new_bb (ctx : cf_context) (target : cf_target) : unit =
+  (* check that there is no pending bb *)
+  assert (Utils.is_empty !(ctx.operations));
+  assert (Option.is_none !(ctx.terminator));
+  ctx.start := target;
+  ctx.operations := [];
+  ctx.terminator := None
+
+let mk_label (ctx : cf_context) : cf_label =
+  ctx.label_idents#fresh
+
+let end_bb (ctx : cf_context) (terminator : cf_terminator) : unit =
+  let block = (!(ctx.start), !(ctx.operations), terminator) in
+  ctx.blocks := block :: !(ctx.blocks);
+  ctx.operations := [];
+  ctx.terminator := None
+
+let emit_cf_op (ctx : cf_context) (x : HLIR.operation) : unit =
+  ctx.operations := x :: !(ctx.operations)
+
+let terminate_block (ctx : cf_context) (op : string) (args : HLIR.ident list) (targets : cf_target list) : unit =
+  if Option.is_none !(ctx.terminator) then begin
+    ctx.terminator := Some (op, args, targets)
   end
+
+let rec operation_to_cf (ctx : cf_context) (x : HLIR.operation) : unit =
+  let bad_op _ = raise (InternalError (x.loc, "operation_to_cf", (fun fmt -> HLIR.ppOperation fmt x), __LOC__))
+  in
+  ( match x.op with
+  | While -> ()
+  | Repeat -> ()
+  | If ->
+      ( match (x.operands, x.regions) with
+      | ([c], [t; e]) ->
+          let next = mk_label ctx in
+          let label1 = region_to_cf ctx t next in
+          let label2 = region_to_cf ctx e next in
+          let terminator = ("cf.cond_br", [c], [label1; label2]) in
+          end_bb ctx terminator;
+          start_new_bb ctx (next, x.results)
+      | _ -> bad_op ()
+      )
+  | Case -> ()
+  | Fail -> ()
+  | Return ->
+      ( match (x.operands, x.regions) with
+      | (rs, []) ->
+          terminate_block ctx "cf.return" rs [];
+      | _ -> bad_op ()
+      )
+
+  | Builtin _
+  | Call _
+  | Constant _
+  | Symbol _
+  | MkRef _
+  | AddIndex
+  | Load
+  | Store
+  | Assert _
+  ->
+     emit_cf_op ctx x
+  )
+
+and region_to_cf (parent_ctx : cf_context) (x : HLIR.region) (next : cf_label) : cf_target =
+  let label = mk_label parent_ctx in
+  let target = (label, x.inputs) in
+  let ctx = clone_cf_context parent_ctx target in
+  List.iter (operation_to_cf ctx) x.operations;
+  let terminator = Utils.from_option !(ctx.terminator) (fun _ ->  ("cf.br", [], [(next, x.outputs)])) in
+  end_bb ctx terminator;
+  target
+
+let hlir_to_cf (x : HLIR.region) : (cf_label * cf_block list) =
+  let ctx = fresh_cf_context () in
+  let ret = mk_label ctx in
+  start_new_bb ctx (ret, x.outputs);
+  end_bb ctx ("cf.return", x.outputs, []);
+  let (label, _) = region_to_cf ctx x ret in
+  (label, List.rev !(ctx.blocks))
+
+(****************************************************************
+ * HLIR to MLIR conversion
+ ****************************************************************)
+
+let cg_HLIR_Value (loc : Loc.t) (fmt : PP.formatter) (x : Value.value) : unit =
+  ( match x with
+  | VInt v -> PP.fprintf fmt "%s" (Z.to_string v);
+  | VIntN v -> PP.fprintf fmt "%s" (Z.to_string v.v);
+  | VBits v -> PP.fprintf fmt "%s" (Z.to_string v.v);
+  | VString v -> PP.fprintf fmt "\"%s\"" (String.escaped v);
+  | _ -> raise (InternalError (loc, "cg_HLIR_Value", (fun fmt -> Value.pp_value fmt x), __LOC__))
+  )
+
+let cg_HLIR_ConstExpr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
+  ( match x with
+  | Expr_Lit v -> cg_HLIR_Value loc fmt v
+  | _ ->
+      let pp fmt = FMT.expr fmt x in
+      raise (Error.Unimplemented (loc, "cg_HLIR_ConstExpr", pp))
+  )
+
+let cg_HLIR_ConstExprs (loc : Loc.t) (fmt : PP.formatter) (xs : AST.expr list) : unit =
+  commasep (cg_HLIR_ConstExpr loc) fmt xs
+
+let rec cg_HLIR_Type' (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : unit =
+  ( match x with
+  | Type_Bits (e, _) -> PP.fprintf fmt "i%a" (cg_HLIR_ConstExpr loc) e
+  | Type_Constructor (tc, []) when tc = Builtin_idents.boolean_ident -> PP.fprintf fmt "i1"
+  | Type_Constructor (tc, []) when tc = Builtin_idents.string_ident -> PP.fprintf fmt "!asl.string"
+  | Type_Constructor (tc, []) when tc = Builtin_idents.ram -> PP.fprintf fmt "!asl.ram"
+  | Type_Constructor (tc, []) when Identset.IdentSet.mem tc !enum_types -> PP.fprintf fmt "i%d" enum_size
+  | Type_Constructor (i, [n]) when Ident.equal i Builtin_idents.sintN -> PP.fprintf fmt "i%a" (cg_HLIR_ConstExpr loc) n
+  | Type_Constructor (tc, []) -> PP.fprintf fmt "%a" ident tc
+  | Type_Constructor (tc, ps) -> PP.fprintf fmt "%a<%a>" ident tc (cg_HLIR_ConstExprs loc) ps
+  | Type_Integer _ -> PP.fprintf fmt "!asl.int"
+  | Type_Array (Index_Int ixty, elty) -> PP.fprintf fmt "!asl.array<%a x %a>" (cg_HLIR_ConstExpr loc) ixty (cg_HLIR_Type' loc) elty
+  | Type_Tuple tys -> PP.fprintf fmt "(%a)" (commasep (cg_HLIR_Type' loc)) tys
+  | _ ->
+      let pp fmt = FMT.ty fmt x in
+      raise (Error.Unimplemented (loc, "cg_HLIR_Type", pp))
+  )
+
+let cg_HLIR_Type (loc : Loc.t) (fmt : PP.formatter) (x : HLIR.ty) : unit =
+  ( match x with
+  | Type t -> cg_HLIR_Type' loc fmt t
+  | Ref t -> Format.fprintf fmt "!asl.ref<%a>" (cg_HLIR_Type' loc) t
+  )
+
+let cg_HLIR_Ident (loc : Loc.t) (fmt : PP.formatter) (x : HLIR.ident) : unit =
+  let Ident(v, t) = x in
+  Format.fprintf fmt "%a : %a"
+    Ident.pp v
+    (cg_HLIR_Type loc) t
+
+let rec cg_HLIR_Operation (fmt : PP.formatter) (x : HLIR.operation) : unit =
+  if Utils.is_empty x.regions then begin
+    if not (Utils.is_empty x.results) then Format.fprintf fmt "(%a) = " (commasep HLIR.ppIdentName) x.results;
+    ( match x.op with
+    | Builtin f ->
+       ( match Identset.Bindings.find_opt f mlir_function_mapping with
+       | Some f' -> Format.fprintf fmt "%s(%a) : (%a)"
+                      f'
+                      (commasep (cg_HLIR_Ident x.loc)) x.operands
+                      (commasep (fun fmt r -> cg_HLIR_Type x.loc fmt (HLIR.typeof r))) x.results
+       | None -> raise (InternalError (x.loc, "HLIR.Builtin", (fun fmt -> HLIR.ppOperation fmt x), __LOC__))
+       )
+    | Call f -> Format.fprintf fmt "HLIR.call @%a" Ident.pp f
+    | Constant c ->
+        ( match c with
+        | VInt v -> PP.fprintf fmt "asl.constant_int %s" (Z.to_string v)
+        | VIntN v -> PP.fprintf fmt "arith.constant %s : i%d" (Z.to_string v.v) v.n
+        | VBits v -> PP.fprintf fmt "arith.constant %s : i%d" (Z.to_string v.v) v.n
+        | VString v -> PP.fprintf fmt "asl.constant_string \"%s\"" (String.escaped v)
+        | VBool true -> PP.fprintf fmt "arith.constant 0 : i1"
+        | VBool false -> PP.fprintf fmt "arith.constant 1 : i1"
+        | _ -> raise (InternalError (x.loc, "HLIR.Constant", (fun fmt -> HLIR.ppOperation fmt x), __LOC__))
+        )
+    | Symbol v ->
+        let value = Identset.Bindings.find v !enums in
+        PP.fprintf fmt "arith.constant %d : i %d@"
+          value
+          enum_size
+    | MkRef v -> Format.fprintf fmt "asl.address_of @%a" Ident.pp v
+    | AddIndex -> Format.fprintf fmt "HLIR.add_index"
+    | Load -> Format.fprintf fmt "asl.load"
+    | Store -> Format.fprintf fmt "asl.store"
+    | Assert msg -> Format.fprintf fmt "asl.assert %s" msg
+    | _ -> raise (InternalError (x.loc, "HLIR unexpected control flow", (fun fmt -> HLIR.ppOperation fmt x), __LOC__))
+    );
+    if not (Utils.is_empty x.results) then Format.fprintf fmt " (%a)" (commasep HLIR.ppIdentName) x.operands
+  end else begin
+    raise (InternalError (x.loc, "cg_HLIR_Operation: unexpected control flow", (fun fmt -> HLIR.ppOperation fmt x), __LOC__))
+  end
+
+let cg_HLIR_Global (fmt : PP.formatter) (x : HLIR.global) : unit =
+  ( match x with
+  | Variable (v, ty, loc) ->
+      Format.fprintf fmt "asl.global \"%a\" : %a"
+        Ident.pp v
+        (cg_HLIR_Type loc) ty;
+      Format.fprintf fmt " // %a" Loc.pp loc;
+      Format.fprintf fmt "@.@."
+  | Function (f, r, loc) ->
+      let cg_target fmt (label, args) =
+        Format.fprintf fmt "%a(%a)"
+          Ident.pp label
+          (commasep (cg_HLIR_Ident loc)) args
+      in
+
+      Format.fprintf fmt "cf.func @%a(%a) -> %a"
+        Ident.pp f
+        (commasep (cg_HLIR_Ident loc)) r.inputs
+        (commasep (cg_HLIR_Ident loc)) r.outputs;
+      Format.fprintf fmt "{@.";
+
+      let (cf_start, cf_blocks) = hlir_to_cf r in
+      Format.fprintf fmt "    cf.br %a@." Ident.pp cf_start;
+      List.iter (fun (target, operations, (t_op, t_operands, t_targets)) ->
+        Format.fprintf fmt "@,%a:@," cg_target target;
+        indented fmt (fun _ ->
+          cutsep cg_HLIR_Operation fmt operations;
+          if Utils.is_empty t_targets then
+            Format.fprintf fmt "@,%s %a@."
+              t_op
+              (commasep HLIR.ppIdentName) t_operands
+          else if Utils.is_empty t_operands then
+            Format.fprintf fmt "@,%s %a@."
+              t_op
+              (commasep cg_target) t_targets
+          else
+            Format.fprintf fmt "@,%s %a, %a@."
+              t_op
+              (commasep HLIR.ppIdentName) t_operands
+              (commasep cg_target) t_targets
+        )
+      ) cf_blocks;
+
+      Format.fprintf fmt "}@,"
+  )
+
+
+
 
 (****************************************************************
  * 
@@ -683,12 +983,6 @@ let valueLit (loc : Loc.t) (fmt : PP.formatter) (x : Value.value) : AST.ty =
       Asl_utils.type_string
   | _ -> raise (InternalError (loc, "valueLit", (fun fmt -> Value.pp_value fmt x), __LOC__))
   )
-
-let mk_bool_const (fmt : PP.formatter) (x : bool) : (Ident.t * AST.ty) =
-  let t = locals#fresh in
-  let x' = if x then 1 else 0 in
-  PP.fprintf fmt "%a = arith.constant %d : i1@," varident t x';
-  (t, Asl_utils.type_bool)
 
 (* Todo: the following is a hack that can only cope with a few simple kinds of expression
  * that appear in types but this is definitely not sufficient to express all ASL types.
@@ -770,6 +1064,12 @@ let rec pp_type (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : unit =
       raise (Error.Unimplemented (loc, "type", pp))
   )
 
+let mk_bool_const (fmt : PP.formatter) (x : bool) : (Ident.t * AST.ty) =
+  let t = locals#fresh in
+  let x' = if x then 1 else 0 in
+  PP.fprintf fmt "%a = arith.constant %d : i1@," varident t x';
+  (t, Asl_utils.type_bool)
+
 let formal_param (loc : Loc.t) (fmt : PP.formatter) (x : (Ident.t * AST.ty option)) : unit =
   let (v, ot) = x in
   (* Note: formal parameters are assumed to be integer (with no constraints) *)
@@ -814,6 +1114,14 @@ let funtype (loc : Loc.t) (fmt : PP.formatter) (x : AST.function_type) : unit =
   PP.fprintf fmt "(%a) -> %a"
     (commasep (pp_arg_type loc)) x.args
     (pp_return_type loc) x.rty
+
+let prim_name (fmt : PP.formatter) (x : Ident.t) : unit =
+  let nm = Ident.name x in 
+  if String.starts_with ~prefix:"asl_" nm then begin
+    PP.fprintf fmt "asl.%s" (Utils.string_drop 4 nm)
+  end else begin
+    PP.fprintf fmt "asl.%s" nm
+  end
 
 let rec prim_apply (loc : Loc.t) (env : environment) (fmt : PP.formatter) (f : Ident.t) (ps : AST.expr list) (args : AST.expr list) : (Ident.t * AST.ty) =
   let avs = List.map (fun arg -> fst (expr loc env fmt arg)) args in
@@ -995,8 +1303,8 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
         varident masked
         varident v;
       (t, type_bool)
-  | Expr_TApply (f, ps, args, NoThrow) when Identset.Bindings.mem f arith_functions ->
-      let f' = Identset.Bindings.find f arith_functions in
+  | Expr_TApply (f, ps, args, NoThrow) when Identset.Bindings.mem f mlir_function_mapping ->
+      let f' = Identset.Bindings.find f mlir_function_mapping in
       let avs = List.map (fun arg -> fst (expr loc env fmt arg)) args in
       let fty = Identset.Bindings.find f !funtypes in
       let fty' = instantiate_funtype ps fty in
@@ -1503,7 +1811,8 @@ let _ =
 
       List.iter (fun d ->
           let ir = declaration_to_ir d in
-          Option.iter (HLIR.ppGlobal Format.std_formatter) ir
+          Option.iter (HLIR.ppGlobal Format.std_formatter) ir;
+          Option.iter (cg_HLIR_Global Format.std_formatter) ir
         )
         decls;
       PP.fprintf fmt "@,";

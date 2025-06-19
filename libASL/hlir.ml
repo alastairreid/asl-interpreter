@@ -85,12 +85,14 @@ and region = {
 }
 
 type global =
-  | Variable of Ident.t * AST.ty * Loc.t
+  | Variable of Ident.t * ty * Loc.t
   | Function of Ident.t * region * Loc.t
 
 (****************************************************************
  * HLIR Pretty-printing
  ****************************************************************)
+
+let show_loc = ref false
 
 let ppType (fmt : PP.formatter) (x : ty) : unit =
   ( match x with
@@ -136,37 +138,38 @@ let rec ppOperation (fmt : PP.formatter) (x : operation) : unit =
     (commasep ppIdentName) x.results
     ppOp x.op
     (commasep ppIdentName) x.operands;
-  List.iter (fun r ->
-    Format.fprintf fmt "{@,";
-    ppRegion fmt r;
-    Format.fprintf fmt "}";
-  ) x.regions;
+  if not (Utils.is_empty x.regions) then begin
+    FMT_Utils.indented fmt (fun _ ->
+      List.iter (ppRegion fmt) x.regions
+    )
+  end;
   Format.fprintf fmt ") : (%a) -> (%a)"
     (commasep ppIdentType) x.operands
     (commasep ppIdentType) x.results;
-  Format.fprintf fmt " // %a@,"
-    Loc.pp x.loc
+  if !show_loc then Format.fprintf fmt " // %a" Loc.pp x.loc;
+  Format.fprintf fmt "@,"
 
 and ppRegion (fmt : PP.formatter) (x : region) : unit =
+  Format.fprintf fmt "{ input (%a)" (commasep ppIdent) x.inputs;
   FMT_Utils.indented fmt (fun _ ->
-    Format.fprintf fmt "input (%a)@," (commasep ppIdent) x.inputs;
-    cutsep ppOperation fmt x.operations;
-    Format.fprintf fmt "output (%a)@," (commasep ppIdent) x.outputs
-  )
+    List.iter (ppOperation fmt) x.operations;
+  );
+  Format.fprintf fmt "@,output (%a)@,}@," (commasep ppIdent) x.outputs
 
 let ppGlobal (fmt : PP.formatter) (x : global) : unit =
   ( match x with
   | Variable (v, ty, loc) ->
-      Format.fprintf fmt "global @%a : %a // %a@,"
+      Format.fprintf fmt "global @%a : %a"
         Ident.pp v
-        FMT.ty ty
-        Loc.pp loc
+        ppType ty;
+      if !show_loc then Format.fprintf fmt " // %a" Loc.pp loc;
+      Format.fprintf fmt "@,\n"
   | Function (f, r, loc) ->
-      Format.fprintf fmt "function @%a { // %a@,"
-        Ident.pp f
-        Loc.pp loc;
+      Format.fprintf fmt "function @%a" Ident.pp f;
+      if !show_loc then Format.fprintf fmt " // %a" Loc.pp loc;
+      Format.fprintf fmt "@,";
       ppRegion fmt r;
-      Format.fprintf fmt "}@,"
+      Format.fprintf fmt "}@,\n"
   )
 
 (****************************************************************
