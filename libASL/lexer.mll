@@ -72,6 +72,8 @@ let keywords : (string * Asl_parser.token) list = [
     ("with",                   WITH);
 ]
 
+let prev_else_token_pos = ref (-1)
+
 let update_location lexbuf opt_file line =
     let pos = lexbuf.Lexing.lex_curr_p in
     let new_file = match opt_file with
@@ -121,10 +123,30 @@ rule token = parse
     | ['0'-'9']+ '.' ['0'-'9']+              as lxm { REALLIT(lxm) }
     | ['0'-'9'] ['0'-'9' '_']*               as digits { INTLIT(None, Z.of_string digits) }
     | ['a'-'z' 'A'-'Z' '_'] ['a'-'z' 'A'-'Z' '0'-'9' '_']* as lxm {
+         let tok =
            ( match List.assoc_opt lxm keywords with
            | Some x -> x
            | None   -> ID(lxm)
            )
+         in
+         (* If the code accidentally uses "else if" instead of "elsif",
+          * then parsing will eventually fail with a report about a missing
+          * "end". But that error report can come much later (e.g., at the end
+          * of the function and it is hard to find the actual cause of the error.
+          *
+          * So, the following code performs a heuristic check for "else" followed
+          * by "if" in the same line - in the hope of catching most places that
+          * this can go wrong.
+          *)
+         let follows_within x y dist = x < y && (y-x) < dist
+         in
+         if tok = IF && follows_within (!prev_else_token_pos) (Lexing.lexeme_start lexbuf) 2 then begin
+             let pos = Lexing.lexeme_start_p lexbuf in
+             Printf.printf "Warning: 'else if' should possibly be written as 'elsif' at %s:%d\n%!"
+               pos.pos_fname pos.pos_lnum
+         end;
+         if tok = ELSE then prev_else_token_pos := Lexing.lexeme_end lexbuf;
+         tok
     }
 
     (* delimiters *)
