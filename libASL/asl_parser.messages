@@ -4849,7 +4849,7 @@ stmt_command_start: CASE ID OF WHEN ID EQ_GT OTHERWISE EQ_GT BEGIN END CATCH
 ## In state 482, spurious reduction of production opt_otherwise -> OTHERWISE EQ_GT block
 ##
 
-Malformed case statement.
+Missing "end" in case statement.
 The syntax of case statements is
     "case $1 of
          when <guarded pattern> => <statements>
@@ -4903,7 +4903,7 @@ stmt_command_start: FOR ID EQ ID DOWNTO ID DO BEGIN END CATCH
 ## In state 472, spurious reduction of production block -> list(stmt)
 ##
 
-Malformed for statement.
+Missing "end" in for statement.
 The syntax of for statements is
     "for <variable identifier> = <expression> to/downto <expression> do <statements> end"
 
@@ -5056,7 +5056,7 @@ stmt_command_start: IF ID THEN ELSE BEGIN END CATCH
 ## In state 498, spurious reduction of production optional_else -> ELSE block
 ##
 
-Malformed if statement.
+Missing "end" in if statement.
 The syntax of if statements is
     "if <expression> then <statements> else <statements> end"
 or
@@ -5301,7 +5301,7 @@ stmt_command_start: TRY CATCH OTHERWISE EQ_GT BEGIN END CATCH
 ## In state 482, spurious reduction of production opt_otherwise -> OTHERWISE EQ_GT block
 ##
 
-Malformed try-catch statement.
+Missing "end" in try-catch statement.
 The syntax of try-catch statements is
     "try
          <statements>
@@ -5952,7 +5952,7 @@ declarations_start: GETTER ID LBRACK RBRACK EQ_GT INTEGER BEGIN BEGIN END CATCH
 ## In state 472, spurious reduction of production block -> list(stmt)
 ##
 
-Malformed getter declaration.
+Missing "end" in getter declaration.
 The syntax of getter declarations is
     "getter $8$7[ $5 ] => $2 begin
          $0
@@ -6035,7 +6035,7 @@ declarations_start: GETTER ID EQ_GT INTEGER BEGIN BEGIN END CATCH
 ## In state 472, spurious reduction of production block -> list(stmt)
 ##
 
-Malformed getter declaration.
+Missing "end" in getter declaration.
 The syntax of getter declarations is
     "getter $5$4 => $2 begin
          $0
@@ -6104,9 +6104,9 @@ declarations_start: FUNC ID LBRACE ID RBRACE WHILE
 
 Malformed function declaration.
 The syntax of function declarations is
-    "func $1$0(<arguments>) => <return type> ..."
+    "func $2$1$0(<arguments>) => <return type> ..."
 or
-    "func $1$0(<arguments>) ..."
+    "func $2$1$0(<arguments>) ..."
 
 declarations_start: FUNC ID LPAREN WHILE
 ##
@@ -6123,9 +6123,9 @@ declarations_start: FUNC ID LPAREN WHILE
 
 Malformed function declaration.
 The syntax of function declarations is
-    "func $2$1(<arguments>) => <return type> ..."
+    "func $3$2$1(<arguments>) => <return type> ..."
 or
-    "func $2$1(<arguments>) ..."
+    "func $3$2$1(<arguments>) ..."
 
 
 
@@ -6202,7 +6202,7 @@ declarations_start: FUNC ID LPAREN RPAREN EQ_GT INTEGER BEGIN WHERE
 
 Malformed function body.
 The syntax of function declarations is
-    "func $7$6($4) => $1 begin
+    "func $8$7$6($4) => $1 begin
          <statements>
      end"
 
@@ -6224,9 +6224,9 @@ declarations_start: FUNC ID LPAREN RPAREN EQ_GT INTEGER BEGIN BEGIN END CATCH
 ## In state 472, spurious reduction of production block -> list(stmt)
 ##
 
-Malformed function declaration.
+Missing "end" in function declaration.
 The syntax of function declarations is
-    "func $8$7($5) => $2 begin
+    "func $9$8$7($5) => $2 begin
          $0
          <statements>
      end"
@@ -6243,7 +6243,7 @@ declarations_start: FUNC ID LPAREN RPAREN BEGIN WHERE
 
 Malformed procedure body.
 The syntax of procedure declarations is
-    "func $5$4($2) begin
+    "func $6$5$4($2) begin
          <statements>
      end"
 
@@ -6265,12 +6265,12 @@ declarations_start: FUNC ID LPAREN RPAREN BEGIN BEGIN END CATCH
 ## In state 472, spurious reduction of production block -> list(stmt)
 ##
 
-Malformed procedure body.
+Missing "end" in procedure body.
 The syntax of procedure declarations is
-    "func $6$5($3) begin
-         $0
+    "func $7$6$5($3) begin
          <statements>
      end"
+
 
 declarations_start: ENUMERATION WHILE
 ##
