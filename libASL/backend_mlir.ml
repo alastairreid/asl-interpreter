@@ -387,7 +387,7 @@ and value_to_region (loc : Loc.t) (ctx : context) (v : Value.value) : (HLIR.regi
 
 and expr_to_region (loc : Loc.t) (ctx : context) (e : AST.expr) : (HLIR.region * HLIR.ty) =
   let ctx' = clone_context ctx in
-  let e' = expr_to_ir loc ctx e in
+  let e' = expr_to_ir loc ctx' e in
   (get_region ctx' [e'] [], HLIR.typeof e')
 
 and ir_ite (loc : Loc.t) (ctx : context) (c : HLIR.ident) (t : (HLIR.region * HLIR.ty)) (e : (HLIR.region * HLIR.ty)) : HLIR.ident =
@@ -791,13 +791,13 @@ and region_to_cf (parent_ctx : cf_context) (x : HLIR.region) (next : cf_label) :
   end_bb ctx terminator;
   target
 
-let hlir_to_cf (x : HLIR.region) : (cf_label * cf_block list) =
+let hlir_to_cf (x : HLIR.region) : (cf_target * cf_block list) =
   let ctx = fresh_cf_context () in
   let ret = mk_label ctx in
   start_new_bb ctx (ret, x.outputs);
   end_bb ctx ("cf.return", x.outputs, []);
-  let (label, _) = region_to_cf ctx x ret in
-  (label, List.rev !(ctx.blocks))
+  let entry = region_to_cf ctx x ret in
+  (entry, List.rev !(ctx.blocks))
 
 (****************************************************************
  * HLIR to MLIR conversion
@@ -915,7 +915,8 @@ let cg_HLIR_Global (fmt : PP.formatter) (x : HLIR.global) : unit =
       Format.fprintf fmt "{@.";
 
       let (cf_start, cf_blocks) = hlir_to_cf r in
-      Format.fprintf fmt "    cf.br %a@." Ident.pp cf_start;
+      Format.fprintf fmt "    cf.br %a@."
+        cg_target cf_start;
       List.iter (fun (target, operations, (t_op, t_operands, t_targets)) ->
         Format.fprintf fmt "@,%a:@," cg_target target;
         indented fmt (fun _ ->
@@ -938,9 +939,6 @@ let cg_HLIR_Global (fmt : PP.formatter) (x : HLIR.global) : unit =
 
       Format.fprintf fmt "}@,"
   )
-
-
-
 
 (****************************************************************
  * 
@@ -1812,11 +1810,11 @@ let _ =
       List.iter (fun d ->
           let ir = declaration_to_ir d in
           Option.iter (HLIR.ppGlobal Format.std_formatter) ir;
-          Option.iter (cg_HLIR_Global Format.std_formatter) ir
+          PP.fprintf fmt "@,";
+          Option.iter (cg_HLIR_Global fmt) ir
         )
-        decls;
-      PP.fprintf fmt "@,";
-      declarations fmt (List.rev decls)
+        decls
+      (* declarations fmt (List.rev decls) *)
     );
     true
   in
