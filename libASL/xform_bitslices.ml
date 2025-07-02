@@ -23,6 +23,12 @@ open Asl_utils
 open Builtin_idents
 open Utils
 
+let is_constant (x : AST.expr) : bool =
+  ( match x with
+  | Expr_Lit _ -> true
+  | _ -> false
+  )
+
 let transform_slices : bool ref = ref true
 
 let transform_non_slices (n : AST.expr) (w : AST.expr) (i : AST.expr)
@@ -55,7 +61,7 @@ let transform (loc : Loc.t) (n : AST.expr) (w : AST.expr) (i : AST.expr)
   | Expr_Slices (_, _, [Slice_Single _]) ->
     raise (InternalError
       (loc, "Slice_Single not expected", (fun fmt -> Asl_fmt.expr fmt x), __LOC__))
-  | Expr_Slices (Type_Bits (we, _), e, [Slice_LoWd (lo, wd)]) ->
+  | Expr_Slices (Type_Bits (we, _), e, [Slice_LoWd (lo, wd)]) when not (is_constant wd) ->
     (* generate "zero_extend_bits((e >> lo) AND mk_mask(wd, we), n) << i" *)
     let e1 = mk_lsr_bits we e lo in
     let e2 = mk_and_bits we e1 (Asl_utils.mk_mask wd we) in
