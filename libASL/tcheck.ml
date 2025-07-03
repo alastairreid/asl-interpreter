@@ -1573,18 +1573,27 @@ let get_var (env : Env.t) (loc : Loc.t) (v : Ident.t) : var_info =
 
 (** check that we have exactly the fields required *)
 let check_field_assignments (loc : Loc.t) (fs : (Ident.t * ty) list) (fas : (Ident.t * expr) list) : unit =
-  let expected = IdentSet.of_list (List.map fst fs) in
-  let assigned = IdentSet.of_list (List.map fst fas) in
+  let fields1 = List.map fst fs in
+  let fields2 = List.map fst fas in
+  let expected = IdentSet.of_list fields1 in
+  let assigned = IdentSet.of_list fields2 in
   if not (IdentSet.equal assigned expected) then begin
     let missing = IdentSet.elements (IdentSet.diff expected assigned) in
     let extra = IdentSet.elements (IdentSet.diff assigned expected) in
-    let msg = "record initializer is missing fields "
+    let msg = "record initializer is missing field[s] "
       ^ String.concat ", " (List.map Ident.to_string missing)
-      ^ " and/or has extra fields "
+      ^ " and/or has extra field[s] "
       ^ String.concat ", " (List.map Ident.to_string extra)
     in
     raise (TypeError (loc, msg))
+  end else if not (List.for_all2 Ident.equal fields1 fields2) then begin
+    let msg = "record initializer must set fields in the same order as the type declaration."
+      ^ "\nOrder of fields in type declaration: " ^ String.concat ", " (List.map Ident.to_string fields1)
+      ^ "\nOrder of fields in record initializer: " ^ String.concat ", " (List.map Ident.to_string fields2)
+    in
+    raise (TypeError (loc, msg))
   end
+
 
 (** Typecheck list of expressions *)
 let rec tc_exprs (env : Env.t) (loc : Loc.t) (xs : AST.expr list)

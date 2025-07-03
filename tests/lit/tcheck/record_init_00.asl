@@ -9,5 +9,5 @@ record R{
 func T() => R
 begin
     return R{x=1, z=3};
-// CHECK: Type error: record initializer is missing fields y and/or has extra fields z
+// CHECK: Type error: record initializer is missing field[s] y and/or has extra field[s] z
 end
