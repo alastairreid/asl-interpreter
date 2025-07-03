@@ -411,6 +411,30 @@ let banner =
 
 let usage_msg = version ^ "\nusage: asli <options> <file1> ... <fileN>\n"
 
+(* Use PATH to search for the executable based on the name in argv[0] *)
+let get_executable_path _ : string =
+  let exe_name = Sys.argv.(0) in
+  let search_path = if Filename.is_relative exe_name
+      then Sys.getenv "PATH" |> String.split_on_char ':'
+      else []
+  in
+  let opt_path = List.find_map (fun dir ->
+    (* Note: we do not use Unix.realpath because that removes symlinks *)
+    let filename = Filename.concat dir exe_name in
+    if Sys.file_exists filename
+    then Some filename
+    else None
+    )
+    (""::search_path)
+  in
+  ( match opt_path with
+  | Some path -> path
+  | None ->
+      Printf.printf "Error: unable to locate executable on PATH\n";
+      exit 1
+  )
+
+
 let _ =
   Arg.parse options (fun s -> opt_filenames := !opt_filenames @ [ s ]) usage_msg
 
@@ -419,7 +443,11 @@ let main () =
     Ocolor_format.prettify_formatter Format.std_formatter;
     Ocolor_config.set_color_capability Ocolor_config.Color4
   end;
-  let paths = Option.value (Sys.getenv_opt "ASL_PATH") ~default:"."
+
+  let exe_dir = Filename.dirname (get_executable_path ()) in
+  let share_dir = Filename.concat exe_dir "../share/asli/stdlib" in
+  let default_path = share_dir ^ ":." in
+  let paths = Option.value (Sys.getenv_opt "ASL_PATH") ~default:default_path
     |> String.split_on_char ':' in
   if !opt_print_version then Printf.printf "%s\n" version
   else if !opt_print_cflags then begin

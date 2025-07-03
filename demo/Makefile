@@ -8,8 +8,8 @@
 .default: test
 
 ASL_PATH = ..:.
-ASLI     = ../_build/default/bin/asli.exe
-ASL2C    = ../_build/default/bin/asl2c.py
+ASLI     = ../_build/install/default/bin/asli
+ASL2C    = ../_build/install/default/bin/asl2c
 
 ################################################################
 # Test whether we have GNU as or clang emulating as

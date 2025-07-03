@@ -252,11 +252,11 @@ def get_c_flags(asli, backend):
         c_flags = subprocess.check_output([asli, "--print-c-flags"]).decode('utf-8').strip().split()
     else:
         # ASLi has not been installed so let's assume that it is being run
-        # directly out of the build tree and the path looks like this ../_build/default/bin/asli.exe
-        # and the include path that we need is ../_build/default/runtime/include
+        # directly out of the build tree and the path looks like this ../_build/install/default/bin/asli
+        # and the include path that we need is ../_build/install/default/runtime/include
         bindir = os.path.dirname(asli)
         rootdir = os.path.dirname(bindir)
-        path = os.path.join(rootdir, "runtime/include")
+        path = os.path.join(rootdir, "lib/asli/runtime_include")
         c_flags = [f"-I{path}"]
     c_flags.extend(backend_c_flags[backend])
     return c_flags
@@ -279,7 +279,7 @@ def get_ld_flags(asli, backend):
         # and the include path that we need is ../_build/install/default/runtime
         bindir = os.path.dirname(asli)
         rootdir = os.path.dirname(bindir)
-        path = os.path.join(rootdir, "runtime/libASL.a")
+        path = os.path.join(rootdir, "lib/asli/runtime/libASL.a")
         ld_flags = [path]
     if backend == "sc":
         sc_types_dir = os.environ.get('SC_TYPES_DIR')

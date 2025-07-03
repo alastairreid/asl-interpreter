@@ -258,7 +258,7 @@ Before running the simulator, we need to convert the test program `test.S` to an
 
 To simulate execution of the test program using ASLi, load `demo.asl` into ASLi, load the ELF file `test.elf` and use `:step` to step through the program and the `PrintState` function (defined in `demo.asl`) to observe the processor state at each step.
 
-    $ ASL_PATH=.:.. ../_build/default/bin/asli.exe demo.asl
+    $ ASL_PATH=.:.. ../_build/install/default/bin/asli demo.asl
     ASLi> :elf test.elf
     Loading ELF file test.elf.
     Entry point = 0x401000
@@ -281,7 +281,7 @@ This is just about the most exciting program we can run using such a limited ins
 
 ASLi can also accept commands from a "project file". For example, we could put all of the `:step` and `PrintState();` commands in a file `test.prj` and run the same test like this.
 
-    ASL_PATH=.:.. ../_build/default/bin/asli.exe demo.asl --project=test.prj
+    ASL_PATH=.:.. ../_build/install/default/bin/asli demo.asl --project=test.prj
 
 We often use this with the LLVM project [FileCheck](https://llvm.org/docs/CommandGuide/FileCheck.html) tool in our integration tests.
 
@@ -289,17 +289,17 @@ We often use this with the LLVM project [FileCheck](https://llvm.org/docs/Comman
 
 For larger architecture specifications, it can be more effective to compile the specification instead. To compile the specification, we first build a project file containing a sequence of ASLi commands to compile the specification to C code. There are multiple options for doing this, the "fallback" backend is the most portable.
 
-    ../_build/default/bin/asl2c.py --basename=sim --backend=fallback > sim.prj
+    ../_build/install/default/bin/asl2c --basename=sim --backend=fallback > sim.prj
 
 We then load the demo specification into ASLi and run the project file to generate C code. The configuration file `exports.json` is used to specify which ASL functions are called by hand-written C code.
 
-    ASL_PATH=.:.. ../_build/default/bin/asli.exe --project=sim.prj --configuration=exports.json demo.asl
+    ASL_PATH=.:.. ../_build/install/default/bin/asli --project=sim.prj --configuration=exports.json demo.asl
 
 The generated code is in C files that start with the basename `sim` such as `sim_funs.c`.
 
 To compile and link the C code, we need to use some compiler and linker flags. We can use the `asl2c.py` script to get the right flags for each backend.
 
-    ASL2C=../_build/default/bin/asl2c.py
+    ASL2C=../_build/install/default/bin/asl2c
     CFLAGS=`$ASL2C --backend=fallback --print-c-flags`
     LDFLAGS=`$ASL2C --backend=fallback --print-ld-flags`
 
