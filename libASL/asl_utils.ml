@@ -766,6 +766,24 @@ let identify_impure_funs (isConstant : Ident.t -> bool)
       | _ -> ())
     ds;
 
+  (* A function is also treated as impure if we have a function type
+   * but no definition
+   *)
+  let name_of_fundefn (d : AST.declaration) : Ident.t option =
+    ( match d with
+    | Decl_FunDefn (f, _, _, _) -> Some f
+    | _ -> None
+    )
+  in
+  let defined = IdentSet.of_list (List.filter_map name_of_fundefn ds) in
+  List.iter (fun d ->
+    ( match d with
+    | Decl_FunType (f, _, _) when not (IdentSet.mem f defined) ->
+        impure := IdentSet.add f !impure
+    | _ -> ()
+    ))
+    ds;
+
   (* globally impure if it calls a locally impure function *)
   callers (IdentSet.elements !impure) ds
 
