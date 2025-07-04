@@ -638,17 +638,11 @@ and xform_stmt (env : Env.t) (x : AST.stmt) : AST.stmt list =
     )
 
 (** Create local environment and add parameters and arguments *)
-let mk_fun_env (env : Eval.GlobalEnv.t) (loc : Loc.t) (f : Ident.t) : Env.t =
+let mk_fun_env (env : Eval.GlobalEnv.t) (fty : AST.function_type) : Env.t =
   let fun_env = Env.newEnv env in
-  ( match Eval.GlobalEnv.get_function env f with
-  | Some (tvs, args, _, _) ->
-      List.iter (fun tv -> Env.addLocalConst fun_env tv Values.bottom) tvs;
-      List.iter (fun v -> Env.addLocalConst fun_env v Values.bottom) args
-  | _ ->
-      let msg = "undeclared function" in
-      raise
-        (InternalError (loc, msg, (fun fmt -> Asl_fmt.funname fmt f), __LOC__))
-  );
+  List.iter (fun (tv, _) -> Env.addLocalConst fun_env tv Values.bottom) fty.parameters;
+  List.iter (fun (v, _, _) -> Env.addLocalConst fun_env v Values.bottom) fty.args;
+  Option.iter (fun (v, _) -> Env.addLocalConst fun_env v Values.bottom) fty.setter_arg;
   fun_env
 
 let xform_decl (genv : Eval.GlobalEnv.t) (d : AST.declaration) : AST.declaration
@@ -681,11 +675,11 @@ let xform_decl (genv : Eval.GlobalEnv.t) (d : AST.declaration) : AST.declaration
       let e' = xform_expr env e in
       Decl_Config (v, ty', e', loc)
   | Decl_FunType (f, fty, loc) ->
-      let env = mk_fun_env genv loc f in
+      let env = mk_fun_env genv fty in
       let fty' = xform_funtype env fty in
       Decl_FunType (f, fty', loc)
   | Decl_FunDefn (f, fty, body, loc) ->
-      let env = mk_fun_env genv loc f in
+      let env = mk_fun_env genv fty in
       let fty' = xform_funtype env fty in
       let body' = xform_stmts env body in
       Decl_FunDefn (f, fty', body', loc)
