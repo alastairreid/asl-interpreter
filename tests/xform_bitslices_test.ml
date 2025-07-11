@@ -33,14 +33,13 @@ let bitslice_tests : unit Alcotest.test_case list =
     ("nested bitvector concat 1", `Quick, expr
        "var x : bits(2); var y : bits(2); var z : bits(4);"
        "[[x, y], z]"
-       "asl_lsl_bits(asl_zero_extend_bits(asl_lsl_bits(asl_zero_extend_bits(x, 4), 2)
-                                  OR asl_zero_extend_bits(y, 4), 8), 4)
+       "asl_lsl_bits(asl_lsl_bits(asl_zero_extend_bits(x, 8), 2)
+                     OR asl_zero_extend_bits(y, 8), 4)
         OR asl_zero_extend_bits(z, 8)");
     ("nested bitvector concat 2", `Quick, expr
        "var x : bits(2); var y : bits(2);"
        "ZeroExtend([x, y], 8)"
-       "asl_zero_extend_bits(asl_lsl_bits(asl_zero_extend_bits(x, 4), 2)
-                         OR asl_zero_extend_bits(y, 4), 8)");
+       "asl_lsl_bits(asl_zero_extend_bits(x, 8), 2) OR asl_zero_extend_bits(y, 8)");
     ("Ones() 1 lo+:width", `Quick, stmts
        "var x : bits(64); var i : integer;"
        "x[0 +: i+1] = Ones(i+1);"
@@ -89,9 +88,11 @@ let bitslice_tests : unit Alcotest.test_case list =
     ("assignment of bitvector concat", `Quick, stmts
        "var x : bits(8); var y : bits(3); var z : bits(4);"
        "x[1 +: 7] = [y, z];"
-       "x = asl_and_bits(x, NOT asl_lsl_bits(asl_mk_mask(7, 8), 1))
-            OR asl_lsl_bits(asl_zero_extend_bits(asl_lsl_bits(asl_zero_extend_bits(y, 7), 4)
-                                         OR asl_zero_extend_bits(z, 7), 8), 1);");
+       "x = (x AND NOT asl_lsl_bits(asl_mk_mask(7, 8), 1))
+            OR asl_lsl_bits(asl_lsl_bits(asl_zero_extend_bits(y, 8), 4)
+                            OR asl_zero_extend_bits(z, 8)
+                           , 1);"
+                           );
     ("ZeroExtend(Ones(i), n)", `Quick, expr
        "var i : integer;"
        "ZeroExtend(Ones(i), 64)"

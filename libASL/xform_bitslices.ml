@@ -31,13 +31,14 @@ let is_constant (x : AST.expr) : bool =
 
 let transform_slices : bool ref = ref true
 
-let transform_non_slices (n : AST.expr) (w : AST.expr) (i : AST.expr)
-    (x : AST.expr) : AST.expr =
-  match x with
+let rec transform_non_slices (loc : Loc.t) (n : AST.expr) (w : AST.expr) (i : AST.expr) (x : AST.expr) : AST.expr =
+  ( match x with
   | Expr_TApply (f, _, _, _) when Ident.equal f ones  ->
       mk_lsl_bits n (Asl_utils.mk_mask w n) i
   | Expr_TApply (f, _, _, _) when Ident.equal f zeros -> mk_zero_bits n
+  | Expr_Concat (ws, es) -> mk_lsl_bits n (transform_concat loc n ws es) i
   | _ -> mk_lsl_bits n (mk_zero_extend_bits w n x) i
+  )
 
 (** Transform expression 'x' of width 'w' to an expression of width 'n'
  * that is equivalent to 'zero_extend_bits(x, n) << i'.
@@ -52,7 +53,7 @@ let transform_non_slices (n : AST.expr) (w : AST.expr) (i : AST.expr)
  * This function will be extended with additional special cases in
  * the future.
  *)
-let transform (loc : Loc.t) (n : AST.expr) (w : AST.expr) (i : AST.expr)
+and transform (loc : Loc.t) (n : AST.expr) (w : AST.expr) (i : AST.expr)
     (x : AST.expr) : AST.expr =
   ( match x with
   | Expr_Slices (_, _, [Slice_HiLo _]) ->
@@ -67,8 +68,24 @@ let transform (loc : Loc.t) (n : AST.expr) (w : AST.expr) (i : AST.expr)
     let e2 = mk_and_bits we e1 (Asl_utils.mk_mask wd we) in
     let e3 = mk_zero_extend_bits we n e2 in
     mk_lsl_bits n e3 i
-  | _ -> transform_non_slices n w i x
+  | _ -> transform_non_slices loc n w i x
   )
+
+and transform_concat (loc : Loc.t) (final_width : AST.expr) (ws : AST.expr list) (es : AST.expr list) : AST.expr =
+  (* Transform "{w1, .. wn}[ e1, .. en ]" to "e1' OR .. en'"
+   *   where, for each index i in [1, .. n]
+   *     wi' = sum of [wi .. wn]
+   *     ei' == zero_extend_bits(ei, final_width) << wi'
+   *)
+  let (_, r) = List.fold_right2 (fun w e (i, e0) ->
+      let e' = transform loc final_width w i e in
+      let i' = Xform_simplify_expr.mk_add_int w i in
+      let e0' = mk_or_bits final_width e' e0 in
+      (i', e0')
+    )
+    ws es (zero, mk_zero_bits final_width)
+  in
+  r
 
   (** Transform assignment
     *   le[shift +: slice_width] = rhs;
@@ -76,7 +93,6 @@ let transform (loc : Loc.t) (n : AST.expr) (w : AST.expr) (i : AST.expr)
     *   le = (e AND (NOT slice_mask) OR (rhs AND slice_mask)
     * where le : bits(width)
     *       e = le (converted to an expression)
-    *       l = location
     *       slice_mask = mask(slice_width) << shift
     *)
 let transform_assignment
@@ -86,20 +102,20 @@ let transform_assignment
     (slice_width : AST.expr)
     (shift : AST.expr)
     (rhs : AST.expr)
-    (l : Loc.t) =
+    (loc : Loc.t) =
   (* Generate masks for clearing affected bits in slice *)
   let slice_mask = mk_lsl_bits width (Asl_utils.mk_mask slice_width width) shift in
   let slice_not_mask = mk_not_bits width slice_mask in
 
   (* Transform the rhs. The transformed rhs should already be correctly shifted
    * and masked *)
-  let rhs' = transform_non_slices width slice_width shift rhs in
+  let rhs' = transform_non_slices loc width slice_width shift rhs in
 
   (* lhs = (lhs AND (NOT slice_mask) OR rhs' *)
   let or_op1 = mk_and_bits width e slice_not_mask in
   let rhs'' = mk_or_bits width or_op1 rhs' in
 
-  Visitor.ChangeDoChildrenPost ([AST.Stmt_Assign (le, rhs'', l)], Fun.id)
+  Visitor.ChangeDoChildrenPost ([AST.Stmt_Assign (le, rhs'', loc)], Fun.id)
 
 let lexpr_to_expr_safe_to_replicate_opt (le : AST.lexpr) : AST.expr option =
   let e_opt = lexpr_to_expr le in
@@ -114,19 +130,7 @@ class bitsliceClass =
       ( match x with
       | Expr_Concat (ws, es) ->
         let total_width = Xform_simplify_expr.mk_add_ints ws in
-        (* Transform "{w1, .. wn}[ e1, .. en ]" to "e1' OR .. en'"
-         *   where, for each index i in [1, .. n]
-         *     wi' = sum of [wi .. wn]
-         *     ei' == zero_extend_bits(ei, total_width) << wi'
-         *)
-        let (_, x') = List.fold_right2 (fun w e (i, e0) ->
-            let e' = transform loc total_width w i e in
-            let i' = Xform_simplify_expr.mk_add_int w i in
-            let e0' = mk_or_bits total_width e' e0 in
-            (i', e0')
-          )
-          ws es (zero, mk_zero_bits total_width)
-        in
+        let x' = transform_concat loc total_width ws es in
         ChangeDoChildrenPost (x', Fun.id)
 
       | Expr_TApply (f, [w; n], [e; _], _) when Ident.equal f zero_extend ->
