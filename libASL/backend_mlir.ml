@@ -349,6 +349,10 @@ let rec expr_to_ir (loc : Loc.t) (ctx : context) (x : AST.expr) : HLIR.ident =
       let y' = expr_to_region loc ctx y in
       let tt = value_to_region loc ctx (VBool true) in
       ir_ite loc ctx x' y' tt
+  | Expr_TApply (f, _, [Expr_Lit (VInt n)], NoThrow) when Ident.equal f Builtin_idents.zeros_bits ->
+      valueLit loc ctx (VBits (Primops.prim_zeros_bits n))
+  | Expr_TApply (f, _, [Expr_Lit (VInt n)], NoThrow) when Ident.equal f Builtin_idents.ones_bits ->
+      valueLit loc ctx (VBits (Primops.prim_ones_bits n))
   | Expr_TApply (f, ps, args, throws) ->
       let fty = Identset.Bindings.find f !funtypes in
       let fty' = instantiate_funtype ps fty in
@@ -643,6 +647,8 @@ let mlir_function_mapping = Identset.mk_bindings [
   ( Builtin_idents.lsl_bits,         "arith.shli");
   ( Builtin_idents.lsr_bits,         "arith.shrui");
   ( Builtin_idents.asr_bits,         "arith.shrsi");
+  ( Builtin_idents.zero_extend_bits, "arith.extui");
+  ( Builtin_idents.sign_extend_bits, "arith.extsi");
 
   (* sized, signed integers: mapped to i{n} *)
   ( Builtin_idents.eq_sintN,         "arith.cmpi eq,");
@@ -892,7 +898,7 @@ let rec cg_HLIR_Operation (fmt : PP.formatter) (x : HLIR.operation) : unit =
                        cg_operands x.operands
                        cg_types x.operands
                        cg_types x.results
-        | None -> raise (InternalError (x.loc, "HLIR.Builtin", (fun fmt -> HLIR.ppOperation fmt x), __LOC__))
+        | _ -> raise (InternalError (x.loc, "HLIR.Builtin", (fun fmt -> HLIR.ppOperation fmt x), __LOC__))
         )
     | Call f ->
         Format.fprintf fmt "func.call @%a(%a) : (%a) -> (%a)"
