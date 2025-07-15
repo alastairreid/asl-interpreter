@@ -597,10 +597,12 @@ let declaration_to_ir (x : AST.declaration) : HLIR.global option =
  ****************************************************************)
 
 let standard_functions = Identset.IdentSet.of_list [
+    (*
   Builtin_idents.asl_file_open;
   Builtin_idents.asl_file_write;
   Builtin_idents.asl_file_getc;
   Builtin_idents.asl_fuzz;
+  *)
   Builtin_idents.print_int_hex;
   Builtin_idents.print_int_dec;
   Builtin_idents.print_char;
@@ -838,7 +840,8 @@ let cg_HLIR_ConstExprs (loc : Loc.t) (fmt : PP.formatter) (xs : AST.expr list) :
 
 let rec cg_HLIR_Type' (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : unit =
   ( match x with
-  | Type_Bits (e, _) -> PP.fprintf fmt "i%a" (cg_HLIR_ConstExpr loc) e
+  (* | Type_Bits (e, _) -> PP.fprintf fmt "i%a" (cg_HLIR_ConstExpr loc) e *)
+  | Type_Bits (e, _) -> PP.fprintf fmt "!asl.bits<%a>" (cg_HLIR_ConstExpr loc) e
   | Type_Constructor (tc, []) when tc = Builtin_idents.boolean_ident -> PP.fprintf fmt "i1"
   | Type_Constructor (tc, []) when tc = Builtin_idents.string_ident -> PP.fprintf fmt "!asl.string"
   | Type_Constructor (tc, []) when tc = Builtin_idents.ram -> PP.fprintf fmt "!asl.ram"
@@ -917,7 +920,7 @@ let rec cg_HLIR_Operation (fmt : PP.formatter) (x : HLIR.operation) : unit =
         ( match c with
         | VInt v -> PP.fprintf fmt "asl.constant_int %s" (Z.to_string v)
         | VIntN v -> PP.fprintf fmt "arith.constant %s : i%d" (Z.to_string v.v) v.n
-        | VBits v -> PP.fprintf fmt "arith.constant %s : i%d" (Z.to_string v.v) v.n
+        | VBits v -> PP.fprintf fmt "asl.constant_bits %s : !asl.bits<%d>" (Z.to_string v.v) v.n
         | VString v -> PP.fprintf fmt "asl.constant_string \"%s\"" (String.escaped v)
         | VBool true -> PP.fprintf fmt "arith.constant 0 : i1"
         | VBool false -> PP.fprintf fmt "arith.constant 1 : i1"
@@ -1782,7 +1785,7 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
           let env : environment = ScopeStack.empty () in
           List.iter (fun (v, oty) -> ScopeStack.add env v (None, false, Option.get oty)) fty.parameters;
           List.iter (fun (v, ty, _) -> ScopeStack.add env v (None, false, ty)) fty.args;
-          PP.fprintf fmt "asl.func @%a%a(%a) -> %a {"
+          PP.fprintf fmt "func.func @%a%a(%a) -> %a {"
             ident f
             (formal_params loc) fty.parameters
             (commasep (formal_arg loc)) fty.args
@@ -1847,7 +1850,7 @@ let _ =
         | None -> ()
         | Some fty ->
             let loc = Loc.Unknown in
-            PP.fprintf fmt "asl.func @%a%a(%a) -> %a@,"
+            PP.fprintf fmt "func.func @%a%a(%a) -> %a@,"
               ident f
               (formal_params loc) fty.parameters
               (commasep (formal_arg loc)) fty.args
