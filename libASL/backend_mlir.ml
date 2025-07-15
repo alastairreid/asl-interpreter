@@ -642,20 +642,20 @@ let mlir_function_mapping = Identset.mk_bindings [
   ( Builtin_idents.strict_or_bool,   "arith.ori");
 
   (* bitvectors: mapped to i{n} *)
-  ( Builtin_idents.eq_bits,          "arith.cmpi eq,");
-  ( Builtin_idents.ne_bits,          "arith.cmpi ne,");
-  ( Builtin_idents.add_bits,         "arith.addi");
-  ( Builtin_idents.sub_bits,         "arith.subi");
-  ( Builtin_idents.mul_bits,         "arith.muli");
-  ( Builtin_idents.and_bits,         "arith.andi");
-  ( Builtin_idents.or_bits,          "arith.ori");
-  ( Builtin_idents.xor_bits,         "arith.xori");
-  ( Builtin_idents.not_bits,         "arith.noti");
-  ( Builtin_idents.lsl_bits,         "arith.shli");
-  ( Builtin_idents.lsr_bits,         "arith.shrui");
-  ( Builtin_idents.asr_bits,         "arith.shrsi");
-  ( Builtin_idents.zero_extend_bits, "arith.extui");
-  ( Builtin_idents.sign_extend_bits, "arith.extsi");
+  ( Builtin_idents.eq_bits,          "asl.eq_bits");
+  ( Builtin_idents.ne_bits,          "asl.ne_bits");
+  ( Builtin_idents.add_bits,         "asl.add_bits");
+  ( Builtin_idents.sub_bits,         "asl.sub_bits");
+  ( Builtin_idents.mul_bits,         "asl.mul_bits");
+  ( Builtin_idents.and_bits,         "asl.and_bits");
+  ( Builtin_idents.or_bits,          "asl.or_bits");
+  ( Builtin_idents.xor_bits,         "asl.xor_bits");
+  ( Builtin_idents.not_bits,         "asl.not_bits");
+  ( Builtin_idents.lsl_bits,         "asl.lsl_bits");
+  ( Builtin_idents.lsr_bits,         "asl.lsr_bits");
+  ( Builtin_idents.asr_bits,         "asl.asl_bits");
+  ( Builtin_idents.zero_extend_bits, "asl.zero_extend_bits");
+  ( Builtin_idents.sign_extend_bits, "asl.sign_extend_bits");
 
   (* sized, signed integers: mapped to i{n} *)
   ( Builtin_idents.eq_sintN,         "arith.cmpi eq,");
