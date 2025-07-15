@@ -769,11 +769,13 @@ let rec operation_to_cf (ctx : cf_context) (x : HLIR.operation) : unit =
   | If ->
       ( match (x.operands, x.regions) with
       | ([c], [t; e]) ->
+          let t_then = (mk_label ctx, t.inputs) in
+          let t_else = (mk_label ctx, e.inputs) in
           let next = mk_label ctx in
-          let label1 = region_to_cf ctx t next in
-          let label2 = region_to_cf ctx e next in
-          let terminator = ("cf.cond_br", [c], [label1; label2]) in
+          let terminator = ("cf.cond_br", [c], [t_then; t_else]) in
           end_bb ctx terminator;
+          region_to_cf ctx t t_then next;
+          region_to_cf ctx e t_else next;
           start_new_bb ctx (next, x.results)
       | _ -> bad_op ()
       )
@@ -781,7 +783,7 @@ let rec operation_to_cf (ctx : cf_context) (x : HLIR.operation) : unit =
   | Fail -> ()
   | Return ->
       ( match (x.operands, x.regions) with
-      | (rs, []) -> terminate_block ctx "cf.br" [] [(ctx.return_bb, rs)];
+      | (rs, []) -> terminate_block ctx "cf.br" [] [(ctx.return_bb, rs)]
       | _ -> bad_op ()
       )
 
@@ -798,21 +800,19 @@ let rec operation_to_cf (ctx : cf_context) (x : HLIR.operation) : unit =
      emit_cf_op ctx x
   )
 
-and region_to_cf (parent_ctx : cf_context) (x : HLIR.region) (next : cf_label) : cf_target =
-  let label = mk_label parent_ctx in
-  let target = (label, x.inputs) in
+and region_to_cf (parent_ctx : cf_context) (x : HLIR.region) (target : cf_target) (next : cf_label) : unit =
   let ctx = clone_cf_context parent_ctx target in
   List.iter (operation_to_cf ctx) x.operations;
   let terminator = Utils.from_option !(ctx.terminator) (fun _ ->  ("cf.br", [], [(next, x.outputs)])) in
-  end_bb ctx terminator;
-  target
+  end_bb ctx terminator
 
-let hlir_to_cf (x : HLIR.region) : (cf_target * cf_block list) =
+let hlir_to_cf (x : HLIR.region) : cf_block list =
   let ctx = fresh_cf_context () in
+  let entry = (mk_label ctx, x.inputs) in
+  region_to_cf ctx x entry ctx.return_bb;
   start_new_bb ctx (ctx.return_bb, x.outputs);
   end_bb ctx ("func.return", x.outputs, []);
-  let entry = region_to_cf ctx x ctx.return_bb in
-  (entry, List.rev !(ctx.blocks))
+  List.rev !(ctx.blocks)
 
 (****************************************************************
  * HLIR to MLIR conversion
@@ -899,7 +899,7 @@ let rec cg_HLIR_Operation (fmt : PP.formatter) (x : HLIR.operation) : unit =
             ( match vars with
             | [] -> Format.fprintf fmt "()"
             | [op] -> cg_HLIR_IdentType x.loc fmt op
-            | ops -> Format.fprintf fmt "(%a)" (commasep (cg_HLIR_IdentType x.loc)) ops
+            | ops -> Format.fprintf fmt "%a" (commasep (cg_HLIR_IdentType x.loc)) ops
             )
         in
         ( match Identset.Bindings.find_opt f mlir_function_mapping with
@@ -978,11 +978,11 @@ let cg_HLIR_Global (fmt : PP.formatter) (x : HLIR.global) : unit =
         (commasep (cg_HLIR_IdentType loc)) r.outputs;
       Format.fprintf fmt "{@.";
 
-      let (cf_start, cf_blocks) = hlir_to_cf r in
-      Format.fprintf fmt "    cf.br %a@."
-        cg_target_call cf_start;
+      let cf_blocks = hlir_to_cf r in
+      let is_first = ref true in (* The first block doesn't get a label *)
       List.iter (fun (target, operations, (t_op, t_operands, t_targets)) ->
-        Format.fprintf fmt "@,%a:@," cg_target_decl target;
+        if not !is_first then Format.fprintf fmt "@,%a:@," cg_target_decl target;
+        is_first := false;
         indented fmt (fun _ ->
           cutsep cg_HLIR_Operation fmt operations;
           Format.fprintf fmt "@,%s " t_op;
@@ -999,7 +999,7 @@ let cg_HLIR_Global (fmt : PP.formatter) (x : HLIR.global) : unit =
         )
       ) cf_blocks;
 
-      Format.fprintf fmt "}@,"
+      Format.fprintf fmt "}@.@."
   )
 
 (****************************************************************
