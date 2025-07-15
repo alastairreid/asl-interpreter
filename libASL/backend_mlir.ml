@@ -954,11 +954,22 @@ let cg_HLIR_Global (fmt : PP.formatter) (x : HLIR.global) : unit =
       Format.fprintf fmt " // %a" Loc.pp loc;
       Format.fprintf fmt "@.@."
   | Function (f, r, loc) ->
-      let cg_args fmt args =
+      let cg_args_call fmt args =
         if not (Utils.is_empty args) then
+          (* Note that branches use this syntax "(%x, %y : !Tx, !Ty)" *)
+          Format.fprintf fmt "(%a : %a)"
+            (commasep (cg_HLIR_IdentName loc)) args
+            (commasep (cg_HLIR_IdentType loc)) args
+      in
+      let cg_target_call fmt (label, args) = Format.fprintf fmt "%a%a" Ident.pp label cg_args_call args in
+
+      let cg_args_decl fmt args =
+        if not (Utils.is_empty args) then
+          (* Note that basic blocks use this syntax "(%x : !Tx, %y : !Ty)" *)
           Format.fprintf fmt "(%a)" (commasep (cg_HLIR_Ident loc)) args
       in
-      let cg_target fmt (label, args) = Format.fprintf fmt "%a%a" Ident.pp label cg_args args in
+      let cg_target_decl fmt (label, args) = Format.fprintf fmt "%a%a" Ident.pp label cg_args_decl args in
+
 
       (* todo: return type seems to be broken *)
       Format.fprintf fmt "func.func @%a (%a) -> (%a)@."
@@ -969,9 +980,9 @@ let cg_HLIR_Global (fmt : PP.formatter) (x : HLIR.global) : unit =
 
       let (cf_start, cf_blocks) = hlir_to_cf r in
       Format.fprintf fmt "    cf.br %a@."
-        cg_target cf_start;
+        cg_target_call cf_start;
       List.iter (fun (target, operations, (t_op, t_operands, t_targets)) ->
-        Format.fprintf fmt "@,%a:@," cg_target target;
+        Format.fprintf fmt "@,%a:@," cg_target_decl target;
         indented fmt (fun _ ->
           cutsep cg_HLIR_Operation fmt operations;
           Format.fprintf fmt "@,%s " t_op;
@@ -982,7 +993,7 @@ let cg_HLIR_Global (fmt : PP.formatter) (x : HLIR.global) : unit =
           end;
           if not (Utils.is_empty t_targets) then begin
             if not (Utils.is_empty t_operands) then Format.fprintf fmt ", ";
-            Format.fprintf fmt "%a" (commasep cg_target) t_targets
+            Format.fprintf fmt "%a" (commasep cg_target_call) t_targets
           end;
           Format.fprintf fmt "@."
         )
