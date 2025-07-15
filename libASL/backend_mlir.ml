@@ -580,7 +580,12 @@ let declaration_to_ir (x : AST.declaration) : HLIR.global option =
       in
       List.iter (stmt_to_ir ctx) body;
       let inputs = ps' @ args' in
-      let outputs = [] in (* todo: I guess these come from the return type or from the return stmts? *)
+      let outputs = List.mapi (fun i ty ->
+          let nm = "%output" ^ Int.to_string i in
+          HLIR.Ident (Ident.mk_ident nm, HLIR.Type ty)
+        )
+        (tupleTypes fty.rty)
+      in
       let r = get_region ctx outputs inputs in
       Some (HLIR.Function(f, r, loc))
   | _ ->
@@ -701,6 +706,7 @@ type cf_block = (cf_target * HLIR.operation list * cf_terminator)
 
 type cf_context = {
   label_idents : Asl_utils.nameSupply;
+  return_bb : cf_label;
   start : cf_target ref;
   operations : HLIR.operation list ref; (* in reverse order *)
   terminator : cf_terminator option ref;
@@ -710,6 +716,7 @@ type cf_context = {
 let fresh_cf_context (_ : unit) : cf_context =
   let dummy_target = (Builtins.wildcard_ident, []) in
   { label_idents = new nameSupply "^bb";
+    return_bb = Ident.mk_ident "^ret";
     start = ref dummy_target;
     operations = ref [];
     terminator = ref None;
@@ -718,6 +725,7 @@ let fresh_cf_context (_ : unit) : cf_context =
 
 let clone_cf_context (ctx : cf_context) (start : cf_target) : cf_context =
   { label_idents = ctx.label_idents;
+    return_bb = ctx.return_bb;
     start = ref start;
     operations = ref [];
     terminator = ref None;
@@ -736,6 +744,7 @@ let mk_label (ctx : cf_context) : cf_label =
   ctx.label_idents#fresh
 
 let end_bb (ctx : cf_context) (terminator : cf_terminator) : unit =
+  let terminator = Option.value ~default:terminator (!(ctx.terminator)) in
   let block = (!(ctx.start), List.rev !(ctx.operations), terminator) in
   ctx.blocks := block :: !(ctx.blocks);
   ctx.operations := [];
@@ -770,8 +779,7 @@ let rec operation_to_cf (ctx : cf_context) (x : HLIR.operation) : unit =
   | Fail -> ()
   | Return ->
       ( match (x.operands, x.regions) with
-      | (rs, []) ->
-          terminate_block ctx "func.return" rs [];
+      | (rs, []) -> terminate_block ctx "cf.br" [] [(ctx.return_bb, rs)];
       | _ -> bad_op ()
       )
 
@@ -799,10 +807,9 @@ and region_to_cf (parent_ctx : cf_context) (x : HLIR.region) (next : cf_label) :
 
 let hlir_to_cf (x : HLIR.region) : (cf_target * cf_block list) =
   let ctx = fresh_cf_context () in
-  let ret = mk_label ctx in
-  start_new_bb ctx (ret, x.outputs);
+  start_new_bb ctx (ctx.return_bb, x.outputs);
   end_bb ctx ("func.return", x.outputs, []);
-  let entry = region_to_cf ctx x ret in
+  let entry = region_to_cf ctx x ctx.return_bb in
   (entry, List.rev !(ctx.blocks))
 
 (****************************************************************
@@ -944,21 +951,17 @@ let cg_HLIR_Global (fmt : PP.formatter) (x : HLIR.global) : unit =
       Format.fprintf fmt " // %a" Loc.pp loc;
       Format.fprintf fmt "@.@."
   | Function (f, r, loc) ->
-      let cg_target fmt (label, args) =
-        if Utils.is_empty args then
-          Format.fprintf fmt "%a"
-            Ident.pp label
-        else
-          Format.fprintf fmt "%a(%a)"
-            Ident.pp label
-            (commasep (cg_HLIR_IdentName loc)) args
+      let cg_args fmt args =
+        if not (Utils.is_empty args) then
+          Format.fprintf fmt "(%a)" (commasep (cg_HLIR_Ident loc)) args
       in
+      let cg_target fmt (label, args) = Format.fprintf fmt "%a%a" Ident.pp label cg_args args in
 
       (* todo: return type seems to be broken *)
       Format.fprintf fmt "func.func @%a (%a) -> (%a)@."
         Ident.pp f
         (commasep (cg_HLIR_Ident loc)) r.inputs
-        (commasep (cg_HLIR_Ident loc)) r.outputs;
+        (commasep (cg_HLIR_IdentType loc)) r.outputs;
       Format.fprintf fmt "{@.";
 
       let (cf_start, cf_blocks) = hlir_to_cf r in
@@ -972,11 +975,11 @@ let cg_HLIR_Global (fmt : PP.formatter) (x : HLIR.global) : unit =
           if not (Utils.is_empty t_operands) then begin
             Format.fprintf fmt "%a : %a"
               (commasep HLIR.ppIdentName) t_operands
-              (commasep HLIR.ppIdentType) t_operands
+              (commasep (cg_HLIR_IdentType loc)) t_operands
           end;
           if not (Utils.is_empty t_targets) then begin
             if not (Utils.is_empty t_operands) then Format.fprintf fmt ", ";
-            Format.fprintf fmt ", %a" (commasep cg_target) t_targets
+            Format.fprintf fmt "%a" (commasep cg_target) t_targets
           end;
           Format.fprintf fmt "@."
         )
