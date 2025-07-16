@@ -643,7 +643,7 @@ let rec stmt_to_ir (ctx : context) (x : AST.stmt) : unit =
       let b_ctx = clone_context ctx in
 
       (* We don't know which variables the loop body is going to modify.
-       * So we conservatively assume that they are all modified.
+       * So we conservatively assume that all mutable variables are modified.
        *)
       let inputs = List.map (fun v ->
           let current = get_binding b_ctx v |> Option.get in
@@ -677,47 +677,42 @@ let rec stmt_to_ir (ctx : context) (x : AST.stmt) : unit =
       emit_op ctx { results; op=For(dir==Direction_Up); operands=[f'; t'] @ inputs; regions=[b_region]; loc }
 
   | Stmt_While (cond, body, loc) ->
-      let after_ctx = clone_context ctx in
-      List.iter (stmt_to_ir after_ctx) body;
-      let after_changes = Scope.bindings (get_rebound_variables ctx after_ctx) in
+      let c_ctx = clone_context ctx in
 
-      (* TRICKY DETAIL:
-       * The inputs to the after region have the same names as the bindings
-       * of the variables before the loop.
-       * But, they are distinct variables because they exist in the nested
-       * scope of the after region.
-       *
-       * (Trying to allocate completely fresh names for them would require us
-       * to have a list of all modified variables before starting translation
-       * of the body.)
+      (* We don't know which variables the loop body is going to modify.
+       * So we conservatively assume that all mutable variables are modified.
        *)
-      let after_inputs = List.map (fun (v, _) -> get_binding ctx v |> Option.get) after_changes in
-      let after_results = List.map snd after_changes in
-
-      (* use the list of variables modified in the body as the initial values
-       * required by the condition block
-       *)
-      let before_ctx = clone_context ctx in
-      let cond' = expr_to_ir loc before_ctx cond in
-      let before_inputs = List.map (fun (v, v') ->
-             let vi = mk_fresh ctx (HLIR.typeof v') in
-             rebind before_ctx v vi;
-             vi
-           )
-           after_changes
+      let inputs = List.map (fun v ->
+          let current = get_binding ctx v |> Option.get in
+          let v' = mk_fresh c_ctx (HLIR.typeof current) in
+          rebind c_ctx v v';
+          (v, v')
+        )
+        (all_mutable_vars ctx)
       in
-      let before_outputs = cond' :: before_inputs in
+      let cond' = expr_to_ir loc c_ctx cond in
+      let c_region = get_region c_ctx [cond'] [] in
 
-      let results = List.map (fun (v, v') ->
-             let vm = mk_fresh ctx (HLIR.typeof v') in
-             rebind ctx v vm;
-             vm
-           )
-           after_changes
+      let b_ctx = clone_context ctx in
+      List.iter (stmt_to_ir b_ctx) body;
+      let b_changes = List.map
+        (fun (v, v_in) -> (* v_in is the value at the start of the loop body *)
+            let v_out = get_binding b_ctx v |> Option.get in
+            let v_init = get_binding ctx v |> Option.get in
+            let v_final = mk_fresh ctx (HLIR.typeof v_out) in (* output from loop *)
+            (v, v_init, v_in, v_out, v_final)
+        )
+        inputs
       in
-      let before_region = get_region before_ctx before_outputs before_inputs in
-      let after_region = get_region after_ctx after_results after_inputs in
-      emit_op ctx { results; op=While; operands=after_inputs; regions=[before_region; after_region]; loc }
+
+      let b_in = List.map (fun (v, v_init, v_in, v_out, v_final) -> v_in) b_changes in
+      let b_out = List.map (fun (v, v_init, v_in, v_out, v_final) -> v_out) b_changes in
+      let b_region = get_region b_ctx b_out b_in in
+
+      let inputs = List.map (fun (v, v_init, v_in, v_out, v_final) -> v_init) b_changes in
+      let results = List.map (fun (v, v_init, v_in, v_out, v_final) -> rebind ctx v v_final; v_final) b_changes in
+      emit_op ctx { results; op=While; operands=inputs; regions=[c_region; b_region]; loc }
+
   | _ ->
       let pp fmt = FMT.stmt fmt x in
       raise (Error.Unimplemented (Loc.Unknown, "statement", pp))
