@@ -483,6 +483,10 @@ let rec expr_to_ir (loc : Loc.t) (ctx : context) (x : AST.expr) : HLIR.ident =
       let msg = String.escaped (Utils.to_string2 (Fun.flip FMT.expr e1)) in
       add_noresult_op loc ctx (Assert msg) [e1'];
       expr_to_ir loc ctx e2
+  | Expr_Let (v, t, e, b) ->
+      let e' = expr_to_ir loc ctx e in
+      add_initial_binding ctx v e';
+      expr_to_ir loc ctx b
   | _ ->
       let pp fmt = FMT.expr fmt x in
       raise (Error.Unimplemented (loc, "expression", pp))
@@ -1069,14 +1073,16 @@ let cg_HLIR_Global (fmt : PP.formatter) (x : HLIR.global) : unit =
         )
       ) cf_blocks;
       cg_target_decl fmt return_target;
-      ( match return_target with
-      | (_, []) -> Format.fprintf fmt "func.return@."
-      | (_, rs) -> Format.fprintf fmt "func.return %a : %a@."
-                     (commasep (cg_HLIR_IdentName loc)) rs
-                     (commasep (cg_HLIR_IdentType loc)) rs
+      indented fmt (fun _ ->
+        ( match return_target with
+        | (_, []) -> Format.fprintf fmt "func.return@."
+        | (_, rs) -> Format.fprintf fmt "func.return %a : %a@."
+                       (commasep (cg_HLIR_IdentName loc)) rs
+                       (commasep (cg_HLIR_IdentType loc)) rs
+        )
       );
 
-      Format.fprintf fmt "}@.@."
+      Format.fprintf fmt "}@."
   )
 
 (****************************************************************
