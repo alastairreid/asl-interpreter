@@ -592,7 +592,9 @@ let rec stmt_to_ir (ctx : context) (x : AST.stmt) : unit =
         let ps' = List.map (expr_to_ir loc ctx) ps in
         add_noresult_op loc ctx (Call f) (ps' @ args')
       )
-  | Stmt_If ([(c, t, loc)], (e, _), _) ->
+  | Stmt_If ([], (e, _), _) ->
+      List.iter (stmt_to_ir ctx) e
+  | Stmt_If ((c, t, loc)::cs, e, l) ->
       let c' = expr_to_ir loc ctx c in
 
       let t_ctx = clone_context ctx in
@@ -600,7 +602,7 @@ let rec stmt_to_ir (ctx : context) (x : AST.stmt) : unit =
       let t_changes = Scope.get_bindings (get_rebound_variables ctx t_ctx) in
 
       let e_ctx = clone_context ctx in
-      List.iter (stmt_to_ir e_ctx) e;
+      stmt_to_ir e_ctx (Stmt_If (cs, e, l));
       let e_changes = Scope.get_bindings (get_rebound_variables ctx e_ctx) in
 
       let changes = Identset.Bindings.merge
