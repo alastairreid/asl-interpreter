@@ -144,6 +144,7 @@ let asl_elf_write_memory8    = Ident.mk_fident "ASL_WriteMemory8"
 
 let asl_fake_return_value    = Ident.mk_ident "ASL_fake_return_value"
 let asl_error_unmatched_case = Ident.mk_fident "ASL_error_unmatched_case"
+let asl_assert               = Ident.mk_fident "asl_assert"
 let asl_insert_bits          = Ident.mk_fident "asl_bits_set"
 let asl_extract_bits         = Ident.mk_fident "asl_extract_bits"
 let asl_extract_int          = Ident.mk_fident "asl_extract_int"
