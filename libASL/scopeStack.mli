@@ -55,6 +55,8 @@ val map_inplace : ('a -> 'a) -> 'a t -> unit
 (** [map_inplace f ss] works the same way as [map] but mutates [ss] instead of
     returning a new scope stack. *)
 
+val mapi : (Ident.t -> 'a -> 'b) -> 'a t -> 'b t
+
 val map2 : ('a -> 'b -> 'c) -> 'a t -> 'b t -> 'c t
 (** [map2 f ss1 ss2] returns a new scope stack by merging elements in each
     scope from [ss1] and [ss2] using [f]. *)

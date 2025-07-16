@@ -32,6 +32,8 @@ let set (s : 'a t) (k : Ident.t) (v : 'a) : unit =
 
 let map (f : 'a -> 'b) (s : 'a t) : 'b t = { bs = Bindings.map f s.bs }
 
+let mapi (f : Ident.t -> 'a -> 'b) (s : 'a t) : 'b t = { bs = Bindings.mapi f s.bs }
+
 let filter (f : Ident.t -> 'a -> bool) (s : 'a t) : 'a t =
   { bs = Bindings.filter f s.bs }
 
