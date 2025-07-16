@@ -296,6 +296,7 @@ type context = {
   (* note that both initial_bindings and local_rebindings are internally mutable *)
   initial_bindings : HLIR.ident ScopeStack.t; (* local variables *)
   local_rebindings : HLIR.ident Scope.t; (* local modifications *)
+  mutable_vars : Identset.IdentSet.t ref; (* mutable variables - used when converting loops *)
 }
 
 let ppContext (fmt : PP.formatter) (ctx : context) : unit =
@@ -314,13 +315,15 @@ let fresh_context (_ : unit) : context =
     operations = ref [];
     initial_bindings = ScopeStack.empty ();
     local_rebindings = Scope.empty ();
+    mutable_vars = ref Identset.IdentSet.empty;
   }
 
 let clone_context (ctx : context) : context =
   { var_idents = ctx.var_idents;
     operations = ref [];
     initial_bindings = ScopeStack.add_local_scope ctx.initial_bindings;
-    local_rebindings = Scope.empty ()
+    local_rebindings = Scope.empty ();
+    mutable_vars = ref !(ctx.mutable_vars);
   }
 
 let mk_fresh (ctx : context) (t : HLIR.ty) : HLIR.ident =
@@ -341,8 +344,14 @@ let get_binding (ctx : context) (v : Ident.t) : HLIR.ident option =
   | None -> ScopeStack.get ctx.initial_bindings v
   )
 
-let add_initial_binding (ctx : context) (v : Ident.t) (v' : HLIR.ident) : unit =
-  ScopeStack.add ctx.initial_bindings v v'
+let add_initial_binding (ctx : context) (is_constant : bool) (v : Ident.t) (v' : HLIR.ident) : unit =
+  ScopeStack.add ctx.initial_bindings v v';
+  if not is_constant then begin
+    ctx.mutable_vars := Identset.IdentSet.add v !(ctx.mutable_vars)
+  end
+
+let all_mutable_vars (ctx : context) : Ident.t list =
+  Identset.IdentSet.elements !(ctx.mutable_vars)
 
 let rebind (ctx : context) (v : Ident.t) (v' : HLIR.ident) : unit =
   Scope.set ctx.local_rebindings v v'
@@ -485,7 +494,7 @@ let rec expr_to_ir (loc : Loc.t) (ctx : context) (x : AST.expr) : HLIR.ident =
       expr_to_ir loc ctx e2
   | Expr_Let (v, t, e, b) ->
       let e' = expr_to_ir loc ctx e in
-      add_initial_binding ctx v e';
+      add_initial_binding ctx true v e';
       expr_to_ir loc ctx b
   | _ ->
       let pp fmt = FMT.expr fmt x in
@@ -516,7 +525,7 @@ let rec stmt_to_ir (ctx : context) (x : AST.stmt) : unit =
       ()
   | Stmt_VarDecl (is_constant, DeclItem_Var (v, _), i, loc) ->
       let i' = expr_to_ir loc ctx i in
-      add_initial_binding ctx v i'
+      add_initial_binding ctx is_constant v i'
   | Stmt_VarDecl (is_constant, DeclItem_Wildcard _, i, loc) ->
       ignore (expr_to_ir loc ctx i)
   | Stmt_Assign (LExpr_Var v, rhs, loc) ->
@@ -632,37 +641,39 @@ let rec stmt_to_ir (ctx : context) (x : AST.stmt) : unit =
       let t' = expr_to_ir loc ctx t in
 
       let b_ctx = clone_context ctx in
-      let i' = mk_fresh b_ctx (HLIR.typeof f') in
 
       (* We don't know which variables the loop body is going to modify.
-       * So we conservatively generate fresh variables for all variables
-       * and then we will just keep the variables that we actually need.
+       * So we conservatively assume that they are all modified.
        *)
-      let inits = ScopeStack.mapi (fun v v' ->
-          let v' = mk_fresh b_ctx (HLIR.typeof v') in
-          add_initial_binding b_ctx v v';
+      let inputs = List.map (fun v ->
+          let current = get_binding b_ctx v |> Option.get in
+          let v' = mk_fresh b_ctx (HLIR.typeof current) in
+          rebind b_ctx v v';
           (v, v')
         )
-        ctx.initial_bindings
+        (all_mutable_vars ctx)
       in
 
-      add_initial_binding b_ctx i i';
+      (* add binding for loop counter *)
+      let i' = mk_fresh b_ctx (HLIR.typeof f') in
+      add_initial_binding b_ctx true i i';
+
       List.iter (stmt_to_ir b_ctx) b;
-      let b_changes = Identset.Bindings.mapi
-        (fun v v_out -> (* v_out is output from loop body *)
+      let b_changes = List.map
+        (fun (v, v_in) -> (* v_in is the value at the start of the loop body *)
+            let v_out = get_binding b_ctx v |> Option.get in
             let v_init = get_binding ctx v |> Option.get in
-            let v_in = mk_fresh b_ctx (HLIR.typeof v_out) in (* input to loop body *)
             let v_final = mk_fresh ctx (HLIR.typeof v_out) in (* output from for loop *)
-            (v_init, v_in, v_out, v_final)
+            (v, v_init, v_in, v_out, v_final)
         )
-        (Scope.get_bindings (get_rebound_variables ctx b_ctx))
+        inputs
       in
-      let b_in = List.map (fun (v, (v_init, v_in, v_out, v_final)) -> v_in) (Identset.Bindings.bindings b_changes) in
-      let b_out = List.map (fun (v, (v_init, v_in, v_out, v_final)) -> v_out) (Identset.Bindings.bindings b_changes) in
+      let b_in = List.map (fun (v, v_init, v_in, v_out, v_final) -> v_in) b_changes in
+      let b_out = List.map (fun (v, v_init, v_in, v_out, v_final) -> v_out) b_changes in
       let b_region = get_region b_ctx b_out (i' :: b_in) in
 
-      let inputs = List.map (fun (v, (v_init, v_in, v_out, v_final)) -> v_init) (Identset.Bindings.bindings b_changes) in
-      let results = List.map (fun (v, (v_init, v_in, v_out, v_final)) -> rebind ctx v v_final; v_final) (Identset.Bindings.bindings b_changes) in
+      let inputs = List.map (fun (v, v_init, v_in, v_out, v_final) -> v_init) b_changes in
+      let results = List.map (fun (v, v_init, v_in, v_out, v_final) -> rebind ctx v v_final; v_final) b_changes in
       emit_op ctx { results; op=For(dir==Direction_Up); operands=[f'; t'] @ inputs; regions=[b_region]; loc }
 
   | Stmt_While (cond, body, loc) ->
@@ -729,7 +740,7 @@ let declaration_to_ir (x : AST.declaration) : HLIR.global option =
       let ps' = List.map (fun (v, ot) ->
           let t' = HLIR.mkType (Option.get ot) in
           let v' = mk_fresh ctx t' in
-          add_initial_binding ctx v v';
+          add_initial_binding ctx true v v';
           v'
         )
         fty.parameters
@@ -737,7 +748,7 @@ let declaration_to_ir (x : AST.declaration) : HLIR.global option =
       let args' = List.map (fun (v, t, _) ->
           let t' = HLIR.mkType t in
           let v' = mk_fresh ctx t' in
-          add_initial_binding ctx v v';
+          add_initial_binding ctx true v v';
           v'
         )
         fty.args
