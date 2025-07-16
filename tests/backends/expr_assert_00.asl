@@ -1,7 +1,7 @@
 // RUN: not %aslrun %s | filecheck %s
 // Copyright (C) 2023-2025 Intel Corporation
 
-func FUT(x : bits(8), i : integer) => bit
+func FUT(x : bits(8), i : integer) => bits(1)
 begin
     return __assert 0 <= i && i < 8 __in x[i +: 1];
 end
