@@ -627,6 +627,44 @@ let rec stmt_to_ir (ctx : context) (x : AST.stmt) : unit =
       let results = List.map (fun (v, (vm,vt,ve)) -> rebind ctx v vm; vm) (Identset.Bindings.bindings changes) in
       emit_op ctx { results; op=If; operands=[c']; regions=[t_region; e_region]; loc }
 
+  | Stmt_For (i, ty, f, dir, t, b, loc) ->
+      let f' = expr_to_ir loc ctx f in
+      let t' = expr_to_ir loc ctx t in
+
+      let b_ctx = clone_context ctx in
+      let i' = mk_fresh b_ctx (HLIR.typeof f') in
+
+      (* We don't know which variables the loop body is going to modify.
+       * So we conservatively generate fresh variables for all variables
+       * and then we will just keep the variables that we actually need.
+       *)
+      let inits = ScopeStack.mapi (fun v v' ->
+          let v' = mk_fresh b_ctx (HLIR.typeof v') in
+          add_initial_binding b_ctx v v';
+          (v, v')
+        )
+        ctx.initial_bindings
+      in
+
+      add_initial_binding b_ctx i i';
+      List.iter (stmt_to_ir b_ctx) b;
+      let b_changes = Identset.Bindings.mapi
+        (fun v v_out -> (* v_out is output from loop body *)
+            let v_init = get_binding ctx v |> Option.get in
+            let v_in = mk_fresh b_ctx (HLIR.typeof v_out) in (* input to loop body *)
+            let v_final = mk_fresh ctx (HLIR.typeof v_out) in (* output from for loop *)
+            (v_init, v_in, v_out, v_final)
+        )
+        (Scope.get_bindings (get_rebound_variables ctx b_ctx))
+      in
+      let b_in = List.map (fun (v, (v_init, v_in, v_out, v_final)) -> v_in) (Identset.Bindings.bindings b_changes) in
+      let b_out = List.map (fun (v, (v_init, v_in, v_out, v_final)) -> v_out) (Identset.Bindings.bindings b_changes) in
+      let b_region = get_region b_ctx b_out (i' :: b_in) in
+
+      let inputs = List.map (fun (v, (v_init, v_in, v_out, v_final)) -> v_init) (Identset.Bindings.bindings b_changes) in
+      let results = List.map (fun (v, (v_init, v_in, v_out, v_final)) -> rebind ctx v v_final; v_final) (Identset.Bindings.bindings b_changes) in
+      emit_op ctx { results; op=For(dir==Direction_Up); operands=[f'; t'] @ inputs; regions=[b_region]; loc }
+
   | Stmt_While (cond, body, loc) ->
       let after_ctx = clone_context ctx in
       List.iter (stmt_to_ir after_ctx) body;
@@ -755,6 +793,7 @@ type cf_block = (cf_target * HLIR.operation list * cf_terminator)
 
 type cf_context = {
   label_idents : Asl_utils.nameSupply;
+  local_idents : Asl_utils.nameSupply;
   return_bb : cf_label;
   start : cf_target ref;
   operations : HLIR.operation list ref; (* in reverse order *)
@@ -765,6 +804,7 @@ type cf_context = {
 let fresh_cf_context (_ : unit) : cf_context =
   let dummy_target = (Builtins.wildcard_ident, []) in
   { label_idents = new nameSupply "^bb";
+    local_idents = new nameSupply "%cf";
     return_bb = Ident.mk_ident "^ret";
     start = ref dummy_target;
     operations = ref [];
@@ -774,6 +814,7 @@ let fresh_cf_context (_ : unit) : cf_context =
 
 let clone_cf_context (ctx : cf_context) (start : cf_target) : cf_context =
   { label_idents = ctx.label_idents;
+    local_idents = ctx.local_idents;
     return_bb = ctx.return_bb;
     start = ref start;
     operations = ref [];
@@ -802,6 +843,12 @@ let end_bb (ctx : cf_context) (terminator : cf_terminator) : unit =
 let emit_cf_op (ctx : cf_context) (x : HLIR.operation) : unit =
   ctx.operations := x :: !(ctx.operations)
 
+let emit_simple_cf_op (loc : Loc.t) (ctx : cf_context) (rty : HLIR.ty) (op : HLIR.op) (operands : HLIR.ident list) : HLIR.ident =
+  let v = ctx.local_idents#fresh in
+  let r = HLIR.Ident (v, rty) in
+  emit_cf_op ctx { results=[r]; op; operands; regions=[]; loc };
+  r
+
 let terminate_block (ctx : cf_context) (op : string) (args : HLIR.ident list) (targets : cf_target list) : unit =
   if Option.is_none !(ctx.terminator) then begin
     ctx.terminator := Some (op, args, targets)
@@ -811,6 +858,39 @@ let rec operation_to_cf (ctx : cf_context) (x : HLIR.operation) : unit =
   let bad_op _ = raise (InternalError (x.loc, "operation_to_cf", (fun fmt -> HLIR.ppOperation fmt x), __LOC__))
   in
   ( match x.op with
+  | For(up) ->
+      ( match (x.operands, x.regions) with
+      | ((f :: t :: inputs), [body]) ->
+          let l_loophead = mk_label ctx in
+          let l_loopbody = mk_label ctx in
+          let l_endloop = mk_label ctx in
+          let terminator = ("cf.br", [], [(l_loophead, f :: inputs)]) in
+          end_bb ctx terminator;
+
+          let v = List.hd body.inputs in
+
+          (* loop termination test at top of loop *)
+          let loophead_ctx = clone_cf_context ctx (l_loophead, body.inputs) in
+          let cond = emit_simple_cf_op x.loc loophead_ctx (HLIR.mkType type_bool)
+                       (Builtin (if up then Builtin_idents.le_int else Builtin_idents.ge_int))
+                       [v; t]
+          in
+          end_bb loophead_ctx ("cf.cond_br", [cond], [(l_loopbody, []); (l_endloop, List.tl body.inputs)]);
+
+          (* loop body *)
+          let loopbody_ctx = clone_cf_context ctx (l_loopbody, []) in
+          List.iter (operation_to_cf loopbody_ctx) body.operations;
+          let one = emit_simple_cf_op x.loc loopbody_ctx (HLIR.typeof v) (Constant Value.int_one) [] in
+          let v' = emit_simple_cf_op x.loc loopbody_ctx (HLIR.typeof v)
+                   (Builtin (if up then Builtin_idents.add_int else Builtin_idents.sub_int))
+                   [v; one]
+          in
+          end_bb loopbody_ctx ("cf.br", [], [(l_loophead, v' :: body.outputs)]);
+
+          start_new_bb ctx (l_endloop, x.results)
+
+      | _ -> bad_op ()
+      )
   | While -> ()
   | Repeat -> ()
   | If ->

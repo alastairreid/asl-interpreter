@@ -59,6 +59,7 @@ type op =
   | Load
   | Store
   | Symbol of Ident.t
+  | For of bool
   | While
   | Repeat
   | If
@@ -124,6 +125,7 @@ let ppOp (fmt : PP.formatter) (x : op) : unit =
   | AddIndex -> Format.fprintf fmt "HLIR.add_index"
   | Load -> Format.fprintf fmt "HLIR.load"
   | Store -> Format.fprintf fmt "HLIR.store"
+  | For up -> Format.fprintf fmt "HLIR.for(%s)" (if up then "up" else "down")
   | While -> Format.pp_print_string fmt "HLIR.while"
   | Repeat -> Format.pp_print_string fmt "HLIR.repeat"
   | If -> Format.pp_print_string fmt "HLIR.if"
