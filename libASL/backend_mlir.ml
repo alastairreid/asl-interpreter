@@ -478,6 +478,11 @@ let rec expr_to_ir (loc : Loc.t) (ctx : context) (x : AST.expr) : HLIR.ident =
       let lo' = expr_to_ir loc ctx lo in
       let wd' = valueLit loc ctx wd in
       add_simple_op loc ctx (Type (type_bits (Expr_Lit wd))) (Builtin Builtin_idents.asl_extract_bits) [x'; lo'; wd']
+  | Expr_Assert (e1, e2, loc) ->
+      let e1' = expr_to_ir loc ctx e1 in
+      let msg = String.escaped (Utils.to_string2 (Fun.flip FMT.expr e1)) in
+      add_noresult_op loc ctx (Assert msg) [e1'];
+      expr_to_ir loc ctx e2
   | _ ->
       let pp fmt = FMT.expr fmt x in
       raise (Error.Unimplemented (loc, "expression", pp))
@@ -922,11 +927,9 @@ let rec cg_HLIR_Operation (fmt : PP.formatter) (x : HLIR.operation) : unit =
     | [r] -> Format.fprintf fmt "%a = " HLIR.ppIdentName r
     | rs -> Format.fprintf fmt "(%a) = " (commasep HLIR.ppIdentName) rs
     );
+    let cg_operands fmt operands = commasep (cg_HLIR_IdentName x.loc) fmt operands in
     ( match x.op with
     | Builtin f ->
-        let cg_operands fmt operands =
-            Format.fprintf fmt "%a" (commasep (cg_HLIR_IdentName x.loc)) operands
-        in
         let cg_types fmt vars =
             ( match vars with
             | [] -> Format.fprintf fmt "()"
@@ -967,10 +970,14 @@ let rec cg_HLIR_Operation (fmt : PP.formatter) (x : HLIR.operation) : unit =
           )
         in
         ( match Identset.Bindings.find_opt f mlir_function_mapping with
-        | Some f' -> Format.fprintf fmt "%s %a : %a"
-                       f'
-                       cg_operands x.operands
-                       cg_funtype ()
+        | Some f' ->
+          Format.fprintf fmt "%s %a : %a"
+            f'
+            cg_operands x.operands
+            cg_funtype ()
+        | _ when Ident.equal f Builtin_idents.asl_assert ->
+          let msg = String.escaped (Loc.to_string x.loc) in
+          Format.fprintf fmt "cf.assert %a, \"%s\"" cg_operands x.operands msg
         | _ -> raise (InternalError (x.loc, "HLIR.Builtin", (fun fmt -> HLIR.ppOperation fmt x), __LOC__))
         )
     | Call f ->
@@ -998,7 +1005,7 @@ let rec cg_HLIR_Operation (fmt : PP.formatter) (x : HLIR.operation) : unit =
     | AddIndex -> Format.fprintf fmt "asl.add_index"
     | Load -> Format.fprintf fmt "asl.load"
     | Store -> Format.fprintf fmt "asl.store"
-    | Assert msg -> Format.fprintf fmt "asl.assert %s" msg
+    | Assert msg -> Format.fprintf fmt "cf.assert %a, \"%s\"" cg_operands x.operands msg
     | _ -> raise (InternalError (x.loc, "HLIR unexpected control flow", (fun fmt -> HLIR.ppOperation fmt x), __LOC__))
     )
   end else begin
