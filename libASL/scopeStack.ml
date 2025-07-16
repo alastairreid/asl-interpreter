@@ -48,9 +48,6 @@ let filter_map (f : 'a -> 'b option) (ss : 'a t) : 'b t =
 let map_inplace (f : 'a -> 'a) (ss : 'a t) : unit =
   List.iter (Scope.map_inplace f) ss
 
-let mapi (f : Ident.t -> 'a -> 'b) (ss : 'a t) : 'b t =
-  List.map (Scope.mapi f) ss
-
 let map2 (f : 'a -> 'b -> 'c) (ss1 : 'a t) (ss2 : 'b t) : 'c t =
   List.map2 (Scope.map2 f) ss1 ss2
 

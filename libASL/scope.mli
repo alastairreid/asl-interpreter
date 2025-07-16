@@ -35,8 +35,6 @@ val set : 'a t -> Ident.t -> 'a -> unit
 val map : ('a -> 'b) -> 'a t -> 'b t
 (** [map f s] returns a new scope with [f] applied to each element in [s]. *)
 
-val mapi : (Ident.t -> 'a -> 'b) -> 'a t -> 'b t
-
 val filter : (Ident.t -> 'a -> bool) -> 'a t -> 'a t
 (** [filter f s] returns a new scope containing only elements of [s] that satisfy [f]. *)
 
