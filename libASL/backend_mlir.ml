@@ -111,6 +111,10 @@ let mlir_function_mapping = Identset.mk_bindings [
   ( Builtin_idents.lsl_bits,         "asl.lsl_bits");
   ( Builtin_idents.lsr_bits,         "asl.lsr_bits");
   ( Builtin_idents.asr_bits,         "asl.asr_bits");
+  ( Builtin_idents.append_bits,      "asl.append_bits");
+  ( Builtin_idents.replicate_bits,   "asl.replicate_bits");
+  ( Builtin_idents.cvt_bits_sint,    "asl.cvt_bits_sint");
+  ( Builtin_idents.cvt_bits_uint,    "asl.cvt_bits_uint");
   ( Builtin_idents.zero_extend_bits, "asl.zero_extend_bits");
   ( Builtin_idents.sign_extend_bits, "asl.sign_extend_bits");
   ( Builtin_idents.asl_extract_bits, "asl.get_slice");
@@ -859,7 +863,8 @@ let cg_HLIR_Value (loc : Loc.t) (fmt : PP.formatter) (x : Value.value) : unit =
   )
 
 let cg_HLIR_ConstExpr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
-  ( match x with
+  (* The call to simplify is to cope with append and replicate when using -O0 *)
+  ( match Xform_simplify_expr.simplify x with
   | Expr_Lit v -> cg_HLIR_Value loc fmt v
   | _ ->
       let pp fmt = FMT.expr fmt x in
