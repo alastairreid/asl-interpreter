@@ -66,6 +66,95 @@ let instantiate_funtype (ps : AST.expr list) (fty : AST.function_type) : AST.fun
   let env = Identset.mk_bindings (List.map2 (fun (p, _) ty -> (p, ty)) fty.parameters ps) in
   Asl_utils.subst_funtype env fty
 
+(* mapping from HLIR builtins to MLIR builtins (when mapping is 1:1) *)
+let mlir_function_mapping = Identset.mk_bindings [
+  (* bigint *)
+  ( Builtin_idents.eq_int,           "asl.eq_int");
+  ( Builtin_idents.ne_int,           "asl.ne_int");
+  ( Builtin_idents.le_int,           "asl.le_int");
+  ( Builtin_idents.lt_int,           "asl.lt_int");
+  ( Builtin_idents.ge_int,           "asl.ge_int");
+  ( Builtin_idents.gt_int,           "asl.gt_int");
+  ( Builtin_idents.add_int,          "asl.add_int");
+  ( Builtin_idents.sub_int,          "asl.sub_int");
+  ( Builtin_idents.mul_int,          "asl.mul_int");
+  ( Builtin_idents.neg_int,          "asl.neg_int");
+  ( Builtin_idents.exact_div_int,    "asl.exact_div_int");
+  ( Builtin_idents.fdiv_int,         "asl.fdiv_int");
+  ( Builtin_idents.frem_int,         "asl.frem_int");
+  ( Builtin_idents.zdiv_int,         "asl.zdiv_int");
+  ( Builtin_idents.zrem_int,         "asl.zrem_int");
+  ( Builtin_idents.align_int,        "asl.align_int");
+  ( Builtin_idents.is_pow2_int,      "asl.is_pow2_int");
+  ( Builtin_idents.mod_pow2_int,     "asl.mod_pow2_int");
+  ( Builtin_idents.pow2_int,         "asl.pow2_int");
+  ( Builtin_idents.pow_int_int,      "asl.pow_int_int");
+  ( Builtin_idents.shl_int,          "asl.shl_int");
+  ( Builtin_idents.shr_int,          "asl.shr_int");
+
+  (* bool: mapped to i1 *)
+  ( Builtin_idents.eq_bool,          "arith.cmpi eq,");
+  ( Builtin_idents.ne_bool,          "arith.cmpi ne,");
+  ( Builtin_idents.strict_and_bool,  "arith.andi");
+  ( Builtin_idents.strict_or_bool,   "arith.ori");
+
+  (* bitvectors: mapped to i{n} *)
+  ( Builtin_idents.eq_bits,          "asl.eq_bits");
+  ( Builtin_idents.ne_bits,          "asl.ne_bits");
+  ( Builtin_idents.add_bits,         "asl.add_bits");
+  ( Builtin_idents.sub_bits,         "asl.sub_bits");
+  ( Builtin_idents.mul_bits,         "asl.mul_bits");
+  ( Builtin_idents.and_bits,         "asl.and_bits");
+  ( Builtin_idents.or_bits,          "asl.or_bits");
+  ( Builtin_idents.xor_bits,         "asl.xor_bits");
+  ( Builtin_idents.not_bits,         "asl.not_bits");
+  ( Builtin_idents.lsl_bits,         "asl.lsl_bits");
+  ( Builtin_idents.lsr_bits,         "asl.lsr_bits");
+  ( Builtin_idents.asr_bits,         "asl.asr_bits");
+  ( Builtin_idents.zero_extend_bits, "asl.zero_extend_bits");
+  ( Builtin_idents.sign_extend_bits, "asl.sign_extend_bits");
+  ( Builtin_idents.asl_extract_bits, "asl.get_slice");
+  ( Builtin_idents.asl_insert_bits,  "asl.set_slice");
+
+  (* sized, signed integers: mapped to i{n} *)
+  ( Builtin_idents.eq_sintN,         "arith.cmpi eq,");
+  ( Builtin_idents.ne_sintN,         "arith.cmpi ne,");
+  ( Builtin_idents.gt_sintN,         "arith.cmpi sgt,");
+  ( Builtin_idents.ge_sintN,         "arith.cmpi sge,");
+  ( Builtin_idents.le_sintN,         "arith.cmpi sle,");
+  ( Builtin_idents.lt_sintN,         "arith.cmpi slt,");
+  ( Builtin_idents.add_sintN,        "arith.addi");
+  ( Builtin_idents.sub_sintN,        "arith.subi");
+  ( Builtin_idents.shl_sintN,        "arith.shli");
+  ( Builtin_idents.shr_sintN,        "arith.shrsi");
+  ( Builtin_idents.mul_sintN,        "arith.muli");
+  ( Builtin_idents.exact_div_sintN,  "arith.divsi");
+  ( Builtin_idents.zdiv_sintN,       "arith.divsi");
+  ( Builtin_idents.zrem_sintN,       "arith.remsi");
+  ( Builtin_idents.fdiv_sintN,       "arith.floordivsi");
+
+  ( Builtin_idents.print_bits_hex,   "asl.print_bits_hex");
+  ( Builtin_idents.print_int_hex,    "asl.print_int_hex");
+  ( Builtin_idents.print_int_dec,    "asl.print_int_dec");
+  ( Builtin_idents.print_sintN_hex,  "asl.print_sintN_hex");
+  ( Builtin_idents.print_sintN_dec,  "asl.print_sintN_dec");
+
+  (* todo
+  ( Builtin_idents.neg_sintN,        "");
+  ( Builtin_idents.frem_sintN,       "");
+  ( Builtin_idents.is_pow2_sintN,    "");
+  ( Builtin_idents.pow2_sintN,       "");
+  ( Builtin_idents.align_sintN,      "");
+  ( Builtin_idents.mod_pow2_sintN,   "");
+  ( Builtin_idents.cvt_sintN_bits,   "");
+  ( Builtin_idents.cvt_bits_ssintN,  "");
+  ( Builtin_idents.cvt_bits_usintN,  "");
+  ( Builtin_idents.cvt_sintN_int,    "");
+  ( Builtin_idents.cvt_int_sintN,    "");
+  ( Builtin_idents.resize_sintN,     "");
+  *)
+]
+
 (* set of all primitive operation names - these will be preceded by asl. *)
 let primitive_operations = Identset.IdentSet.of_list [
   Builtin_idents.not_bool;
@@ -369,7 +458,7 @@ let rec expr_to_ir (loc : Loc.t) (ctx : context) (x : AST.expr) : HLIR.ident =
       let fty = Identset.Bindings.find f !funtypes in
       let fty' = instantiate_funtype ps fty in
       let args' = List.map (expr_to_ir loc ctx) args in
-      if Identset.IdentSet.mem f primitive_operations then (
+      if Identset.Bindings.mem f mlir_function_mapping then (
         (* todo: in the backend, we expect primops to be called with fixed bitwidths *)
         add_simple_op loc ctx (Type fty'.rty) (Builtin f) args'
       ) else if Ident.matches f ~name:"asl_eq_enum" then (
@@ -410,21 +499,37 @@ and ir_ite (loc : Loc.t) (ctx : context) (c : HLIR.ident) (t : (HLIR.region * HL
 
 let rec stmt_to_ir (ctx : context) (x : AST.stmt) : unit =
   ( match x with
+  | Stmt_VarDeclsNoInit _ ->
+      ()
   | Stmt_VarDecl (is_constant, DeclItem_Var (v, _), i, loc) ->
       let i' = expr_to_ir loc ctx i in
       add_initial_binding ctx v i'
   | Stmt_VarDecl (is_constant, DeclItem_Wildcard _, i, loc) ->
       ignore (expr_to_ir loc ctx i)
   | Stmt_Assign (LExpr_Var v, rhs, loc) ->
+      let rhs' = expr_to_ir loc ctx rhs in
       if Identset.Bindings.mem v !vartypes then begin (* global *)
         let ty = Identset.Bindings.find v !vartypes in
         let ref = add_simple_op loc ctx (Ref ty) (MkRef v) [] in
-        let rhs' = expr_to_ir loc ctx rhs in
         add_noresult_op loc ctx Store [ref; rhs']
       end else begin
-        let rhs' = expr_to_ir loc ctx rhs in
         rebind ctx v rhs'
       end
+  | Stmt_Assign (LExpr_Slices (Type_Bits _, LExpr_Var v, [Slice_LoWd (lo, Expr_Lit wd)]), rhs, loc) ->
+      let rhs' = expr_to_ir loc ctx rhs in
+      let lo' = expr_to_ir loc ctx lo in
+      let wd' = valueLit loc ctx wd in
+      ( match get_binding ctx v with
+      | None -> (* global *)
+        let ty = Identset.Bindings.find v !vartypes in
+        let ref = add_simple_op loc ctx (Ref ty) (MkRef v) [] in
+        let lhs = add_simple_op loc ctx (Type ty) Load [ref] in
+        let lhs' = add_simple_op loc ctx (HLIR.typeof lhs) (Builtin Builtin_idents.asl_insert_bits) [lhs; lo'; wd'; rhs'] in
+        add_noresult_op loc ctx Store [ref; lhs']
+      | Some lhs ->
+        let lhs' = add_simple_op loc ctx (HLIR.typeof lhs) (Builtin Builtin_idents.asl_insert_bits) [lhs; lo'; wd'; rhs'] in
+        rebind ctx v lhs'
+      )
       (*
   | Stmt_Assign (LExpr_Array (LExpr_Var v, ix), rhs, loc) ->
       let ty = Identset.Bindings.find v !vartypes in
@@ -618,94 +723,6 @@ let standard_functions = Identset.IdentSet.of_list [
   Builtin_idents.print_char;
   Builtin_idents.print_str;
   Builtin_idents.print_bits
-]
-
-(* mapping from HLIR builtins to MLIR builtins (when mapping is 1:1) *)
-let mlir_function_mapping = Identset.mk_bindings [
-  (* bigint *)
-  ( Builtin_idents.eq_int,           "asl.eq_int");
-  ( Builtin_idents.ne_int,           "asl.ne_int");
-  ( Builtin_idents.le_int,           "asl.le_int");
-  ( Builtin_idents.lt_int,           "asl.lt_int");
-  ( Builtin_idents.ge_int,           "asl.ge_int");
-  ( Builtin_idents.gt_int,           "asl.gt_int");
-  ( Builtin_idents.add_int,          "asl.add_int");
-  ( Builtin_idents.sub_int,          "asl.sub_int");
-  ( Builtin_idents.mul_int,          "asl.mul_int");
-  ( Builtin_idents.exact_div_int,    "asl.exact_div_int");
-  ( Builtin_idents.fdiv_int,         "asl.fdiv_int");
-  ( Builtin_idents.frem_int,         "asl.frem_int");
-  ( Builtin_idents.zdiv_int,         "asl.zdiv_int");
-  ( Builtin_idents.zrem_int,         "asl.zrem_int");
-  ( Builtin_idents.align_int,        "asl.align_int");
-  ( Builtin_idents.is_pow2_int,      "asl.is_pow2_int");
-  ( Builtin_idents.mod_pow2_int,     "asl.mod_pow2_int");
-  ( Builtin_idents.pow2_int,         "asl.pow2_int");
-  ( Builtin_idents.pow_int_int,      "asl.pow_int_int");
-  ( Builtin_idents.shl_int,          "asl.shl_int");
-  ( Builtin_idents.shr_int,          "asl.shr_int");
-
-  (* bool: mapped to i1 *)
-  ( Builtin_idents.eq_bool,          "arith.cmpi eq,");
-  ( Builtin_idents.ne_bool,          "arith.cmpi ne,");
-  ( Builtin_idents.strict_and_bool,  "arith.andi");
-  ( Builtin_idents.strict_or_bool,   "arith.ori");
-
-  (* bitvectors: mapped to i{n} *)
-  ( Builtin_idents.eq_bits,          "asl.eq_bits");
-  ( Builtin_idents.ne_bits,          "asl.ne_bits");
-  ( Builtin_idents.add_bits,         "asl.add_bits");
-  ( Builtin_idents.sub_bits,         "asl.sub_bits");
-  ( Builtin_idents.mul_bits,         "asl.mul_bits");
-  ( Builtin_idents.and_bits,         "asl.and_bits");
-  ( Builtin_idents.or_bits,          "asl.or_bits");
-  ( Builtin_idents.xor_bits,         "asl.xor_bits");
-  ( Builtin_idents.not_bits,         "asl.not_bits");
-  ( Builtin_idents.lsl_bits,         "asl.lsl_bits");
-  ( Builtin_idents.lsr_bits,         "asl.lsr_bits");
-  ( Builtin_idents.asr_bits,         "asl.asr_bits");
-  ( Builtin_idents.zero_extend_bits, "asl.zero_extend_bits");
-  ( Builtin_idents.sign_extend_bits, "asl.sign_extend_bits");
-  ( Builtin_idents.asl_extract_bits, "asl.get_slice");
-  ( Builtin_idents.asl_insert_bits,  "asl.set_slice");
-
-  (* sized, signed integers: mapped to i{n} *)
-  ( Builtin_idents.eq_sintN,         "arith.cmpi eq,");
-  ( Builtin_idents.ne_sintN,         "arith.cmpi ne,");
-  ( Builtin_idents.gt_sintN,         "arith.cmpi sgt,");
-  ( Builtin_idents.ge_sintN,         "arith.cmpi sge,");
-  ( Builtin_idents.le_sintN,         "arith.cmpi sle,");
-  ( Builtin_idents.lt_sintN,         "arith.cmpi slt,");
-  ( Builtin_idents.add_sintN,        "arith.addi");
-  ( Builtin_idents.sub_sintN,        "arith.subi");
-  ( Builtin_idents.shl_sintN,        "arith.shli");
-  ( Builtin_idents.shr_sintN,        "arith.shrsi");
-  ( Builtin_idents.mul_sintN,        "arith.muli");
-  ( Builtin_idents.exact_div_sintN,  "arith.divsi");
-  ( Builtin_idents.zdiv_sintN,       "arith.divsi");
-  ( Builtin_idents.zrem_sintN,       "arith.remsi");
-  ( Builtin_idents.fdiv_sintN,       "arith.floordivsi");
-
-  ( Builtin_idents.print_bits_hex,   "asl.print_bits_hex");
-  ( Builtin_idents.print_int_hex,    "asl.print_int_hex");
-  ( Builtin_idents.print_int_dec,    "asl.print_int_dec");
-  ( Builtin_idents.print_sintN_hex,  "asl.print_sintN_hex");
-  ( Builtin_idents.print_sintN_dec,  "asl.print_sintN_dec");
-
-  (* todo
-  ( Builtin_idents.neg_sintN,        "");
-  ( Builtin_idents.frem_sintN,       "");
-  ( Builtin_idents.is_pow2_sintN,    "");
-  ( Builtin_idents.pow2_sintN,       "");
-  ( Builtin_idents.align_sintN,      "");
-  ( Builtin_idents.mod_pow2_sintN,   "");
-  ( Builtin_idents.cvt_sintN_bits,   "");
-  ( Builtin_idents.cvt_bits_ssintN,  "");
-  ( Builtin_idents.cvt_bits_usintN,  "");
-  ( Builtin_idents.cvt_sintN_int,    "");
-  ( Builtin_idents.cvt_int_sintN,    "");
-  ( Builtin_idents.resize_sintN,     "");
-  *)
 ]
 
 (****************************************************************
