@@ -349,10 +349,22 @@ let rec expr_to_ir (loc : Loc.t) (ctx : context) (x : AST.expr) : HLIR.ident =
       let y' = expr_to_region loc ctx y in
       let tt = value_to_region loc ctx (VBool true) in
       ir_ite loc ctx x' y' tt
+  | Expr_TApply (f, [], [x], NoThrow) when Ident.equal f Builtin_idents.not_bool ->
+      let x' = expr_to_ir loc ctx x in
+      let y' = valueLit loc ctx (VBool false) in
+      add_simple_op loc ctx (Type type_bool) (Builtin Builtin_idents.eq_bool) [x'; y']
   | Expr_TApply (f, _, [Expr_Lit (VInt n)], NoThrow) when Ident.equal f Builtin_idents.zeros_bits ->
       valueLit loc ctx (VBits (Primops.prim_zeros_bits n))
   | Expr_TApply (f, _, [Expr_Lit (VInt n)], NoThrow) when Ident.equal f Builtin_idents.ones_bits ->
       valueLit loc ctx (VBits (Primops.prim_ones_bits n))
+  | Expr_TApply (f, ps, [x; Expr_Lit (VInt n)], NoThrow) when Ident.equal f Builtin_idents.mk_mask ->
+      let fty = Identset.Bindings.find f !funtypes in
+      let fty' = instantiate_funtype ps fty in
+      let ones = valueLit loc ctx (VBits (Primops.prim_ones_bits n)) in
+      let x' = expr_to_ir loc ctx x in
+      let n' = valueLit loc ctx (VInt n) in
+      let d = add_simple_op loc ctx (Type type_integer) (Builtin Builtin_idents.sub_int) [n'; x'] in
+      add_simple_op loc ctx (Type fty'.rty) (Builtin Builtin_idents.lsr_bits) [ones; d]
   | Expr_TApply (f, ps, args, throws) ->
       let fty = Identset.Bindings.find f !funtypes in
       let fty' = instantiate_funtype ps fty in
@@ -661,7 +673,7 @@ let mlir_function_mapping = Identset.mk_bindings [
   ( Builtin_idents.not_bits,         "asl.not_bits");
   ( Builtin_idents.lsl_bits,         "asl.lsl_bits");
   ( Builtin_idents.lsr_bits,         "asl.lsr_bits");
-  ( Builtin_idents.asr_bits,         "asl.asl_bits");
+  ( Builtin_idents.asr_bits,         "asl.asr_bits");
   ( Builtin_idents.zero_extend_bits, "asl.zero_extend_bits");
   ( Builtin_idents.sign_extend_bits, "asl.sign_extend_bits");
 
