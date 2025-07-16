@@ -360,6 +360,10 @@ let rec expr_to_ir (loc : Loc.t) (ctx : context) (x : AST.expr) : HLIR.ident =
       if Identset.IdentSet.mem f primitive_operations then (
         (* todo: in the backend, we expect primops to be called with fixed bitwidths *)
         add_simple_op loc ctx (Type fty'.rty) (Builtin f) args'
+      ) else if Ident.matches f ~name:"asl_eq_enum" then (
+        add_simple_op loc ctx (Type fty'.rty) (Builtin Builtin_idents.eq_bool) args'
+      ) else if Ident.matches f ~name:"asl_ne_enum" then (
+        add_simple_op loc ctx (Type fty'.rty) (Builtin Builtin_idents.ne_bool) args'
       ) else (
         let ps' = List.map (expr_to_ir loc ctx) ps in
         add_simple_op loc ctx (Type fty'.rty) (Call f) (ps' @ args')
@@ -387,7 +391,7 @@ let rec expr_to_ir (loc : Loc.t) (ctx : context) (x : AST.expr) : HLIR.ident =
 and value_to_region (loc : Loc.t) (ctx : context) (v : Value.value) : (HLIR.region * HLIR.ty) =
   let ctx' = clone_context ctx in
   let v' = add_simple_op loc ctx' (HLIR.mkType (Asl_utils.type_of_value loc v)) (Constant v) [] in
-  (get_region ctx [v'] [], HLIR.typeof v')
+  (get_region ctx' [v'] [], HLIR.typeof v')
 
 and expr_to_region (loc : Loc.t) (ctx : context) (e : AST.expr) : (HLIR.region * HLIR.ty) =
   let ctx' = clone_context ctx in
@@ -605,6 +609,10 @@ let standard_functions = Identset.IdentSet.of_list [
   *)
   Builtin_idents.print_int_hex;
   Builtin_idents.print_int_dec;
+  (*
+  Builtin_idents.print_sintN_dec;
+  Builtin_idents.print_sintN_hex;
+  *)
   Builtin_idents.print_char;
   Builtin_idents.print_str;
   Builtin_idents.print_bits
@@ -676,6 +684,9 @@ let mlir_function_mapping = Identset.mk_bindings [
 
   ( Builtin_idents.print_bits_hex,   "asl.print_bits_hex");
   ( Builtin_idents.print_int_hex,    "asl.print_int_hex");
+  ( Builtin_idents.print_int_dec,    "asl.print_int_dec");
+  ( Builtin_idents.print_sintN_hex,  "asl.print_sintN_hex");
+  ( Builtin_idents.print_sintN_dec,  "asl.print_sintN_dec");
 
   (* todo
   ( Builtin_idents.neg_sintN,        "");
@@ -897,12 +908,31 @@ let rec cg_HLIR_Operation (fmt : PP.formatter) (x : HLIR.operation) : unit =
             | ops -> Format.fprintf fmt "(%a)" (commasep (cg_HLIR_IdentType x.loc)) ops
             )
         in
+        let cg_funtype fmt _ =
+          if Ident.in_list f [
+              (* operations that generate arith.cmpi *)
+              Builtin_idents.eq_bool;
+              Builtin_idents.ne_bool;
+              Builtin_idents.eq_sintN;
+              Builtin_idents.ne_sintN;
+              Builtin_idents.gt_sintN;
+              Builtin_idents.ge_sintN;
+              Builtin_idents.le_sintN;
+              Builtin_idents.lt_sintN
+              ] then (
+            (* MLIR syntax turns out to have a lot of irregularities *)
+            cg_HLIR_IdentType x.loc fmt (List.hd x.operands)
+          ) else (
+            Format.fprintf fmt "%a -> %a"
+              cg_types x.operands
+              cg_types x.results
+          )
+        in
         ( match Identset.Bindings.find_opt f mlir_function_mapping with
-        | Some f' -> Format.fprintf fmt "%s %a : %a -> %a"
+        | Some f' -> Format.fprintf fmt "%s %a : %a"
                        f'
                        cg_operands x.operands
-                       cg_types x.operands
-                       cg_types x.results
+                       cg_funtype ()
         | _ -> raise (InternalError (x.loc, "HLIR.Builtin", (fun fmt -> HLIR.ppOperation fmt x), __LOC__))
         )
     | Call f ->
@@ -917,8 +947,8 @@ let rec cg_HLIR_Operation (fmt : PP.formatter) (x : HLIR.operation) : unit =
         | VIntN v -> PP.fprintf fmt "arith.constant %s : i%d" (Z.to_string v.v) v.n
         | VBits v -> PP.fprintf fmt "asl.constant_bits %s : !asl.bits<%d>" (Z.to_string v.v) v.n
         | VString v -> PP.fprintf fmt "asl.constant_string \"%s\"" (String.escaped v)
-        | VBool true -> PP.fprintf fmt "arith.constant 0 : i1"
-        | VBool false -> PP.fprintf fmt "arith.constant 1 : i1"
+        | VBool true -> PP.fprintf fmt "arith.constant 1 : i1"
+        | VBool false -> PP.fprintf fmt "arith.constant 0 : i1"
         | _ -> raise (InternalError (x.loc, "HLIR.Constant", (fun fmt -> HLIR.ppOperation fmt x), __LOC__))
         )
     | Symbol v ->
