@@ -939,7 +939,19 @@ let rec cg_HLIR_Operation (fmt : PP.formatter) (x : HLIR.operation) : unit =
               Builtin_idents.gt_sintN;
               Builtin_idents.ge_sintN;
               Builtin_idents.le_sintN;
-              Builtin_idents.lt_sintN
+              Builtin_idents.lt_sintN;
+
+              (* operations that generate arith.*i *)
+              Builtin_idents.add_sintN;
+              Builtin_idents.sub_sintN;
+              Builtin_idents.shl_sintN;
+              Builtin_idents.shr_sintN;
+              Builtin_idents.mul_sintN;
+              Builtin_idents.exact_div_sintN;
+              Builtin_idents.zdiv_sintN;
+              Builtin_idents.zrem_sintN;
+              Builtin_idents.fdiv_sintN;
+
               ] then (
             (* MLIR syntax turns out to have a lot of irregularities *)
             cg_HLIR_IdentType x.loc fmt (List.hd x.operands)
