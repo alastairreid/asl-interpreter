@@ -380,21 +380,11 @@ let rec expr_to_ir (loc : Loc.t) (ctx : context) (x : AST.expr) : HLIR.ident =
         let ps' = List.map (expr_to_ir loc ctx) ps in
         add_simple_op loc ctx (Type fty'.rty) (Call f) (ps' @ args')
       )
-  (* 
-  | Expr_Slices (Type_Bits (Expr_Lit (VInt m), _), x, [Slice_LoWd (lo, (Expr_Lit (VInt n) as wd))]) ->
+  | Expr_Slices (Type_Bits (Expr_Lit (VInt m), _), x, [Slice_LoWd (lo, Expr_Lit wd)]) ->
       let x' = expr_to_ir loc ctx x in
       let lo' = expr_to_ir loc ctx lo in
-      let (wd', _) = expr loc env fmt wd in
-      let t = locals#fresh in
-      PP.fprintf fmt "%a = asl.get_slice %a, %a, %a : (!asl.bits<%s>, !asl.int, !asl.int) -> !asl.bits<%s>@,"
-        varident t
-        varident x'
-        varident lo'
-        varident wd'
-        (Z.to_string m)
-        (Z.to_string n);
-      (t, Asl_utils.type_bits wd)
-  *)
+      let wd' = valueLit loc ctx wd in
+      add_simple_op loc ctx (Type (type_bits (Expr_Lit wd))) (Builtin Builtin_idents.asl_extract_bits) [x'; lo'; wd']
   | _ ->
       let pp fmt = FMT.expr fmt x in
       raise (Error.Unimplemented (loc, "expression", pp))
@@ -676,6 +666,8 @@ let mlir_function_mapping = Identset.mk_bindings [
   ( Builtin_idents.asr_bits,         "asl.asr_bits");
   ( Builtin_idents.zero_extend_bits, "asl.zero_extend_bits");
   ( Builtin_idents.sign_extend_bits, "asl.sign_extend_bits");
+  ( Builtin_idents.asl_extract_bits, "asl.get_slice");
+  ( Builtin_idents.asl_insert_bits,  "asl.set_slice");
 
   (* sized, signed integers: mapped to i{n} *)
   ( Builtin_idents.eq_sintN,         "arith.cmpi eq,");
