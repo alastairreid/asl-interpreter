@@ -404,16 +404,17 @@ let rec expr_to_ir (loc : Loc.t) (ctx : context) (x : AST.expr) : HLIR.ident =
       | Some v' -> v' (* local variable *)
       )
 
-  | Expr_Array (e, ix) ->
-      let e'  = expr_to_ir loc ctx e in
+  | Expr_Array (Expr_Var v, ix) ->
+      let ty   = Identset.Bindings.find v !vartypes in
+      let vref = add_simple_op loc ctx (Ref ty) (MkRef v) [] in
       let ix' = expr_to_ir loc ctx ix in
-      let ref_ty = HLIR.typeof e' in
+      let ref_ty = HLIR.typeof vref in
       let elt_ty = ( match ref_ty with
                    | Ref (Type_Array(_, elt_ty)) -> elt_ty
                    | _ -> raise (InternalError (loc, "expr", (fun fmt -> HLIR.ppType fmt ref_ty), __LOC__))
                    )
       in
-      let eref = add_simple_op loc ctx (Ref elt_ty) AddIndex [e'; ix'] in
+      let eref = add_simple_op loc ctx (Ref elt_ty) AddIndex [vref; ix'] in
       add_simple_op loc ctx (Type elt_ty) Load [eref]
 
   | Expr_In (e, Pat_Lit (VMask mask)) ->
@@ -552,27 +553,19 @@ let rec stmt_to_ir (ctx : context) (x : AST.stmt) : unit =
         let lhs' = add_simple_op loc ctx (HLIR.typeof lhs) (Builtin Builtin_idents.asl_insert_bits) [lhs; lo'; wd'; rhs'] in
         rebind ctx v lhs'
       )
-      (*
   | Stmt_Assign (LExpr_Array (LExpr_Var v, ix), rhs, loc) ->
-      let ty = Identset.Bindings.find v !vartypes in
-      let aref = locals#fresh in
-      PP.fprintf fmt "%a = asl.address_of(@@%a) : !asl.ref<%a>@,"
-        varident aref
-        ident v
-        (pp_type loc) ty;
-      let (ix', _) = expr loc env fmt ix in
-      let eref = locals#fresh in
-      PP.fprintf fmt "%a = asl.array_ref(%a, %a) : !asl.ref<%a>@,"
-        varident eref
-        varident aref
-        varident ix'
-        (pp_type loc) ty;
-      let (rhs', ty) = expr loc env fmt rhs in
-      PP.fprintf fmt "asl.store(%a) = %a : %a@,"
-        varident eref
-        varident rhs'
-        (pp_type loc) ty
-        *)
+      let rhs' = expr_to_ir loc ctx rhs in
+      let ty   = Identset.Bindings.find v !vartypes in
+      let vref = add_simple_op loc ctx (Ref ty) (MkRef v) [] in
+      let ix' = expr_to_ir loc ctx ix in
+      let ref_ty = HLIR.typeof vref in
+      let elt_ty = ( match ref_ty with
+                   | Ref (Type_Array(_, elt_ty)) -> elt_ty
+                   | _ -> raise (InternalError (loc, "expr", (fun fmt -> HLIR.ppType fmt ref_ty), __LOC__))
+                   )
+      in
+      let eref = add_simple_op loc ctx (Ref elt_ty) AddIndex [vref; ix'] in
+      add_noresult_op loc ctx Store [eref; rhs']
   | Stmt_Assign (LExpr_Wildcard, rhs, loc) ->
       ignore (expr_to_ir loc ctx rhs)
   | Stmt_Block (ss, loc) ->
@@ -1093,10 +1086,33 @@ let rec cg_HLIR_Operation (fmt : PP.formatter) (x : HLIR.operation) : unit =
         PP.fprintf fmt "arith.constant %d : i %d@"
           value
           enum_size
-    | MkRef v -> Format.fprintf fmt "asl.address_of @%a" Ident.pp v
-    | AddIndex -> Format.fprintf fmt "asl.add_index"
-    | Load -> Format.fprintf fmt "asl.load"
-    | Store -> Format.fprintf fmt "asl.store"
+    | MkRef v ->
+        let r = List.nth x.results 0 in
+        Format.fprintf fmt "asl.address_of @%a : %a"
+          Ident.pp v
+          (cg_HLIR_IdentType x.loc) r
+    | AddIndex ->
+        let a = List.nth x.operands 0 in
+        let i = List.nth x.operands 1 in
+        let eref = List.nth x.results 0 in
+        Format.fprintf fmt "asl.array_ref %a[%a] : %a -> %a"
+          (cg_HLIR_IdentName x.loc) a
+          (cg_HLIR_IdentName x.loc) i
+          (cg_HLIR_IdentType x.loc) a
+          (cg_HLIR_IdentType x.loc) eref
+    | Load ->
+        let r = List.nth x.operands 0 in
+        let v = List.nth x.results 0 in
+        Format.fprintf fmt "asl.load from %a : %a"
+          (cg_HLIR_IdentName x.loc) r
+          (cg_HLIR_IdentType x.loc) v
+    | Store ->
+        let r = List.nth x.operands 0 in
+        let v = List.nth x.operands 1 in
+        Format.fprintf fmt "asl.store %a to %a : %a"
+          (cg_HLIR_IdentName x.loc) v
+          (cg_HLIR_IdentName x.loc) r
+          (cg_HLIR_IdentType x.loc) v
     | Assert msg -> Format.fprintf fmt "cf.assert %a, \"%s\"" cg_operands x.operands msg
     | _ -> raise (InternalError (x.loc, "HLIR unexpected control flow", (fun fmt -> HLIR.ppOperation fmt x), __LOC__))
     )
