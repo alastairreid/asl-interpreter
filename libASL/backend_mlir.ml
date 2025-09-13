@@ -390,9 +390,9 @@ let rec expr_to_ir (loc : Loc.t) (ctx : context) (x : AST.expr) : HLIR.ident =
   | Expr_Var v when Ident.equal v Builtin_idents.false_ident -> valueLit loc ctx (VBool false)
   | Expr_Var v when Ident.equal v Builtin_idents.true_ident -> valueLit loc ctx (VBool true)
 
-  | Expr_Var v when Identset.Bindings.mem v !type_of_enum ->
-      let ty = Identset.Bindings.find v !type_of_enum in
-      add_simple_op loc ctx (Type ty) (Symbol v) []
+  | Expr_Var v when Identset.Bindings.mem v !enums ->
+      let i = Identset.Bindings.find v !enums in
+      valueLit loc ctx (VIntN (Primops.mksintN enum_size (Z.of_int i)))
 
   | Expr_Var v ->
       ( match get_binding ctx v with
