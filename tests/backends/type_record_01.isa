@@ -1,0 +1,36 @@
+// RUN: %aslrun -Oarrays %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+record R = {
+    x : array [4] of Bits(32)
+};
+
+// Test returning a record containing an array
+function Test(a : array [4] of Bits(32), i : Integer) -> R
+begin
+    var r : R;
+    r.x := a;
+    r.x[i] := Zero(32);
+    return r;
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    var a : array [4] of Bits(32);
+    a[0] := 10[0 +: 32];
+    a[1] := 11[0 +: 32];
+    a[2] := 12[0 +: 32];
+    a[3] := 13[0 +: 32];
+
+    var r := Test(a, 2);
+    Std::Print::Bits::Hex(r.x[0]); Print("\n");
+    // CHECK: 32'xa
+    Std::Print::Bits::Hex(r.x[1]); Print("\n");
+    // CHECK: 32'xb
+    Std::Print::Bits::Hex(r.x[2]); Print("\n");
+    // CHECK: 32'x0
+    Std::Print::Bits::Hex(r.x[3]); Print("\n");
+    // CHECK: 32'xd
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end
