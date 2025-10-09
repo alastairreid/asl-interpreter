@@ -1191,7 +1191,7 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
           if not is_extern_val then (
             PP.fprintf fmt " = ";
             ( match e with
-            | Expr_ArrayInit es -> PP.fprintf fmt "{ %a }" (exprs loc) es
+            | Expr_ArrayInit (_, es) -> PP.fprintf fmt "{ %a }" (exprs loc) es
             | _ -> expr loc fmt e
             )
           );

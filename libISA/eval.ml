@@ -389,7 +389,7 @@ and eval_expr' (loc : Loc.t) (env : Env.t) (x : AST.expr) : value =
       !r
   | Expr_Record (tc, _, fas) ->
       mk_record tc (List.map (fun (f, e) -> (f, eval_expr loc env e)) fas)
-  | Expr_ArrayInit es ->
+  | Expr_ArrayInit (_, es) ->
       let inits = List.mapi (fun i e -> (i, eval_expr loc env e)) es in
       init_array inits VUninitialized
   | Expr_In (e, p) -> from_bool (eval_pattern loc env (eval_expr loc env e) p)

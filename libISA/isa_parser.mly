@@ -270,7 +270,7 @@ let literal_expression :=
 let aggregate :=
     (* Note that record aggregates are parsed as function calls *)
     | "(" ; es = separated_nonempty2_list(",", expr) ; ")" ; { Expr_Tuple(es) }
-    | "array" ; "(" ; es = separated_nonempty_list(",", expr) ; ")" ; { Expr_ArrayInit(es) }
+    | "array" ; "(" ; es = separated_nonempty_list(",", expr) ; ")" ; { Expr_ArrayInit(Isa_utils.type_unknown, es) }
 
 let field_assignment :=
     | f = ident ; "=>" ; e = expr ; { (f, e) }

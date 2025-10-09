@@ -680,7 +680,7 @@ aexpr:
 | tc = path "{" fas = separated_nonempty_list(",", field_assignment) "}"
     { Expr_Record(tc, [], fas) }
 | "array" "(" es = separated_nonempty_list(",", expr) ")"
-    { Expr_ArrayInit(es) }
+    { Expr_ArrayInit(Isa_utils.type_unknown, es) }
 | "(" fas = separated_nonempty2_list(",", field_assignment) ")" ":" ty=simple_type
     { Expr_Record(fst ty, snd ty, fas) }
 | "(" e = expr ")"

@@ -363,9 +363,10 @@ and expr (fmt : PP.formatter) (x : AST.expr) : unit =
       tycon fmt tc;
       if not (Utils.is_empty tes) then parens fmt (fun _ -> pp_args fmt tes);
       braces fmt (fun _ -> commasep fmt (field_assignment fmt) fas)
-  | Expr_ArrayInit es ->
-      PP.fprintf fmt "%t (%a)"
+  | Expr_ArrayInit (t, es) ->
+      Format.fprintf fmt "%t of %a (%a)"
         kw_array
+        ty t
         exprs es
   | Expr_In (e, p) ->
       PP.fprintf fmt "(%a IN %a)"

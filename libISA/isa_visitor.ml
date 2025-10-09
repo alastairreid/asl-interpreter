@@ -233,9 +233,10 @@ and visit_expr (vis : isaVisitor) (x : expr) : expr =
         let tes' = visit_args vis tes in
         let fas' = mapNoCopy (visit_fieldassignment vis) fas in
         if tc == tc' && tes == tes' && fas == fas' then x else Expr_Record (tc', tes', fas')
-    | Expr_ArrayInit es ->
+    | Expr_ArrayInit (t, es) ->
+        let t' = visit_type vis t in
         let es' = visit_exprs vis es in
-        if es == es' then x else Expr_ArrayInit es'
+        if t == t' && es == es' then x else Expr_ArrayInit (t', es')
     | Expr_In (e, p) ->
         let e' = visit_expr vis e in
         let p' = visit_pattern vis p in

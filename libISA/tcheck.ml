@@ -2047,9 +2047,9 @@ and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) : AST.expr * AST.ty =
       in
 
       (Expr_Record (tc', args', fas'), Type_Constructor (tc', es'))
-  | Expr_ArrayInit [] ->
+  | Expr_ArrayInit (_, []) ->
       raise (InternalError (loc, "expr ArrayInit is empty", (fun fmt -> FMT.expr fmt x), __LOC__))
-  | Expr_ArrayInit (e::es) ->
+  | Expr_ArrayInit (_, e::es) ->
       let (e', ty) = tc_expr env loc e in
       let rty = ref ty in
       let es' = List.map
@@ -2061,7 +2061,7 @@ and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) : AST.expr * AST.ty =
       in
       let n = List.length (e::es) in
       let ixty = Index_Int (mk_litint n) in
-      (Expr_ArrayInit (e'::es'), Type_Array (ixty, !rty))
+      (Expr_ArrayInit (!rty, e'::es'), Type_Array (ixty, !rty))
   | Expr_In (e, p) ->
       let (e', ety') = tc_expr env loc e in
       if !verbose then
