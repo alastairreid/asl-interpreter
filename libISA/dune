@@ -70,6 +70,7 @@
    value
    visitor
    check_monomorphization
+   xform_arrays
    xform_bitslices
    xform_bittuples
    xform_bounded

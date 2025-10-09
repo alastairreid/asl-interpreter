@@ -1171,6 +1171,18 @@ let pp_field (loc : Loc.t) (fmt : PP.formatter) (f : (Ident.t * AST.ty)) : unit 
   varty loc fmt fname t;
   semicolon fmt
 
+let rec pp_initializer (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
+  ( match x with
+  | Expr_ArrayInit (_, es) ->
+      PP.fprintf fmt "{ %a }"
+        (commasep (pp_initializer loc)) es
+  | Expr_Record (tc, [], fas) ->
+      PP.fprintf fmt "(%a){ %a }"
+        ident tc
+        (commasep (fun fmt' (f, e) -> PP.fprintf fmt' ".%a = %a" ident f (pp_initializer loc) e)) fas
+  | _ -> expr loc fmt x
+  )
+
 let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declaration) : unit =
   let is_extern_val = Option.value is_extern ~default:false in
   vbox fmt (fun _ ->
@@ -1185,22 +1197,19 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
               let pp fmt = FMT.tycon fmt tc in
               raise (Error.Unimplemented (Loc.Unknown, "builtin type", pp))
           )
-      | Decl_Const (v, oty, e, loc) ->
+      | Decl_Const (v, Some ty, e, loc) ->
           PP.fprintf fmt "const ";
-          varoty loc fmt v oty;
+          varoty loc fmt v (Some ty);
           if not is_extern_val then (
-            PP.fprintf fmt " = ";
-            ( match e with
-            | Expr_ArrayInit (_, es) -> PP.fprintf fmt "{ %a }" (exprs loc) es
-            | _ -> expr loc fmt e
-            )
+            PP.fprintf fmt " = %a"
+              (pp_initializer loc) e
           );
           PP.fprintf fmt ";@,@,"
       | Decl_Config (v, ty, i, loc) ->
           varty loc fmt v ty;
           if not is_extern_val then (
-            PP.fprintf fmt " = ";
-            expr loc fmt i
+            PP.fprintf fmt " = %a"
+              (pp_initializer loc) i
           );
           PP.fprintf fmt ";@,@,"
       | Decl_Enum (tc, es, loc) ->

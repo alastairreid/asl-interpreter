@@ -1,0 +1,21 @@
+// RUN: %iii --batchmode --exec=:xform_arrays --exec=":show --format=raw __Type*" --exec=":show --format=raw FUT" %s | filecheck %s
+
+// Copyright (C) 2025-2026 Intel Corporation
+
+function FUT(x : array [3] of Bits(32)) -> array [4] of array [3] of Bits(32)
+begin
+    return array(x,x,x,x);
+end
+
+// CHECK:       record [[TYPE1:__Type_[0-9]+]] = {
+// CHECK-NEXT:      data : array [3] of Bits(32)
+// CHECK-NEXT:  };
+
+// CHECK:       record [[TYPE2:__Type_[0-9]+]] = {
+// CHECK-NEXT:      data : array [4] of [[TYPE1]]
+// CHECK-NEXT:  };
+
+// CHECK:       function FUT.0{}(x : [[TYPE1]]) -> [[TYPE2]]{{$}}
+// CHECK-NEXT:  begin
+// CHECK-NEXT:      return [[TYPE2]]{data => array of [[TYPE1]] (x, x, x, x)};
+// CHECK-NEXT:  end

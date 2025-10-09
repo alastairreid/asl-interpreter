@@ -150,6 +150,14 @@ base_script = """
 // introduced by previous transforms
 :xform_constprop --nounroll
 
+// Wrap arrays in records to simplify C code generation.
+// This is a workaround for the fact that C does not support array
+// assignment but does support struct assignment.
+// The transformation must be done after monomorphization because
+// we need to generate a separate tuple for each distinct array
+// size&type.
+:xform_arrays
+
 // Optimization: optionally use :xform_bounded to represent any
 // constrained integers by an integer that is exactly the right size
 // to contain it.
