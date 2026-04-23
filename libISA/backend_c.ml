@@ -755,9 +755,6 @@ and expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
       raise (Error.Unimplemented (loc, "expression", pp))
   )
 
-and exprs (loc : Loc.t) (fmt : PP.formatter) (es : AST.expr list) : unit =
-  commasep (expr loc) fmt es
-
 (* The same as expr except that it guarantees that the result is a legal type
  * to use as a C/C++ array index.
  *)
