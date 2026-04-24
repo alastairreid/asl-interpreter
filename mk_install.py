@@ -1,12 +1,12 @@
 #! /usr/bin/env python3
 
 """
-Build asli and install it into directory without including
+Build iii and install it into directory without including
 a full copy of ~/.opam.
 
 Typical usage:
 
-    cd asl-interpreter
+    cd isa-tools
     ./mk_install.py --release-dir=$HOME/release --version=`date -I`
     # will be released into ${release_dir}/${version}
 
@@ -31,13 +31,9 @@ def run(cmd):
         print(f"Command '{' '.join(e.cmd)}' returned non-zero exit status {e.returncode}.")
         sys.exit(e.returncode)
 
-def write_to_file(filename, contents):
-    with open(filename, 'w') as f:
-        f.write(contents)
-
 def main() -> int:
     parser = argparse.ArgumentParser(
-            prog = 'mk_install',
+            prog = 'mk_install.py',
             description = __doc__,
             formatter_class=argparse.RawDescriptionHelpFormatter,
             )
@@ -50,8 +46,6 @@ def main() -> int:
     release_dir = os.path.abspath(release_dir)
     bin_dir     = f"{release_dir}/bin"
     lib_dir     = f"{release_dir}/lib"
-    sh_file     = f"{release_dir}/env.sh"
-    csh_file    = f"{release_dir}/env.csh"
 
     if os.path.exists(release_dir):
         print(f"Error: release_dir '{release_dir}' already exists")
@@ -64,32 +58,23 @@ def main() -> int:
     print(f"Copying release to {release_dir}")
 
     shutil.copytree(f"_build/install/default", release_dir, dirs_exist_ok=True)
-    shutil.rmtree(f"{release_dir}/lib/asli/libASL") # just a copy of the source code
+    shutil.rmtree(f"{release_dir}/lib/isa-tools/libISA") # just a copy of the source code
 
     # copy Z3 file over into release (user will need to set LD_LIBRARY_PATH to lib_dir)
     shutil.copy(f"{opam_switch}/lib/stublibs/libz3.so", lib_dir)
 
-    print(f"Copied release in {release_dir}")
+    # copy shell scripts that set environment variables
+    shutil.copy("share/env.sh", release_dir)
+    shutil.copy("share/env.csh", release_dir)
+    print(f"Generated environment setting files in {release_dir}/env.{{sh,csh}}")
 
-    write_to_file(sh_file, textwrap.dedent(f"""
-export ASLI_INSTALL_DIR={release_dir}
-export ASLI_BIN_DIR={bin_dir}
-export LD_LIBRARY_PATH={lib_dir}
-export PATH={bin_dir}:$PATH
-    """))
+    shutil.copytree("share/editors", f"{release_dir}/share", dirs_exist_ok=True)
+    print(f"Copied editor support to {release_dir}/share/editors/")
 
-    write_to_file(csh_file, textwrap.dedent(f"""
-setenv ASLI_INSTALL_DIR {release_dir}
-setenv ASLI_BIN_DIR {bin_dir}
-setenv LD_LIBRARY_PATH {lib_dir}
-setenv PATH {bin_dir}:$PATH
-    """))
-
-    print(f"Generated environment setting files in {sh_file} and {csh_file}")
+    print(f"Copied release to {release_dir}")
 
     sys.exit(0)
 
 
 if __name__ == "__main__":
     main()
-

@@ -1,0 +1,21 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function FUT(x : Integer) -> Bit
+begin
+    return x[0 +: 1];
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Bits::Hex(FUT(0)); Print("\n");
+    // CHECK: 1'x0
+    Std::Print::Bits::Hex(FUT(1)); Print("\n");
+    // CHECK: 1'x1
+    Std::Print::Bits::Hex(FUT(2)); Print("\n");
+    // CHECK: 1'x0
+    Std::Print::Bits::Hex(FUT(3)); Print("\n");
+    // CHECK: 1'x1
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

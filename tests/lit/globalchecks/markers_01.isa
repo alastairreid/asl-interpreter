@@ -1,0 +1,66 @@
+// RUN: not %iii --max-errors=10 --check-exception-markers --check-call-markers --batchmode %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+exception E;
+
+function NoThrow1() -> Integer
+begin
+    return 0;
+end
+
+function NoThrow2()
+begin
+    return;
+end
+
+function MayThrow1?() -> Integer
+begin
+    if True then throw E; end;
+    return 0;
+end
+
+function MayThrow2?()
+begin
+    if True then throw E; end;
+end
+
+function AlwaysThrow!()
+begin
+    throw E;
+end
+
+function F1() -> Integer
+begin
+    let x := NoThrow1?();
+    // CHECK: Type error: Exception marker '?' on call to 'NoThrow1.0' does not match exception marker '' on definition
+end
+
+function F2() -> Integer
+begin
+    NoThrow2!();
+    // CHECK: Type error: Exception marker '!' on call to 'NoThrow2.0' does not match exception marker '' on definition
+end
+
+function F3() -> Integer
+begin
+    let x := MayThrow1();
+    // CHECK: Type error: Exception marker '' on call to 'MayThrow1.0' does not match exception marker '?' on definition
+end
+
+function F4() -> Integer
+begin
+    MayThrow2!();
+    // CHECK: Type error: Exception marker '!' on call to 'MayThrow2.0' does not match exception marker '?' on definition
+end
+
+function F5() -> Integer
+begin
+    AlwaysThrow();
+    // CHECK: Type error: Exception marker '' on call to 'AlwaysThrow.0' does not match exception marker '!' on definition
+end
+
+function F6() -> Integer
+begin
+    AlwaysThrow?();
+    // CHECK: Type error: Exception marker '?' on call to 'AlwaysThrow.0' does not match exception marker '!' on definition
+end

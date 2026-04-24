@@ -1,0 +1,16 @@
+// RUN: not %iii --max-errors=10 --batchmode %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+exception E;
+
+function T() -> Integer
+begin
+    return 1;
+end
+
+function F() -> Integer
+begin
+    return T?();
+// CHECK: Type error: call to function `T.0` is incorrectly marked with `?` but it cannot throw an exception
+end
+

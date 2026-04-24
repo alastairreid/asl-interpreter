@@ -1,0 +1,109 @@
+// RUN: %aslrun %s | filecheck %s --check-prefixes=CHECK,CHECK-%backend
+// Copyright (C) 2026-2026 Intel Corporation
+
+// UNSUPPORTED: ac,sc
+
+function F()
+begin
+    let x : Bits(4) := 0b1010;
+    let i : Integer := 42;
+    let s : String := "Hello, World!";
+    let b : Boolean := True;
+
+    // Note: %x checks for proper % escaping
+    Std::Info(1, "x={x} i={i} s={s} b={b} %x");
+    // CHECK-c23:         x=4'xa i=42 s=Hello, World! b=true %x
+    // CHECK-fallback:    x=4'xa i=42 s=Hello, World! b=true %x
+    // CHECK-interpreter: x=4'xa i=42 s=Hello, World! b=True %x
+end
+
+function F_Integer()
+begin
+    let x1 := 42;
+    Std::Info(1, "{x1}");
+    // CHECK: {{^42$}}
+
+    let x2 := -42;
+    Std::Info(1, "{x2}");
+    // CHECK: {{^-42$}}
+
+    let x3 := 0;
+    Std::Info(1, "{x3}");
+    // CHECK: {{^0$}}
+
+    // Some runtimes optimize the handling of 64-bit values
+    // so test the extreme values and near neighbors.
+    let max_64 :=  0x7fff_ffff_ffff_ffff;
+    let min_64 := -0x8000_0000_0000_0000;
+    Std::Info(1, "{max_64}");
+    // CHECK:  {{^9223372036854775807$}}
+    Std::Info(1, "{min_64}");
+    // CHECK: {{^-9223372036854775808$}}
+
+    let max_64m1 :=  0x7fff_ffff_ffff_fffe;
+    let min_64p1 := -0x7fff_ffff_ffff_ffff;
+    Std::Info(1, "{max_64m1}");
+    // CHECK:  {{^9223372036854775806$}}
+    Std::Info(1, "{min_64p1}");
+    // CHECK: {{^-9223372036854775807$}}
+
+    // Most runtimes use 128 bits as the default int sizes
+    // so test the extreme values and near neighbors.
+    let max_128 :=  0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_ffff;
+    let min_128 := -0x8000_0000_0000_0000_0000_0000_0000_0000;
+    Std::Info(1, "{max_128}");
+    // CHECK-c23:          {{^0x7fffffffffffffffffffffffffffffff$}}
+    // CHECK-fallback:     {{^0x7fffffffffffffffffffffffffffffff$}}
+    // CHECK-interpreter:  {{^170141183460469231731687303715884105727$}}
+    Std::Info(1, "{min_128}");
+    // CHECK-c23:         {{^-0x80000000000000000000000000000000$}}
+    // CHECK-fallback:    {{^-0x80000000000000000000000000000000$}}
+    // CHECK-interpreter: {{^-170141183460469231731687303715884105728$}}
+
+    let max_128m1 :=  0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_fffe;
+    let min_128p1 := -0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_ffff;
+    Std::Info(1, "{max_128m1}");
+    // CHECK-c23:          {{^0x7ffffffffffffffffffffffffffffffe$}}
+    // CHECK-fallback:     {{^0x7ffffffffffffffffffffffffffffffe$}}
+    // CHECK-interpreter:  {{^170141183460469231731687303715884105726$}}
+    Std::Info(1, "{min_128p1}");
+    // CHECK-c23:         {{^-0x7fffffffffffffffffffffffffffffff$}}
+    // CHECK-fallback:    {{^-0x7fffffffffffffffffffffffffffffff$}}
+    // CHECK-interpreter: {{^-170141183460469231731687303715884105727$}}
+end
+
+function F_Bits()
+begin
+    let x1 := 42[0 +: 8];
+    Std::Info(1, "{x1}");
+    // CHECK: {{^8'x2a$}}
+
+    let x2 := 0[0 +: 8];
+    Std::Info(1, "{x2}");
+    // CHECK-c23:         {{^8'x00$}}
+    // CHECK-fallback:    {{^8'x00$}}
+    // CHECK-interpreter:  {{^8'x0$}}
+
+    let x3 := 0b;
+    Std::Info(1, "{x3}");
+    // CHECK: {{^0'x0$}}
+
+    let x4 := 16384[0 +: 70];
+    Std::Info(1, "{x4}");
+    // CHECK-c23:         {{^70'x000000000000004000$}}
+    // CHECK-fallback:    {{^70'x000000000000004000$}}
+    // CHECK-interpreter:               {{^70'x4000$}}
+
+    let x5 := (-16384)[0 +: 70];
+    Std::Info(1, "{x5}");
+    // CHECK: {{^70'x3fffffffffffffc000$}}
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    F();
+    F_Integer();
+    F_Bits();
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

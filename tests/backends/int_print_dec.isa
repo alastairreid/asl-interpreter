@@ -1,0 +1,28 @@
+// RUN: %aslrun %s | filecheck %s --check-prefixes=CHECK,CHECK-%backend
+// Copyright (C) 2023-2026 Intel Corporation
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Integer::Dec(42); Print("\n");
+    // CHECK:  {{^42$}}
+    Std::Print::Integer::Dec(-42); Print("\n");
+    // CHECK: {{^-42$}}
+
+    let max_128 := 0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_ffff;
+    Std::Print::Integer::Dec(max_128); Print("\n");
+    // CHECK-ac:          {{^0x7fffffffffffffffffffffffffffffff$}}
+    // CHECK-c23:         {{^0x7fffffffffffffffffffffffffffffff$}}
+    // CHECK-fallback:    {{^0x7fffffffffffffff_ffffffffffffffff$}}
+    // CHECK-interpreter: {{^170141183460469231731687303715884105727$}}
+    // CHECK-sc:          {{^0x7fffffffffffffffffffffffffffffff$}}
+
+    let min_128 := -0x8000_0000_0000_0000_0000_0000_0000_0000;
+    Std::Print::Integer::Dec(min_128); Print("\n");
+    // CHECK-ac:         {{^-0x80000000000000000000000000000000$}}
+    // CHECK-c23:        {{^-0x80000000000000000000000000000000$}}
+    // CHECK-fallback:   {{^-0x8000000000000000_0000000000000000$}}
+    // CHECK-interpreter:{{^-170141183460469231731687303715884105728$}}
+    // CHECK-sc:         {{^-0x80000000000000000000000000000000$}}
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

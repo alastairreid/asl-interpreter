@@ -1,0 +1,52 @@
+// RUN: %iii --batchmode --exec=":xform_lower" --exec=":xform_constprop" "--exec=:xform_monomorphize" --exec=":show Reduce_asize_8_esize_16_n_4" --exec=":show Reduce_asize_8_esize_16_n_2" --exec=":show Reduce_asize_8_esize_16_n_1" %s | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+// Recursively perform a reduction over elemens x[i .. i + n - 1] of array x
+function Reduce(
+        implicit asize : {0..},
+        implicit esize : {0..},
+        x : array [asize] of Bits(esize),
+        i : {0..asize-1},
+        n : {1..asize}
+    ) -> Bits(esize)
+begin
+    if n == 1 then
+        return x[i];
+    else
+        let n1 := n / 2; // size of bottom part
+        let n2 := n - n1; // size of top part
+        let result1 := Reduce(x, i, n1);
+        let result2 := Reduce(x, i+n1, n2);
+        return result1 + result2;
+    end;
+end
+
+optimize function Reduce with {asize => _, esize => _, n => _};
+
+// CHECK: function Reduce_asize_8_esize_16_n_4.0{}(x : array [8] of Bits(16), i : {0..7}) -> Bits(16)
+// CHECK: begin
+// CHECK:     let n1 : Integer := 2;
+// CHECK:     let n2 : Integer := 2;
+// CHECK:     let result1 : Bits(16) := Reduce_asize_8_esize_16_n_2.0(x, i);
+// CHECK:     let result2 : Bits(16) := Reduce_asize_8_esize_16_n_2.0(x, i + 2);
+// CHECK:     return result1 + result2;
+// CHECK: end
+
+// CHECK: function Reduce_asize_8_esize_16_n_2.0{}(x : array [8] of Bits(16), i : {0..7}) -> Bits(16)
+// CHECK: begin
+// CHECK:     let n1 : Integer := 1;
+// CHECK:     let n2 : Integer := 1;
+// CHECK:     let result1 : Bits(16) := Reduce_asize_8_esize_16_n_1.0(x, i);
+// CHECK:     let result2 : Bits(16) := Reduce_asize_8_esize_16_n_1.0(x, i + 1);
+// CHECK:     return result1 + result2;
+// CHECK: end
+
+// CHECK: function Reduce_asize_8_esize_16_n_1.0{}(x : array [8] of Bits(16), i : {0..7}) -> Bits(16)
+// CHECK: begin
+// CHECK:     return x[i];
+// CHECK: end
+
+function FUT1(x : array [8] of Bits(16)) -> Bits(16)
+begin
+    return Reduce(x, 0, 8);
+end

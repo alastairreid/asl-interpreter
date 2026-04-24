@@ -1,0 +1,32 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function Test_arg(x : Bits(4)) -> Bits(4)
+begin
+    return x;
+end
+
+var G : Bits(4);
+
+function Test_global() -> Bits(4)
+begin
+    return G;
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Bits::Hex(Test_arg(0b0001)); Print("\n");
+    // CHECK: 4'x1
+    Std::Print::Bits::Hex(Test_arg(0b0010)); Print("\n");
+    // CHECK: 4'x2
+
+    G := 0b0100;
+    Std::Print::Bits::Hex(Test_global()); Print("\n");
+    // CHECK: 4'x4
+    G := 0b0101;
+    Std::Print::Bits::Hex(Test_global()); Print("\n");
+    // CHECK: 4'x5
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end
+

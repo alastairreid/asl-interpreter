@@ -1,0 +1,20 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Bits::Hex(42[0 +: 8]); Print("\n");
+    // CHECK: 8'x2a
+    Std::Print::Bits::Hex(0xcf[0 +: 8]); Print("\n");
+    // CHECK: 8'xcf
+    Std::Print::Bits::Hex(0[0 +: 8]); Print("\n");
+    // CHECK: 8'x0
+    Std::Print::Bits::Hex(0b); Print("\n");
+    // CHECK: 0'x0
+    Std::Print::Bits::Hex(16384[0 +: 70]); Print("\n");
+    // CHECK: 70'x4000
+    Std::Print::Bits::Hex((-16384)[0 +: 70]); Print("\n");
+    // CHECK: 70'x3fffffffffffffc000
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

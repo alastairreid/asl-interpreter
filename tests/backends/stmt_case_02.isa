@@ -1,0 +1,21 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function Test(x : Boolean) -> Integer
+begin
+    case x of
+        when True => return 3;
+        otherwise => return 10;
+    end;
+    return 20; // unreachable
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Integer::Dec(Test(False)); Print("\n");
+    // CHECK: 10
+    Std::Print::Integer::Dec(Test(True)); Print("\n");
+    // CHECK: 3
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

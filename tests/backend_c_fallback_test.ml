@@ -1,11 +1,11 @@
 (****************************************************************
  * Test new C backend
  *
- * Copyright (C) 2023-2025 Intel Corporation
- * SPDX-Licence-Identifier: BSD-3-Clause
+ * Copyright (C) 2023-2026 Intel Corporation
+ * SPDX-License-Identifier: BSD-3-Clause
  ****************************************************************)
 
-open LibASL
+open LibISA
 open Test_utils_backend
 module Test_cases = Test_cases_backend
 module BE = Backend_c
@@ -47,7 +47,7 @@ let () =
   Alcotest.run "backend_c_fallback"
     [
       ("expression",        make_cases Test_cases.expr);
-      ("integer ops",       make_cases Test_cases.int_ops);
+      ("Integer ops",       make_cases Test_cases.int_ops);
       ("enum ops",          make_cases Test_cases.enum_ops);
       ("bitvector ops",     make_cases Test_cases.bit_ops);
       ("ram ops",           make_cases Test_cases.ram_ops);

@@ -9,15 +9,22 @@
         "ASL_ReadReg64",
         "ASL_WriteReg64",
         "ASL_WriteMemory8",
-        "PrintState"
+        "Print_State"
     ],
 
     "__comment": [
         "Split the variables into shared (global) and thread-local."
     ],
     "split_state": {
-        "global_state": ["__Memory"],
-        "threadlocal_state" : [".*"]
+        "global_state": {
+            "variables": ["__Memory"]
+        },
+        "threadlocal_state" : {
+            "variables": [".*"],
+            "client_fields": ["void* client_ptr;"],
+            "client_arg": ["void*", "client_arg"],
+            "should_add_fun_arg": ["yes"]
+        }
     }
 }
 

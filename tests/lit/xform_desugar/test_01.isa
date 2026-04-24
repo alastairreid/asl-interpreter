@@ -1,0 +1,14 @@
+// RUN: %iii --batchmode --exec=:xform_desugar --exec=":show --format=raw FUT" %s | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+function FUT(a : Bits(1), b : Integer)
+begin
+    let r1 := a + b;
+    // CHECK: let r1 : Bits(1) := Std::Bits::Add.0{1}(a, Std::Bits::From_Integer.0{1}(b, 1));
+
+    let r2 := a - b;
+    // CHECK: let r2 : Bits(1) := Std::Bits::Subtract.0{1}(a, Std::Bits::From_Integer.0{1}(b, 1));
+
+    let r3 := a * b;
+    // CHECK: let r3 : Bits(1) := Std::Bits::Multiply.0{1}(a, Std::Bits::From_Integer.0{1}(b, 1));
+end

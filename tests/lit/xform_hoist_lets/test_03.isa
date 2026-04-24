@@ -1,0 +1,53 @@
+// RUN: %iii --batchmode --no-runtime-checks --exec=:xform_hoist_lets --exec=":show --format=raw FUT" %s | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+function FUT(i : Integer) -> Boolean
+begin
+    // Check that asserts are not lifted past sequencing points
+    // AND
+    let r1 := i >= 0 and then (__assert Std::Integer::Floor_Remainder(i, 2) == 1 __in i <= 10);
+    // CHECK:       Std::Boolean::Lazy_And.0{}(Std::Integer::Ge.0{}(i, 0), (__assert Std::Integer::Eq.0{}(Std::Integer::Floor_Remainder.0{}(i, 2), 1) __in Std::Integer::Le.0{}(i, 10)));
+    let r2 := i >= 0 and then i <= (__assert Std::Integer::Floor_Remainder(i, 2) == 1 __in 10);
+    // CHECK:       Std::Boolean::Lazy_And.0{}(Std::Integer::Ge.0{}(i, 0), (__assert Std::Integer::Eq.0{}(Std::Integer::Floor_Remainder.0{}(i, 2), 1) __in Std::Integer::Le.0{}(i, 10)));
+
+    // OR
+    let r3 := i >= 0 or else i <= (__assert Std::Integer::Floor_Remainder(i, 2) == 1 __in 10);
+    // CHECK:       Std::Boolean::Lazy_Or.0{}(Std::Integer::Ge.0{}(i, 0), (__assert Std::Integer::Eq.0{}(Std::Integer::Floor_Remainder.0{}(i, 2), 1) __in Std::Integer::Le.0{}(i, 10)));
+
+    // IF expression
+    let r5 := if i >= 0 then i <= (__assert Std::Integer::Floor_Remainder(i, 2) == 1 __in 10) else False;
+    // CHECK:       (if Std::Integer::Ge.0{}(i, 0) then (__assert Std::Integer::Eq.0{}(Std::Integer::Floor_Remainder.0{}(i, 2), 1) __in Std::Integer::Le.0{}(i, 10)) else False);
+
+    // IF statement
+    if __let b1 : Boolean := i >= 0 __in b1 then
+        let r6 := i <= (__assert Std::Integer::Floor_Remainder(i, 2) == 1 __in 10);
+    else
+        let r7 := i <= (__assert Std::Integer::Floor_Remainder(i, 2) == 1 __in 10);
+    end;
+    // CHECK:       let b1 : Boolean := Std::Integer::Ge.0{}(i, 0);
+    // CHECK-NEXT:  if b1 then
+    // CHECK-NEXT:      assert Std::Integer::Eq.0{}(Std::Integer::Floor_Remainder.0{}(i, 2), 1);
+    // CHECK-NEXT:      let r6 : Boolean := Std::Integer::Le.0{}(i, 10);
+    // CHECK-NEXT:  else
+    // CHECK-NEXT:      assert Std::Integer::Eq.0{}(Std::Integer::Floor_Remainder.0{}(i, 2), 1);
+    // CHECK-NEXT:      let r7 : Boolean := Std::Integer::Le.0{}(i, 10);
+    // CHECK-NEXT:  endif;
+
+    // WHILE loop
+    while i <= (__assert Std::Integer::Floor_Remainder(i, 2) == 1 __in 10) do
+    end;
+    // CHECK:       while (__assert Std::Integer::Eq.0{}(Std::Integer::Floor_Remainder.0{}(i, 2), 1) __in Std::Integer::Le.0{}(i, 10)) do
+    // CHECK:       endwhile;
+
+    // REPEAT loop
+    repeat
+        let x := 42;
+    until i <= (__assert Std::Integer::Floor_Remainder(i, 2) == 1 __in 10);
+    // CHECK:       repeat
+    // CHECK-NEXT:      let x : {42} := 42;
+    // CHECK-NEXT:      assert Std::Integer::Eq.0{}(Std::Integer::Floor_Remainder.0{}(i, 2), 1);
+    // CHECK-NEXT:  until Std::Integer::Le.0{}(i, 10);
+
+    return r1 and then r2 and then r3 and then r5;
+end
+

@@ -1,0 +1,134 @@
+// RUN: %aslrun %s --configuration=%S/ffi_export_01.json --extra-c=%S/ffi_export_01.c | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+// UNSUPPORTED: interpreter
+
+enumeration E = { A, B, C };
+
+// to be exported
+// each function returns its input argument
+
+function FFI_bits8(x : Bits(8)) -> Bits(8)
+begin
+    return x;
+end
+
+function FFI_bits16(x : Bits(16)) -> Bits(16)
+begin
+    return x;
+end
+
+function FFI_bits32(x : Bits(32)) -> Bits(32)
+begin
+    return x;
+end
+
+function FFI_bits64(x : Bits(64)) -> Bits(64)
+begin
+    return x;
+end
+
+
+function FFI_bits2(x : Bits(2)) -> Bits(2)
+begin
+    return x;
+end
+
+function FFI_bits17(x : Bits(17)) -> Bits(17)
+begin
+    return x;
+end
+
+
+function FFI_bits65(x : Bits(65)) -> Bits(65)
+begin
+    return x;
+end
+
+function FFI_bits127(x : Bits(127)) -> Bits(127)
+begin
+    return x;
+end
+
+function FFI_bits128(x : Bits(128)) -> Bits(128)
+begin
+    return x;
+end
+
+
+function FFI_string(x : String) -> String
+begin
+    return x;
+end
+
+function FFI_E(x : E) -> E
+begin
+    return x;
+end
+
+function FFI_Boolean(x : Boolean) -> Boolean
+begin
+    return x;
+end
+
+function FFI_integer(x : Integer) -> Integer
+begin
+    return x;
+end
+
+function FFI_sint17(x : __sint(17)) -> __sint(17)
+begin
+    return x;
+end
+
+// Support for functions that return multiple values
+// is complicated by the fact that the :xform_tuples
+// transformation converts functions that return tuples
+// to functions that return records.
+// So, to support functions that return tuples in
+// the original source code, the code generation
+// backend has to support functions that return records.
+// But, in the FFI, we don't want to expose that
+// implementation detail so the corresponding C function
+// takes extra arguments for each field: each argument
+// a pointer to write the return value to.
+
+record __Return_FFI_int_bool = {
+    r0 : Integer,
+    r1 : Boolean
+};
+
+function FFI_int_bool(x : Integer) -> __Return_FFI_int_bool
+begin
+    return __Return_FFI_int_bool{ r0=>x, r1=>x > 3};
+end
+
+// Function imported from C
+function FFI_test_exports();
+
+function main() -> Builtin::Foreign::CInt
+begin
+    FFI_test_exports();
+    // CHECK: 8'x8
+    // CHECK: 16'x10
+    // CHECK: 32'x20
+    // CHECK: 64'x40
+
+    // CHECK: 2'x2
+    // CHECK: 17'x11
+
+    // CHECK: 65'x0_0000000000000041
+    // CHECK: 127'x0_000000000000007f
+    // CHECK: 128'x0_0000000000000080
+
+    // CHECK: abcd
+    // CHECK: True
+    // CHECK: True
+    // CHECK: 42
+    // CHECK: i17'd42
+
+    // CHECK: (1, False)
+    // CHECK: (4, True)
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

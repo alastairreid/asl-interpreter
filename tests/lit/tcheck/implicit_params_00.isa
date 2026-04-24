@@ -1,0 +1,5 @@
+// RUN: not %iii --batchmode %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function F() -> Bits(N);
+// CHECK: Type error: the width parameter(s) `N` of the return type cannot be determined from the function arguments

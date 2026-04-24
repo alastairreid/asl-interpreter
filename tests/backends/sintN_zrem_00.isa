@@ -1,0 +1,22 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function FUT(x : __sint(8), y : __sint(8)) -> __sint(8)
+begin
+    return Std::SInt::Truncated_Remainder(x, y);
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::SInt::Dec(FUT(i8'd6, i8'd3)); Print("\n");
+    // CHECK: i8'd0
+    Std::Print::SInt::Dec(FUT(-i8'd6, i8'd3)); Print("\n");
+    // CHECK: i8'd0
+    Std::Print::SInt::Dec(FUT(i8'd5, i8'd3)); Print("\n");
+    // CHECK: i8'd2
+    Std::Print::SInt::Dec(FUT(-i8'd5, i8'd3)); Print("\n");
+    // CHECK: -i8'd2
+    Std::Print::SInt::Dec(FUT(i8'd6, -i8'd3)); Print("\n");
+    // CHECK: i8'd0
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

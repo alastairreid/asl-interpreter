@@ -1,0 +1,63 @@
+// RUN: %iii --batchmode --exec=":xform_lower" --exec=":xform_constprop" "--exec=:xform_monomorphize" --exec=":show Reduce_asize_8_esize_16_m_0" --exec=":show Reduce_asize_8_esize_16_m_1" --exec=":show Reduce_asize_8_esize_16_m_2" --exec=":show Reduce_asize_8_esize_16_m_3" %s | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+// Recursively perform a tree reduction over elements x[i<<m .. (i+1)<<m-1]
+//
+// Note: if you picture the calculation as a tree, then m and i can
+// be interpreted as coordinates in the tree:
+// - m is the level number (with 0 at the root)
+// - i is the node number at that level
+//
+// 0,0   0,1   0,2   0,3   0,4   0,5   0,6   0,7
+//    1,0         1,1         1,2         1,3
+//          2,0                     2,2
+//                      3,0
+function Reduce(
+        implicit asize : {0..},
+        implicit esize : {0..},
+        x : array [asize] of Bits(esize),
+        i : {0..asize-1},
+        m : {0..Log2(asize)}
+    ) -> Bits(esize)
+begin
+    if m == 0 then
+        return x[i];
+    else
+        let result1 := Reduce(x, 2*i,   m-1);
+        let result2 := Reduce(x, 2*i+1, m-1);
+        return result1 + result2;
+    end;
+end
+
+optimize function Reduce with {asize => _, esize => _, m => _};
+
+// CHECK: function Reduce_asize_8_esize_16_m_0.0{}(x : array [8] of Bits(16), i : {0..7}) -> Bits(16)
+// CHECK: begin
+// CHECK:     return x[i];
+// CHECK: end
+
+// CHECK: function Reduce_asize_8_esize_16_m_1.0{}(x : array [8] of Bits(16), i : {0..7}) -> Bits(16)
+// CHECK: begin
+// CHECK:     let result1 : Bits(16) := Reduce_asize_8_esize_16_m_0.0(x, 2 * i);
+// CHECK:     let result2 : Bits(16) := Reduce_asize_8_esize_16_m_0.0(x, 2 * i + 1);
+// CHECK:     return result1 + result2;
+// CHECK: end
+
+// CHECK: function Reduce_asize_8_esize_16_m_2.0{}(x : array [8] of Bits(16), i : {0..7}) -> Bits(16)
+// CHECK: begin
+// CHECK:     let result1 : Bits(16) := Reduce_asize_8_esize_16_m_1.0(x, 2 * i);
+// CHECK:     let result2 : Bits(16) := Reduce_asize_8_esize_16_m_1.0(x, 2 * i + 1);
+// CHECK:     return result1 + result2;
+// CHECK: end
+
+// CHECK: function Reduce_asize_8_esize_16_m_3.0{}(x : array [8] of Bits(16), i : {0..7}) -> Bits(16)
+// CHECK: begin
+// CHECK:     let result1 : Bits(16) := Reduce_asize_8_esize_16_m_2.0(x, 2 * i);
+// CHECK:     let result2 : Bits(16) := Reduce_asize_8_esize_16_m_2.0(x, 2 * i + 1);
+// CHECK:     return result1 + result2;
+// CHECK: end
+
+function FUT1(x : array [8] of Bits(16)) -> Bits(16)
+begin
+    return Reduce(x, 0, Log2(8));
+end

@@ -1,0 +1,17 @@
+// RUN: not %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function FUT(x : Bits(4)) -> Bits(4)
+begin
+    assert x != 0b1111;
+    return x;
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    // assertion that does fail
+    Std::Print::Bits::Hex(FUT(0b1111)); Print("\n");
+    // CHECK: Evaluation error: assertion failure
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

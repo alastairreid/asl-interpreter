@@ -1,0 +1,70 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function Test1(x : Bits(3)) -> Bits(8)
+begin
+    return Std::Bits::Sign_Extend(x, 8);
+end
+
+// checking for problems when representation is different size
+function Test2(x : Bits(64)) -> Bits(128)
+begin
+    return Std::Bits::Sign_Extend(x, 128);
+end
+
+// checking for boundary problems
+function Test3(x : Bits(63)) -> Bits(64)
+begin
+    return Std::Bits::Sign_Extend(x, 64);
+end
+
+// checking for boundary problems
+function Test4(x : Bits(64)) -> Bits(65)
+begin
+    return Std::Bits::Sign_Extend(x, 65);
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    // Basic check
+    Std::Print::Bits::Hex(Test1(0b001)); Print("\n");
+    // CHECK: 8'x1
+    Std::Print::Bits::Hex(Test1(0b011)); Print("\n");
+    // CHECK: 8'x3
+    Std::Print::Bits::Hex(Test1(0b101)); Print("\n");
+    // CHECK: 8'xfd
+    Std::Print::Bits::Hex(Test1(0b111)); Print("\n");
+    // CHECK: 8'xff
+
+    // Change of size of representation
+    Std::Print::Bits::Hex(Test2(64'x0123_4567_89ab_cdef)); Print("\n");
+    // CHECK: 128'x123456789abcdef
+    Std::Print::Bits::Hex(Test2(64'x4123_4567_89ab_cdef)); Print("\n");
+    // CHECK: 128'x4123456789abcdef
+    Std::Print::Bits::Hex(Test2(64'x8123_4567_89ab_cdef)); Print("\n");
+    // CHECK: 128'xffffffffffffffff8123456789abcdef
+    Std::Print::Bits::Hex(Test2(64'xc123_4567_89ab_cdef)); Print("\n");
+    // CHECK: 128'xffffffffffffffffc123456789abcdef
+
+    // Boundary checks
+    Std::Print::Bits::Hex(Test3(63'x0123_4567_89ab_cdef)); Print("\n");
+    // CHECK: 64'x123456789abcdef
+    Std::Print::Bits::Hex(Test3(63'x2123_4567_89ab_cdef)); Print("\n");
+    // CHECK: 64'x2123456789abcdef
+    Std::Print::Bits::Hex(Test3(63'x4123_4567_89ab_cdef)); Print("\n");
+    // CHECK: 64'xc123456789abcdef
+    Std::Print::Bits::Hex(Test3(63'x6123_4567_89ab_cdef)); Print("\n");
+    // CHECK: 64'xe123456789abcdef
+
+    // Boundary checks
+    Std::Print::Bits::Hex(Test4(64'x0123_4567_89ab_cdef)); Print("\n");
+    // CHECK: 65'x123456789abcdef
+    Std::Print::Bits::Hex(Test4(64'x4123_4567_89ab_cdef)); Print("\n");
+    // CHECK: 65'x4123456789abcdef
+    Std::Print::Bits::Hex(Test4(64'x8123_4567_89ab_cdef)); Print("\n");
+    // CHECK: 65'x18123456789abcdef
+    Std::Print::Bits::Hex(Test4(64'xc123_4567_89ab_cdef)); Print("\n");
+    // CHECK: 65'x1c123456789abcdef
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

@@ -1,0 +1,8 @@
+// RUN: not %iii --batchmode %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function F(x : Integer)
+begin
+    var x := 42;
+// CHECK: Type error: variable `x` previously declared
+end

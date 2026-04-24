@@ -1,12 +1,12 @@
 (****************************************************************
  * Utilities for backend tests
  *
- * Copyright (C) 2022-2025 Intel Corporation
- * SPDX-Licence-Identifier: BSD-3-Clause
+ * Copyright (C) 2022-2026 Intel Corporation
+ * SPDX-License-Identifier: BSD-3-Clause
  ****************************************************************)
 
-open LibASL
-module AST = Asl_ast
+open LibISA
+module AST = Isa_ast
 module TC = Tcheck
 
 let check_declaration (tcenv : TC.GlobalEnv.t)
@@ -14,7 +14,7 @@ let check_declaration (tcenv : TC.GlobalEnv.t)
     (check_ext : string -> string -> unit) (name : string) (s : string) : unit =
   try
     let tcenv = TC.GlobalEnv.clone tcenv in
-    let ds = LoadASL.read_declarations_unsorted tcenv s in
+    let ds = LoadISA.read_declarations_unsorted tcenv s in
     Alcotest.(check pass) name () (decls ds);
 
     let s = Format.flush_str_formatter () in

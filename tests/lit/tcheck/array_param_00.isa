@@ -1,0 +1,17 @@
+// RUN: %iii --batchmode %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+function F(implicit size : {0..}, x : array [size] of Integer) -> Integer
+begin
+    var sum := 0;
+    for i := 0 to size-1 do
+        sum := sum + x[i];
+    end;
+    return sum;
+end
+
+function main() -> Integer
+begin
+    let x : Integer := (F(array (1,2,3)));
+    let y : Integer := (F(array (1)));
+end

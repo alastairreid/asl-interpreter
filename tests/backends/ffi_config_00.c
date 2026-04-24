@@ -1,9 +1,9 @@
 // FFI testing support functions for configuration variables
 //
-// Copyright (C) 2025-2025 Intel Corporation
+// Copyright (C) 2025-2026 Intel Corporation
 
 #include <stdio.h>
-#include "asl_ffi.h"
+#include "isa_ffi.h"
 
 // The following function will be executed *before* main
 void __attribute__((constructor)) FFI_Init_Configs()

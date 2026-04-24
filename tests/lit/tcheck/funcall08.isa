@@ -1,0 +1,13 @@
+// RUN: not %iii --batchmode %s | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+function F(x : Boolean, y : Boolean, z : Boolean);
+
+function main() -> Integer
+begin
+    F(0, 1, 2);
+    // CHECK: While typechecking a call to 'F' with arguments
+    // CHECK:   F({0}, {1}, {2})
+    // CHECK: Type error in procedure arguments for call to 'F'
+    // CHECK    F{}(x : Boolean, y : Boolean, z : Boolean) -> ()
+end

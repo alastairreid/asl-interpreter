@@ -1,0 +1,22 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function Test(x : Integer, y : Integer) -> Integer
+begin
+    return Std::Integer::Align_Down(x, y);
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Integer::Dec(Test(12, 4)); Print("\n");
+    // CHECK: 12
+    Std::Print::Integer::Dec(Test(13, 4)); Print("\n");
+    // CHECK: 12
+    Std::Print::Integer::Dec(Test(14, 4)); Print("\n");
+    // CHECK: 12
+    Std::Print::Integer::Dec(Test(15, 4)); Print("\n");
+    // CHECK: 12
+    Std::Print::Integer::Dec(Test(16, 4)); Print("\n");
+    // CHECK: 16
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

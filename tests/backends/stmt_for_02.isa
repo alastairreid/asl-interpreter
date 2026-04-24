@@ -1,0 +1,23 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function Test(x : __sint(5)) -> Integer
+begin
+    var s := 0;
+    for i : __sint(5) := i5'd0 to x do
+        s := s + Std::SInt::To_Integer(i);
+    end;
+    return s;
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Integer::Dec(Test(i5'd0)); Print("\n");
+    // CHECK: 0
+    Std::Print::Integer::Dec(Test(i5'd1)); Print("\n");
+    // CHECK: 1
+    Std::Print::Integer::Dec(Test(i5'd3)); Print("\n");
+    // CHECK: 6
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

@@ -1,0 +1,8 @@
+// RUN: not %iii --max-errors=10 --check-exception-markers --batchmode %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function T() -> Integer
+begin
+// CHECK: Type error: Function definition 'T.0' should return a value but does not
+end
+

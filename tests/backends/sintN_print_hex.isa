@@ -1,0 +1,12 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Integer::Hex(42); Print("\n");
+    // CHECK: 0x2a
+    Std::Print::Integer::Hex(-42); Print("\n");
+    // CHECK: -0x2a
+    return Builtin::Foreign::CInt::From_Integer(0);
+end
+

@@ -1,0 +1,32 @@
+// RUN: %iii --batchmode --exec=:xform_constprop --exec=":show --format=raw FUT" %s | filecheck %s
+
+// Copyright (C) 2025-2026 Intel Corporation
+
+function FUT()
+begin
+    var b : Bits(8);
+
+    var r1 := Repeat(b, 0);
+    // CHECK: var r1 : Bits(0) := 0'x0;
+
+    var r2 := Repeat(b, 1);
+    // CHECK: var r2 : Bits(8) := b;
+
+
+    var i : Integer;
+
+    var r3 := i + 0;
+    // CHECK: var r3 : Integer := i;
+
+    var r4 := 0 + i;
+    // CHECK: var r4 : Integer := i;
+
+    var r5 := i - 0;
+    // CHECK: var r5 : Integer := i;
+
+    var r6 := i * 1;
+    // CHECK: var r6 : Integer := i;
+
+    var r7 := 1 * i;
+    // CHECK: var r7 : Integer := i;
+end

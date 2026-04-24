@@ -1,0 +1,36 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function FUT_8_16(x : __sint(8)) -> __sint(16)
+begin
+    return Std::SInt::Resize(x, 16);
+end
+
+function FUT_16_8(x : __sint(16)) -> __sint(8)
+begin
+    return Std::SInt::Resize(x, 8);
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::SInt::Hex(FUT_8_16(i8'd0)); Print("\n");
+    // CHECK: i16'x0
+    Std::Print::SInt::Hex(FUT_8_16(i8'x7f)); Print("\n");
+    // CHECK: i16'x7f
+    Std::Print::SInt::Hex(FUT_8_16(-i8'x1)); Print("\n");
+    // CHECK: -i16'x1
+    Std::Print::SInt::Hex(FUT_8_16(-i8'x80)); Print("\n");
+    // CHECK: -i16'x80
+
+    Std::Print::SInt::Hex(FUT_16_8(i16'd0)); Print("\n");
+    // CHECK: i8'x0
+    Std::Print::SInt::Hex(FUT_16_8(i16'x7f)); Print("\n");
+    // CHECK: i8'x7f
+    Std::Print::SInt::Hex(FUT_16_8(-i16'x1)); Print("\n");
+    // CHECK: -i8'x1
+    Std::Print::SInt::Hex(FUT_16_8(-i16'x80)); Print("\n");
+    // CHECK: -i8'x80
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end
+

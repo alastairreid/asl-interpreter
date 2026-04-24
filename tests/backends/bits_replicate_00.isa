@@ -1,0 +1,35 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function Test0(x : Bits(4)) -> Bits(0)
+begin
+    return Std::Bits::Repeat(x, 0);
+end
+
+function Test1(x : Bits(4)) -> Bits(4)
+begin
+    return Std::Bits::Repeat(x, 1);
+end
+
+function Test5(x : Bits(4)) -> Bits(20)
+begin
+    return Std::Bits::Repeat(x, 5);
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Bits::Hex(Test0(0b0001)); Print("\n");
+    // CHECK: 0'x0
+    Std::Print::Bits::Hex(Test1(0b0001)); Print("\n");
+    // CHECK: 4'x1
+    Std::Print::Bits::Hex(Test5(0b0001)); Print("\n");
+    // CHECK: 20'x11111
+
+    Std::Print::Bits::Hex(Test0(0b0101)); Print("\n");
+    // CHECK: 0'x0
+    Std::Print::Bits::Hex(Test1(0b0101)); Print("\n");
+    // CHECK: 4'x5
+    Std::Print::Bits::Hex(Test5(0b0101)); Print("\n");
+    // CHECK: 20'x55555
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

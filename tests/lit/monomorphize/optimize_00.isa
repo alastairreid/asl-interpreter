@@ -1,0 +1,30 @@
+// RUN: %iii --batchmode --exec=":xform_monomorphize" --exec=":show F_m*" --exec=":show FUT" %s | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+function F(n : Integer, m : Integer) -> Integer
+begin
+    return n + m;
+end
+
+optimize function F with {m => 1};
+optimize function F with {m => 2};
+
+function FUT() -> Integer
+begin
+    return F(1, 0) + F(1, 1) + F(1, 2);
+end
+
+// CHECK:      function F_m_1.0{}(n : Integer) -> Integer{{$}}
+// CHECK-NEXT: begin
+// CHECK-NEXT:     return n + 1;
+// CHECK-NEXT: end
+
+// CHECK:      function F_m_2.0{}(n : Integer) -> Integer{{$}}
+// CHECK-NEXT: begin
+// CHECK-NEXT:     return n + 2;
+// CHECK-NEXT: end
+
+// CHECK:      function FUT.0{}() -> Integer{{$}}
+// CHECK-NEXT: begin
+// CHECK-NEXT:     return F.0(1, 0) + F_m_1.0(1) + F_m_2.0(1);
+// CHECK-NEXT: end

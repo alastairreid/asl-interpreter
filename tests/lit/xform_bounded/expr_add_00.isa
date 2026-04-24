@@ -1,0 +1,21 @@
+// RUN: %aslopt -O0 -Obounded %s | filecheck --check-prefix=XFORM %s
+// RUN: %aslrun -Obounded %s | filecheck %s
+
+// Copyright (C) 2024-2026 Intel Corporation
+
+function FUT(x : {0..14}) -> {0..15}
+begin
+    return x + 1;
+end
+
+// XFORM-LABEL: function FUT.0{}(x : __sint(5)) -> __sint(5){{$}}
+// XFORM-NEXT:  begin
+// XFORM-NEXT:      return Std::SInt::Resize.0{6, 5}(Std::SInt::Add.0{6}(Std::SInt::Resize.0{5, 6}(x, 6), i6'x1), 5);
+// XFORM-NEXT:  end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Integer::Dec(FUT(14));
+    // CHECK: 15
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

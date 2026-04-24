@@ -1,12 +1,12 @@
 // RUN: %aslrun %s --extra-c=%S/ffi_config_00.c | filecheck %s
-// Copyright (C) 2025-2025 Intel Corporation
+// Copyright (C) 2025-2026 Intel Corporation
 
 // UNSUPPORTED: interpreter
 
-config ConfigBool : boolean = FALSE;
-config ConfigInt : integer {1, 2, 3, 4} = 1;
+config ConfigBool : Boolean := False;
+config ConfigInt : {1, 2, 3, 4} := 1;
 
-func main() => integer
+function main() -> Builtin::Foreign::CInt
 begin
     // Any changes to configuration variables should be performed
     // before any ASL code is executed so this test depends on
@@ -18,10 +18,10 @@ begin
     // CHECK: Changing ConfigBool from false to true
     // CHECK: Changing ConfigInt from 1 to 4
 
-    print(ConfigBool); println();
-    // CHECK: TRUE
-    print_int_dec(ConfigInt); println();
+    Std::Print::Boolean(ConfigBool); Print("\n");
+    // CHECK: True
+    Std::Print::Integer::Dec(ConfigInt); Print("\n");
     // CHECK: 4
 
-    return 0;
+    return Builtin::Foreign::CInt::From_Integer(0);
 end

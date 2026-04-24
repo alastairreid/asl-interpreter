@@ -1,0 +1,25 @@
+// RUN: %aslopt -O0 -Obounded %s | filecheck --check-prefix=XFORM %s
+// RUN: %aslrun -Obounded %s | filecheck %s
+
+// Copyright (C) 2024-2026 Intel Corporation
+
+function FUT(x : {0..15}) -> Boolean
+begin
+    return Std::Integer::Is_Power_Of_Two(x);
+end
+
+// XFORM-LABEL: function FUT.0{}(x : __sint(5)) -> Boolean{{$}}
+// XFORM-NEXT:  begin
+// XFORM-NEXT:      return Std::SInt::Is_Power_Of_Two.0{5}(x);
+// XFORM-NEXT:  end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Boolean(FUT(7));
+    // CHECK: False
+    Std::Print::Boolean(FUT(8));
+    // CHECK: True
+    Std::Print::Boolean(FUT(9));
+    // CHECK: False
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

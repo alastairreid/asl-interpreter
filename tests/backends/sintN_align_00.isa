@@ -1,0 +1,22 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function FUT(x : __sint(8), y : __sint(8)) -> __sint(8)
+begin
+    return Std::SInt::Align_Down(x, y);
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::SInt::Dec(FUT(i8'd12, i8'd4)); Print("\n");
+    // CHECK: i8'd12
+    Std::Print::SInt::Dec(FUT(i8'd13, i8'd4)); Print("\n");
+    // CHECK: i8'd12
+    Std::Print::SInt::Dec(FUT(i8'd14, i8'd4)); Print("\n");
+    // CHECK: i8'd12
+    Std::Print::SInt::Dec(FUT(i8'd15, i8'd4)); Print("\n");
+    // CHECK: i8'd12
+    Std::Print::SInt::Dec(FUT(i8'd16, i8'd4)); Print("\n");
+    // CHECK: i8'd16
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

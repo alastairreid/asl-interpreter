@@ -1,13 +1,13 @@
 (****************************************************************
  * Utilities for use in tests
  *
- * Copyright (C) 2022-2025 Intel Corporation
- * SPDX-Licence-Identifier: BSD-3-Clause
+ * Copyright (C) 2022-2026 Intel Corporation
+ * SPDX-License-Identifier: BSD-3-Clause
  ****************************************************************)
 
-open LibASL
+open LibISA
 module TC = Tcheck
-module AST = Asl_ast
+module AST = Isa_ast
 
 (****************************************************************
  * Support code for setting up tests
@@ -16,7 +16,7 @@ module AST = Asl_ast
 let load_test_libraries () : AST.declaration list =
   let paths = [ ".." ] in
   try (
-    LoadASL.read_file paths "prelude.asl" true false
+    LoadISA.read_file paths "stdlib.isa" true false
   ) with e -> begin
     Error.print_exception e;
     exit 1
@@ -30,30 +30,30 @@ let format_value f v = Format.fprintf f "%s" (Value.string_of_value v)
 
 let value = Alcotest.testable format_value ( = )
 
-let expr = Alcotest.testable Asl_fmt.expr (=)
+let expr = Alcotest.testable Isa_fmt.expr (=)
 
 let format_expr (e : AST.expr) : string =
-  Utils.to_string2 (fun fmt -> Asl_fmt.expr fmt e)
+  Utils.to_string2 (fun fmt -> Isa_fmt.expr fmt e)
 
 let value = Alcotest.testable format_value ( = )
 
 let stmts =
   (* Format to strings and then compare to avoid comparing location information *)
   let eq_stmts (s1 : AST.stmt list) (s2 : AST.stmt list) : bool =
-    let f1 = Utils.to_string2 (fun fmt -> Asl_fmt.indented_block fmt s1) in
-    let f2 = Utils.to_string2 (fun fmt -> Asl_fmt.indented_block fmt s2) in
+    let f1 = Utils.to_string2 (fun fmt -> Isa_fmt.indented_block fmt s1) in
+    let f2 = Utils.to_string2 (fun fmt -> Isa_fmt.indented_block fmt s2) in
     f1 = f2
   in
-  Alcotest.testable Asl_fmt.indented_block eq_stmts
+  Alcotest.testable Isa_fmt.indented_block eq_stmts
 
 let declarations =
   (* Format to strings and then compare to avoid comparing location information *)
   let eq_decls (s1 : AST.declaration list) (s2 : AST.declaration list) : bool =
-    let f1 = Utils.to_string2 (fun fmt -> Asl_fmt.declarations fmt s1) in
-    let f2 = Utils.to_string2 (fun fmt -> Asl_fmt.declarations fmt s2) in
+    let f1 = Utils.to_string2 (fun fmt -> Isa_fmt.declarations fmt s1) in
+    let f2 = Utils.to_string2 (fun fmt -> Isa_fmt.declarations fmt s2) in
     f1 = f2
   in
-  Alcotest.testable Asl_fmt.declarations eq_decls
+  Alcotest.testable Isa_fmt.declarations eq_decls
 
 (****************************************************************
  * Support code for parsing, typechecking and building environments
@@ -63,13 +63,13 @@ let extend_tcenv (globals : TC.GlobalEnv.t) (declarations : string) :
     TC.Env.t * AST.declaration list =
   let globals = TC.GlobalEnv.clone globals in
   let tcenv = TC.Env.mkEnv globals in
-  let ds = LoadASL.read_declarations_unsorted globals declarations in
+  let ds = LoadISA.read_declarations_unsorted globals declarations in
   (tcenv, ds)
 
 let extend_global_tcenv (globals : TC.GlobalEnv.t) (declarations : string) :
     TC.GlobalEnv.t * AST.declaration list =
   let globals = TC.GlobalEnv.clone globals in
-  let ds = LoadASL.read_declarations_unsorted globals declarations in
+  let ds = LoadISA.read_declarations_unsorted globals declarations in
   (globals, ds)
 
 let extend_env (globals : TC.GlobalEnv.t) (prelude : AST.declaration list) (decls : string)
@@ -91,8 +91,8 @@ let test_xform_expr
     (decls : string) (l : string) (r : string) () : unit =
   try
     let (tcenv, _) = extend_tcenv globals decls in
-    let l' = LoadASL.read_expr tcenv Loc.Unknown l in
-    let r' = LoadASL.read_expr tcenv Loc.Unknown r in
+    let l' = LoadISA.read_expr tcenv Loc.Unknown l in
+    let r' = LoadISA.read_expr tcenv Loc.Unknown r in
     let x = f l' in
     let what = l ^ "\n==>\n" ^ r in
     Alcotest.check expr what r' x
@@ -107,8 +107,8 @@ let test_xform_stmts
     (decls : string) (l : string) (r : string) () : unit =
   try
     let (tcenv, _) = extend_tcenv globals decls in
-    let l' = LoadASL.read_stmts tcenv l in
-    let r' = LoadASL.read_stmts tcenv r in
+    let l' = LoadISA.read_stmts tcenv l in
+    let r' = LoadISA.read_stmts tcenv r in
     let x = f l' in
     let what = l ^ "\n==>\n" ^ r in
     Alcotest.check stmts what r' x
@@ -146,15 +146,15 @@ let test_xform_decl
 
     (* Handle decls *)
     let decls_env = TC.GlobalEnv.clone globals in
-    let decls = LoadASL.read_declarations_unsorted decls_env decls in
+    let decls = LoadISA.read_declarations_unsorted decls_env decls in
 
     (* Handle mono decls *)
     let decls_mono_env = TC.GlobalEnv.clone globals in
-    let _ = LoadASL.read_declarations_unsorted decls_mono_env decls_mono in
+    let _ = LoadISA.read_declarations_unsorted decls_mono_env decls_mono in
 
     (* Handle left side, actual result *)
     let l_env = TC.GlobalEnv.clone decls_env in
-    let ls = LoadASL.read_declarations_unsorted l_env l in
+    let ls = LoadISA.read_declarations_unsorted l_env l in
     let genv = Eval.build_constant_environment (decls @ ls) in
     let ls = Xform_constprop.xform_decls genv (decls @ ls) in (* Adding decls *)
     let ls = f ls in
@@ -163,7 +163,7 @@ let test_xform_decl
 
     (* Handle right side, expected result *)
     let r_env = TC.GlobalEnv.clone decls_mono_env in
-    let rs = LoadASL.read_declarations_unsorted r_env r in
+    let rs = LoadISA.read_declarations_unsorted r_env r in
     (* Retrieve expected fun/proc def of decl_name *)
     let r' = List.find (find_decl decl_name) rs in
 

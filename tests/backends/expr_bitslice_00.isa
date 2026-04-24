@@ -1,0 +1,22 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function FUT(x : Bits(4), i : Integer) -> Bit
+begin
+    return x[i +: 1];
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    // Positive numbers
+    Std::Print::Bits::Hex(FUT(4'x5, 3)); Print("\n");
+    // CHECK: 1'x0
+    Std::Print::Bits::Hex(FUT(4'x5, 2)); Print("\n");
+    // CHECK: 1'x1
+    Std::Print::Bits::Hex(FUT(4'x5, 1)); Print("\n");
+    // CHECK: 1'x0
+    Std::Print::Bits::Hex(FUT(4'x5, 0)); Print("\n");
+    // CHECK: 1'x1
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

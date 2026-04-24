@@ -1,0 +1,12 @@
+// RUN: not %iii --batchmode %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function IntFunction(x : Integer)
+begin
+end
+
+function T()
+begin
+    IntFunction(True);
+// CHECK: Type error: function arguments
+end

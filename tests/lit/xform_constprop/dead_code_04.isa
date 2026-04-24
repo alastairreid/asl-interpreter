@@ -1,0 +1,34 @@
+// RUN: %iii --batchmode --exec=:xform_lower --exec=:xform_constprop --exec=":show --format=raw FUT" %s | filecheck %s
+
+// Copyright (C) 2025-2026 Intel Corporation
+
+var B : Boolean;
+var C : Boolean;
+
+function FUT() -> Integer
+begin
+    if B then
+        return 1;
+    elsif C then
+        assert False;
+    else
+        assert True;
+    endif;
+    return 0;
+end
+
+// CHECK:       function FUT.0{}() -> Integer
+// CHECK:       begin
+// CHECK-NEXT:      if B then
+// CHECK-NEXT:          return 1;
+// CHECK-NEXT:      elsif C then
+// CHECK-NEXT:          assert False;
+// CHECK-NEXT:      endif;
+// CHECK-NEXT:      return 0;
+// CHECK-NEXT:  end
+
+function main() -> Integer
+begin
+    Std::Print::Integer::Dec(FUT());
+    return 0;
+end

@@ -1,0 +1,23 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+function F(x : Integer, y : Integer := 1, z : Integer := 2) -> Integer
+begin
+    return x * 0x100 + y * 0x10 + z;
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Integer::Hex(F(9)); Std::Print("\n");
+    // CHECK: 912
+    Std::Print::Integer::Hex(F(9, y=>4)); Std::Print("\n");
+    // CHECK: 942
+    Std::Print::Integer::Hex(F(9, z=>5)); Std::Print("\n");
+    // CHECK: 915
+    Std::Print::Integer::Hex(F(9, y=>4, z=>5)); Std::Print("\n");
+    // CHECK: 945
+    Std::Print::Integer::Hex(F(9, z=>4, y=>5)); Std::Print("\n");
+    // CHECK: 954
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

@@ -1,0 +1,89 @@
+// RUN: %aslrun %s --configuration=%S/ffi_import_01.json --extra-c=%S/ffi_import_01.c | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+// UNSUPPORTED: interpreter
+
+enumeration E = { A, B, C };
+
+// to be defined externally
+
+function FFI_null_bits8(x : Bits(8)) -> Bits(8);
+function FFI_null_bits16(x : Bits(16)) -> Bits(16);
+function FFI_null_bits32(x : Bits(32)) -> Bits(32);
+function FFI_null_bits64(x : Bits(64)) -> Bits(64);
+
+function FFI_null_bits2(x : Bits(2)) -> Bits(2);
+function FFI_null_bits17(x : Bits(17)) -> Bits(17);
+
+function FFI_null_bits65(x : Bits(65)) -> Bits(65);
+function FFI_null_bits127(x : Bits(127)) -> Bits(127);
+function FFI_null_bits128(x : Bits(128)) -> Bits(128);
+
+function FFI_null_string(x : String) -> String;
+function FFI_null_E(x : E) -> E;
+function FFI_null_Boolean(x : Boolean) -> Boolean;
+function FFI_null_integer(x : Integer) -> Integer;
+function FFI_null_sint17(x : __sint(17)) -> __sint(17);
+
+// Support for functions that return multiple values
+// is complicated by the fact that the :xform_tuples
+// transformation converts functions that return tuples
+// to functions that return records.
+// So, to support functions that return tuples in
+// the original source code, the code generation
+// backend has to support functions that return records.
+// But, in the FFI, we don't want to expose that
+// implementation detail so the corresponding C function
+// takes extra arguments for each field: each argument
+// a pointer to write the return value to.
+
+record __Return_FFI_int_bool = {
+    r0 : Integer,
+    r1 : Boolean
+};
+
+function FFI_int_bool(x : Integer) -> __Return_FFI_int_bool;
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Bits::Hex(FFI_null_bits8(8'd8)); Print("\n");
+    // CHECK: 8'x8
+    Std::Print::Bits::Hex(FFI_null_bits16(16'd16)); Print("\n");
+    // CHECK: 16'x10
+    Std::Print::Bits::Hex(FFI_null_bits32(32'd32)); Print("\n");
+    // CHECK: 32'x20
+    Std::Print::Bits::Hex(FFI_null_bits64(64'd64)); Print("\n");
+    // CHECK: 64'x40
+
+    Std::Print::Bits::Hex(FFI_null_bits2(2'd2)); Print("\n");
+    // CHECK: 2'x2
+    Std::Print::Bits::Hex(FFI_null_bits17(17'd17)); Print("\n");
+    // CHECK: 17'x11
+
+    Std::Print::Bits::Hex(FFI_null_bits65(65'd65)); Print("\n");
+    // CHECK: 65'x41
+    Std::Print::Bits::Hex(FFI_null_bits127(127'd127)); Print("\n");
+    // CHECK: 127'x7f
+    Std::Print::Bits::Hex(FFI_null_bits128(128'd128)); Print("\n");
+    // CHECK: 128'x80
+
+    Std::Print::String(FFI_null_string("abcd")); Print("\n");
+    // CHECK: abcd
+    Std::Print::Boolean(FFI_null_E(C) == C); Print("\n");
+    // CHECK: True
+    Std::Print::Boolean(FFI_null_Boolean(True)); Print("\n");
+    // CHECK: True
+    Std::Print::Integer::Dec(FFI_null_integer(42)); Print("\n");
+    // CHECK: 42
+    Std::Print::SInt::Dec(FFI_null_sint17(i17'd42)); Print("\n");
+    // CHECK: i17'd42
+
+    let ret1 := FFI_int_bool(1);
+    Std::Print::Integer::Dec(ret1.r0); Print(" "); Std::Print::Boolean(ret1.r1); Print("\n");
+    // CHECK: 1 False
+    let ret2 := FFI_int_bool(4);
+    Std::Print::Integer::Dec(ret2.r0); Print(" "); Std::Print::Boolean(ret2.r1); Print("\n");
+    // CHECK: 4 True
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

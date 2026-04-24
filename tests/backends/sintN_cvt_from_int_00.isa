@@ -1,0 +1,21 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function FUT_8(x : Integer) -> __sint(8)
+begin
+    return Std::SInt::From_Integer(x, 8);
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::SInt::Hex(FUT_8(0x0)); Print("\n");
+    // CHECK: i8'x0
+    Std::Print::SInt::Hex(FUT_8(0x7f)); Print("\n");
+    // CHECK: i8'x7f
+    Std::Print::SInt::Hex(FUT_8(-0x1)); Print("\n");
+    // CHECK: -i8'x1
+    Std::Print::SInt::Hex(FUT_8(-0x80)); Print("\n");
+    // CHECK: -i8'x80
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

@@ -1,0 +1,45 @@
+// RUN: %iii --batchmode --exec=":xform_lower" --exec=":xform_constprop" "--exec=:xform_monomorphize" --exec=":show Reduce_n_4*" --exec=":show Reduce_n_2*" --exec=":show Reduce_n_1*" %s | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+function Reduce(x : Bits(n * esize), esize : Integer, n : Integer) -> Bits(esize)
+begin
+    if n == 1 then
+        return x[0 +: esize];
+    else
+        let n1 := n / 2; // size of bottom part
+        let n2 := n - n1; // size of top part
+        let result1 := Reduce(x[0 +: n1*esize], esize, n1);
+        let result2 := Reduce(x[n1*esize +: n2*esize], esize, n2);
+        return result1 + result2;
+    end;
+end
+
+optimize function Reduce with {esize => _, n => _};
+
+// CHECK: function Reduce_n_4_esize_32.0{}(x : Bits(128)) -> Bits(32)
+// CHECK: begin
+// CHECK:     let n1 : Integer := 2;
+// CHECK:     let n2 : Integer := 2;
+// CHECK:     let result1 : Bits(32) := Reduce_n_2_esize_32.0(x[0 +: 64]);
+// CHECK:     let result2 : Bits(32) := Reduce_n_2_esize_32.0(x[64 +: 64]);
+// CHECK:     return result1 + result2;
+// CHECK: end
+
+// CHECK: function Reduce_n_2_esize_32.0{}(x : Bits(64)) -> Bits(32)
+// CHECK: begin
+// CHECK:     let n1 : Integer := 1;
+// CHECK:     let n2 : Integer := 1;
+// CHECK:     let result1 : Bits(32) := Reduce_n_1_esize_32.0(x[0 +: 32]);
+// CHECK:     let result2 : Bits(32) := Reduce_n_1_esize_32.0(x[32 +: 32]);
+// CHECK:     return result1 + result2;
+// CHECK: end
+
+// CHECK: function Reduce_n_1_esize_32.0{}(x : Bits(32)) -> Bits(32)
+// CHECK: begin
+// CHECK:     return x[0 +: 32];
+// CHECK: end
+
+function FUT1(x : Bits(128)) -> Bits(32)
+begin
+    return Reduce(x, 32, 4);
+end

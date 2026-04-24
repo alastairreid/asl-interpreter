@@ -1,0 +1,33 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+enumeration E = { R, G, B };
+
+function Test_eq(x : E) -> Boolean
+begin
+    return x == R;
+end
+
+function Test_ne(x : E) -> Boolean
+begin
+    return x != R;
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Boolean(Test_eq(R)); Std::Print::String("\n");
+    // CHECK: True
+    Std::Print::Boolean(Test_eq(G)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(Test_eq(B)); Std::Print::String("\n");
+    // CHECK: False
+
+    Std::Print::Boolean(Test_ne(R)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(Test_ne(G)); Std::Print::String("\n");
+    // CHECK: True
+    Std::Print::Boolean(Test_ne(B)); Std::Print::String("\n");
+    // CHECK: True
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

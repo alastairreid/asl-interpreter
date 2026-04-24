@@ -1,0 +1,14 @@
+// RUN: %iii --batchmode --exec=:xform_desugar --exec=":show --format=raw FUT" %s | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+function FUT(a : Bits(1), b : Bits(2), c : Bits(3), d : Bits(4))
+begin
+    let r1 := a ++ b;
+    // CHECK: let r1 : Bits(Std::Integer::Add.0{}(1, 2)) := {1, 2}[a, b];
+
+    let r2 := a ++ b ++ c;
+    // CHECK: let r2 : Bits(Std::Integer::Add.0{}(Std::Integer::Add.0{}(1, 2), 3)) := {1, 2, 3}[a, b, c];
+
+    let r3 := (a ++ b) ++ (c ++ d);
+    // CHECK: let r3 : Bits(Std::Integer::Add.0{}(Std::Integer::Add.0{}(1, 2), Std::Integer::Add.0{}(3, 4))) := {1, 2, 3, 4}[a, b, c, d];
+end

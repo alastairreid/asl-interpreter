@@ -1,0 +1,22 @@
+// RUN: not %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+// UNSUPPORTED: interpreter
+
+function Test(x : Integer) -> Integer
+begin
+    case x of
+        when 0x1_0000_0000_0000_0000 => return 1;
+        // CHECK: Unimplemented large (> 64 bit) integer pattern
+        otherwise => return 10;
+    end;
+    return 20; // unreachable
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Integer::Dec(Test(-1)); Print("\n");
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end
+

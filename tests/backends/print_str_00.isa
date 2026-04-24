@@ -1,0 +1,11 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::String("Hello, world!");
+    // CHECK: Hello, world!
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end
+

@@ -1,0 +1,10 @@
+// RUN: not %iii --batchmode %s | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+function F(x : Integer, y : Integer := 0, z : Integer);
+
+function main() -> Integer
+begin
+    F(0, 1, z=>2, z=>3);
+    // CHECK: Type error: multiple bindings for argument 'z'
+end

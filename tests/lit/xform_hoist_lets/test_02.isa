@@ -1,0 +1,19 @@
+// RUN: %iii --batchmode --exec=:xform_hoist_lets --exec=":show --format=raw FUT" %s | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+function FUT(x : Bits(32), i : {0..32}) -> Boolean
+begin
+    // A variant of the original motivating example that prevented use
+    // of a transformation that looked for "Is_Zero(x[_ +: _])"
+    return Is_Zero(__let wd : Integer := 32-i __in
+                  __let ix : Integer := 31-i __in
+                  __assert 0 <= ix and then ix < 32 __in
+                  __assert 0 <= wd and then ix + wd <= 32 __in
+                  x[ix +: wd]);
+end
+
+// CHECK: let wd : Integer := Std::Integer::Subtract.0{}(32, i);
+// CHECK: let ix : Integer := Std::Integer::Subtract.0{}(31, i);
+// CHECK: assert Std::Boolean::Lazy_And.0{}(Std::Integer::Le.0{}(0, ix), Std::Integer::Lt.0{}(ix, 32));
+// CHECK: assert Std::Boolean::Lazy_And.0{}(Std::Integer::Le.0{}(0, wd), Std::Integer::Le.0{}(Std::Integer::Add.0{}(ix, wd), 32));
+// CHECK: return Std::Bits::Is_Zero.0{wd}({Bits(32)}x[ix +: wd]);

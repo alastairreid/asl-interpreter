@@ -1,0 +1,8 @@
+// RUN: not %iii --batchmode %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function F(x : Boolean) -> Integer
+begin
+    return x;
+// CHECK: Type error: type Integer does not match Boolean
+end

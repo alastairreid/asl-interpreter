@@ -1,0 +1,26 @@
+// RUN: %aslrun %s --transform-foreign --extra-c=%S/ffi_export_02.c | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+// UNSUPPORTED: interpreter
+
+// Functions which allow reading/writing the exported variable from C will be
+// generated. The names of the functions are derived from the variable name
+// by adding _Read or _Write suffixes.
+
+// Helper function imported from C
+function Helper() -> ();
+foreign import function "Helper" = Helper with {};
+
+var v : Integer;
+
+foreign export var "v" = v;
+
+function main() -> Builtin::Foreign::CInt
+begin
+    v := 1;
+    Helper();
+    Std::Print::Integer::Dec(v); Print("\n");
+    // CHECK: 2
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

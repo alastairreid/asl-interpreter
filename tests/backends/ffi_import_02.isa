@@ -1,0 +1,29 @@
+// RUN: %aslrun %s --transform-foreign --extra-c=%S/ffi_import_02.c | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+// UNSUPPORTED: interpreter
+
+// Uses of the imported variables will be replaced by calls to
+// functions defined externally. The names of the functions
+// are derived from the variable names by adding _Read or _Write
+// suffixes. For array variables, the index is passed as an
+// additional argument.
+
+var v1 : Integer;
+var v2 : array [1] of Integer;
+
+foreign import var "v1" = v1;
+foreign import var "v2" = v2;
+
+function main() -> Builtin::Foreign::CInt
+begin
+    v1 := 1;
+    Std::Print::Integer::Dec(v1); Print("\n");
+    // CHECK: 3
+
+    v2[0] := 1;
+    Std::Print::Integer::Dec(v2[0]); Print("\n");
+    // CHECK: 3
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

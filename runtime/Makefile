@@ -1,8 +1,8 @@
 ################################################################
 # ASL runtime Makefile
 #
-# Copyright (C) 2023-2025 Intel Corporation
-# SPDX-Licence-Identifier: BSD-3-Clause
+# Copyright (C) 2023-2026 Intel Corporation
+# SPDX-License-Identifier: BSD-3-Clause
 ################################################################
 
 .PHONY: default all clean test
@@ -12,19 +12,27 @@ LIB := $(BUILD_DIR)/libASL.a
 
 default: $(LIB)
 
-AR ?= ar
-CC ?= gcc
+ifeq ($(origin AR),default)
+  AR = ar
+endif
+ifeq ($(origin CC),default)
+  CC = gcc
+endif
 CPPFLAGS = -Iinclude
 CFLAGS = -g -Wall -Werror -Wconversion -std=c99 -fPIC
 OBJEXT ?= o
 
-C_FILES = bits1024.c \
+C_FILES = bits8192.c \
+          bits4096.c \
+          bits2048.c \
+          bits1024.c \
           bits128.c \
           bits256.c \
           bits512.c \
           bits64.c \
           error.c \
           end_of_execution.c \
+          info.c \
           ram.c
 
 OBJ_FILES = $(C_FILES:%.c=$(BUILD_DIR)/%.$(OBJEXT))

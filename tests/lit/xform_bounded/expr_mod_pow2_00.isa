@@ -1,0 +1,21 @@
+// RUN: %aslopt -O0 -Obounded %s | filecheck --check-prefix=XFORM %s
+// RUN: %aslrun -Obounded %s | filecheck %s
+
+// Copyright (C) 2024-2026 Intel Corporation
+
+function FUT(x : {0..14}, y : {0..2}) -> {0..3}
+begin
+    return Std::Integer::Mod_Power_Of_Two(x, y);
+end
+
+// XFORM-LABEL: function FUT.0{}(x : __sint(5), y : __sint(3)) -> __sint(3){{$}}
+// XFORM-NEXT:  begin
+// XFORM-NEXT:      return Std::SInt::Resize.0{5, 3}(Std::SInt::Mod_Power_Of_Two.0{5}(x, Std::SInt::Resize.0{3, 5}(y, 5)), 3);
+// XFORM-NEXT:  end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Integer::Dec(FUT(13, 2));
+    // CHECK: 1
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

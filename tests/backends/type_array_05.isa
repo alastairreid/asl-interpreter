@@ -1,0 +1,17 @@
+// RUN: not %aslrun --runtime-checks %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+var R : array [3] of Bits(32);
+
+function FUT(i : Integer, x : Bits(32))
+begin
+    R[i] := x;
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    FUT(4, Std::Bits::Zero(32));
+    // CHECK: Evaluation error: assertion failure
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

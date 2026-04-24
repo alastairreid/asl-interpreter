@@ -1,0 +1,8 @@
+// RUN: not %iii --batchmode %s | filecheck %s
+// Copyright (C) 2026-2026 Intel Corporation
+
+function F(x : array [1] of Integer)
+begin
+    Std::Info(1, "x ={variable");
+    // CHECK: Type error: Error in format string: expected '}' in format string, got "variable"
+end

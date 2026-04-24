@@ -1,0 +1,13 @@
+// RUN: not %iii --batchmode %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+record R = {
+    x : Integer,
+    y : Integer
+};
+
+function F() -> R
+begin
+    return R{x => 1};
+// CHECK: Type error: record initializer is missing field[s] y and/or has extra field[s]
+end

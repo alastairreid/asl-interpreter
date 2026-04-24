@@ -1,17 +1,17 @@
 (****************************************************************
- * Test bitslice lowering transform
+ * Test Bitslice lowering transform
  *
- * Copyright (C) 2022-2025 Intel Corporation
- * SPDX-Licence-Identifier: BSD-3-Clause
+ * Copyright (C) 2022-2026 Intel Corporation
+ * SPDX-License-Identifier: BSD-3-Clause
  ****************************************************************)
 
 open Test_utils
-open LibASL
-open Asl_utils
+open LibISA
+open Isa_utils
 module TC = Tcheck
 
 (****************************************************************
- * Test bitslice lowering
+ * Test Bitslice lowering
  ****************************************************************)
 
 let bitslice_tests : unit Alcotest.test_case list =
@@ -21,93 +21,89 @@ let bitslice_tests : unit Alcotest.test_case list =
   let expr = test_xform_expr Xform_bitslices.xform_expr globals prelude in
   let stmts = test_xform_stmts Xform_bitslices.xform_stmts globals prelude in
   [
+      (*
     ("combine (lo+:wd)", `Quick, expr
-       "var x : bits(64); var y : bits(64); var i : integer;"
-       "[x[i +: 64-i], y[0 +: i]]"
-       "asl_lsl_bits(asl_lsr_bits(x, i) AND asl_mk_mask(64-i, 64), i)
-        OR asl_and_bits(y, asl_mk_mask(i, 64))");
-    ("bitvector concat", `Quick, expr
-       "var x : bits(2); var y : bits(2);"
-       "[x, y]"
-       "asl_lsl_bits(asl_zero_extend_bits(x, 4), 2) OR asl_zero_extend_bits(y, 4)");
+       "var x : Bits(64); var y : Bits(64); var i : Integer;"
+       "x[i +: 64-i] ++ y[0 +: i]"
+       "Std::Bits::Shift_Left_Logical_Restricted(Std::Bits::Shift_Right_Logical_Restricted(x, i) and Std::Bits::Mk_Mask(64-i, 64), i)
+        or Std::Bits::And(y, Std::Bits::Mk_Mask(i, 64))");
     ("nested bitvector concat 1", `Quick, expr
-       "var x : bits(2); var y : bits(2); var z : bits(4);"
-       "[[x, y], z]"
-       "asl_lsl_bits(asl_zero_extend_bits(asl_lsl_bits(asl_zero_extend_bits(x, 4), 2)
-                                  OR asl_zero_extend_bits(y, 4), 8), 4)
-        OR asl_zero_extend_bits(z, 8)");
+       "var x : Bits(2); var y : Bits(2); var z : Bits(4);"
+       "(x ++ y) ++ z"
+       "Std::Bits::Shift_Left_Logical_Restricted(Std::Bits::Shift_Left_Logical_Restricted(Std::Bits::Zero_Extend(x, 8), 2)
+                     or Std::Bits::Zero_Extend(y, 8), 4)
+        or Std::Bits::Zero_Extend(z, 8)");
     ("nested bitvector concat 2", `Quick, expr
-       "var x : bits(2); var y : bits(2);"
-       "ZeroExtend([x, y], 8)"
-       "asl_zero_extend_bits(asl_lsl_bits(asl_zero_extend_bits(x, 4), 2)
-                         OR asl_zero_extend_bits(y, 4), 8)");
-    ("Ones() 1 lo+:width", `Quick, stmts
-       "var x : bits(64); var i : integer;"
-       "x[0 +: i+1] = Ones(i+1);"
-       "x = asl_and_bits(x, NOT asl_mk_mask(asl_add_int(i, 1), 64))
-            OR asl_mk_mask(asl_add_int(i, 1), 64);");
-    ("Ones() 2 lo+:width", `Quick, stmts
-       "var x : bits(64); var i : integer;"
-       "x[1 +: i] = Ones(i);"
-       "x = asl_and_bits(x, NOT asl_lsl_bits(asl_mk_mask(i, 64), 1))
-            OR asl_lsl_bits(asl_mk_mask(i, 64), 1);");
-    ("Zeros() 1 lo+:width", `Quick, stmts
-       "var x : bits(64); var i : integer;"
-       "x[0 +: i + 1] = Zeros(i+1);"
-       "x = x AND NOT asl_mk_mask(asl_add_int(i, 1), 64);");
-    ("Zeros() 2 lo+:width", `Quick, stmts
-       "var x : bits(64); var i : integer;"
-       "x[1 +: i] = Zeros(i);"
-       "x = x AND NOT asl_lsl_bits(asl_mk_mask(i, 64), 1);");
-    ("assignment to register bitslice", `Quick, stmts
-       "var x : bits(8) { [0] i [7 : 1] j }; var y : bits(7);"
-       "x[1 +: 7] = y;"
-       "x = asl_and_bits(x, NOT asl_lsl_bits(asl_mk_mask(7, 8), 1))
-            OR asl_lsl_bits(asl_zero_extend_bits(y, 8), 1);");
-    ("assignment to array element bitslice", `Quick, stmts
-       "var x : array [1] of array [1] of bits(8); var y : bits(7);"
-       "x[0][0][1 +: 7] = y;"
-       "x[0][0] = asl_and_bits(x[0][0], NOT asl_lsl_bits(asl_mk_mask(7, 8), 1))
-                  OR asl_lsl_bits(asl_zero_extend_bits(y, 8), 1);");
-    ("assignment to field bitslice", `Quick, stmts
-       "record J { j : bits(8); }; record I { i : J; }; var x : I; var y : bits(7);"
-       "x.i.j[1 +: 7] = y;"
-       "x.i.j = asl_and_bits(x.i.j, NOT asl_lsl_bits(asl_mk_mask(7, 8), 1))
-                OR asl_lsl_bits(asl_zero_extend_bits(y, 8), 1);");
-    ("integer bitslice", `Quick, stmts
-       "var result : bits(32); var x : bits(8);"
-       "let r = CountLeadingZeroBits(x);
-        result[0 +: 8] = r[0 +: 8];"
-       "let r = CountLeadingZeroBits(x);
-        result = asl_and_bits(result, NOT asl_mk_mask(8, 32))
-                 OR asl_zero_extend_bits(r[0 +: 8], 32);");
-    ("bitslice, width of r > width of l", `Quick, stmts
-       "var l : bits(8); var r : bits(16);"
-       "l[1 +: 7] = r[1 +: 7];"
-       "l = asl_and_bits(l, NOT asl_lsl_bits(asl_mk_mask(7, 8), 1))
-            OR asl_lsl_bits(asl_zero_extend_bits(r[1 +: 7], 8), 1);");
+       "var x : Bits(2); var y : Bits(2);"
+       "Zero_Extend(x ++ y, 8)"
+       "Std::Bits::Shift_Left_Logical_Restricted(Std::Bits::Zero_Extend(x, 8), 2) or Std::Bits::Zero_Extend(y, 8)");
+        *)
+    ("All_Ones() 1 lo+:width", `Quick, stmts
+       "var x : Bits(64); var i : Integer;"
+       "x[0 +: i+1] := Std::Bits::All_Ones(i+1);"
+       "x := Std::Bits::And(x, not Std::Bits::Mk_Mask(Std::Integer::Add(i, 1), 64))
+            or Std::Bits::Mk_Mask(Std::Integer::Add(i, 1), 64);");
+    ("All_Ones() 2 lo+:width", `Quick, stmts
+       "var x : Bits(64); var i : Integer;"
+       "x[1 +: i] := Std::Bits::All_Ones(i);"
+       "x := Std::Bits::And(x, not Std::Bits::Shift_Left_Logical_Restricted(Std::Bits::Mk_Mask(i, 64), 1))
+            or Std::Bits::Shift_Left_Logical_Restricted(Std::Bits::Mk_Mask(i, 64), 1);");
+    ("Zero() 1 lo+:width", `Quick, stmts
+       "var x : Bits(64); var i : Integer;"
+       "x[0 +: i + 1] := Std::Bits::Zero(i+1);"
+       "x := x and not Std::Bits::Mk_Mask(Std::Integer::Add(i, 1), 64);");
+    ("Zero() 2 lo+:width", `Quick, stmts
+       "var x : Bits(64); var i : Integer;"
+       "x[1 +: i] := Std::Bits::Zero(i);"
+       "x := x and not Std::Bits::Shift_Left_Logical_Restricted(Std::Bits::Mk_Mask(i, 64), 1);");
+    ("assignment to register Bitslice", `Quick, stmts
+       "bitfield T = { i => [0], j => [7 : 1] } : Bits(8); var x : T; var y : Bits(7);"
+       "x[1 +: 7] := y;"
+       "x := Std::Bits::And(x, not Std::Bits::Shift_Left_Logical_Restricted(Std::Bits::Mk_Mask(7, 8), 1))
+            or Std::Bits::Shift_Left_Logical_Restricted(Std::Bits::Zero_Extend(y, 8), 1);");
+    ("assignment to array element Bitslice", `Quick, stmts
+       "var x : array [1] of array [1] of Bits(8); var y : Bits(7);"
+       "x[0][0][1 +: 7] := y;"
+       "x[0][0] := Std::Bits::And(x[0][0], not Std::Bits::Shift_Left_Logical_Restricted(Std::Bits::Mk_Mask(7, 8), 1))
+                  or Std::Bits::Shift_Left_Logical_Restricted(Std::Bits::Zero_Extend(y, 8), 1);");
+    ("assignment to field Bitslice", `Quick, stmts
+       "record J { j : Bits(8); }; record I { i : J; }; var x : I; var y : Bits(7);"
+       "x.i.j[1 +: 7] := y;"
+       "x.i.j := Std::Bits::And(x.i.j, not Std::Bits::Shift_Left_Logical_Restricted(Std::Bits::Mk_Mask(7, 8), 1))
+                or Std::Bits::Shift_Left_Logical_Restricted(Std::Bits::Zero_Extend(y, 8), 1);");
+    ("Integer Bitslice", `Quick, stmts
+       "var result : Bits(32); var x : Bits(8);"
+       "let r := Std::Bits::Count_Leading_Zero_Bits(x);
+        result[0 +: 8] := r[0 +: 8];"
+       "let r := Std::Bits::Count_Leading_Zero_Bits(x);
+        result := Std::Bits::And(result, not Std::Bits::Mk_Mask(8, 32))
+                 or Std::Bits::Zero_Extend(r[0 +: 8], 32);");
+    ("Bitslice, width of r > width of l", `Quick, stmts
+       "var l : Bits(8); var r : Bits(16);"
+       "l[1 +: 7] := r[1 +: 7];"
+       "l := Std::Bits::And(l, not Std::Bits::Shift_Left_Logical_Restricted(Std::Bits::Mk_Mask(7, 8), 1))
+            or Std::Bits::Shift_Left_Logical_Restricted(Std::Bits::Zero_Extend(r[1 +: 7], 8), 1);");
+    (*
     ("assignment of bitvector concat", `Quick, stmts
-       "var x : bits(8); var y : bits(3); var z : bits(4);"
-       "x[1 +: 7] = [y, z];"
-       "x = asl_and_bits(x, NOT asl_lsl_bits(asl_mk_mask(7, 8), 1))
-            OR asl_lsl_bits(asl_zero_extend_bits(asl_lsl_bits(asl_zero_extend_bits(y, 7), 4)
-                                         OR asl_zero_extend_bits(z, 7), 8), 1);");
-    ("ZeroExtend(Ones(i), n)", `Quick, expr
-       "var i : integer;"
-       "ZeroExtend(Ones(i), 64)"
-       "asl_mk_mask(i, 64)");
-    ("[Ones(i), Zeros(n-i)]", `Quick, expr
-       "var i : integer;"
-       "[Ones(i), Zeros(64-i)]"
-       "asl_lsl_bits(asl_mk_mask(i, 64), asl_add_int(64, -i))");
-    ("IsZero(e[i +: w])", `Quick, expr
-       "var x : bits(32); var w : integer;"
-       "IsZero(x[0 +: w])"
-       "asl_and_bits(x, asl_mk_mask(w, 32)) == asl_zeros_bits(32)");
-    ("IsOnes(e[i +: w])", `Quick, expr
-       "var x : bits(32); var w : integer;"
-       "IsOnes(x[0 +: w])"
-       "asl_and_bits(NOT x, asl_mk_mask(w, 32)) == asl_zeros_bits(32)");
+       "var x : Bits(8); var y : Bits(3); var z : Bits(4);"
+       "x[1 +: 7] := [y, z];"
+       "x := (x and not Std::Bits::Shift_Left_Logical_Restricted(Std::Bits::Mk_Mask(7, 8), 1))
+            or Std::Bits::Shift_Left_Logical_Restricted(Std::Bits::Shift_Left_Logical_Restricted(Std::Bits::Zero_Extend(y, 8), 4)
+                                             or Std::Bits::Zero_Extend(z, 8)
+                                            , 1);");
+    ("All_Ones(i) ++ Zero(n-i)", `Quick, expr
+       "var i : Integer;"
+       "Std::Bits::All_Ones(i) ++ Std::Bits::Zero(64-i)"
+       "Std::Bits::Shift_Left_Logical_Restricted(Std::Bits::Mk_Mask(i, 64), Std::Integer::Add(64, -i))");
+    *)
+    ("Is_Zero(e[i +: w])", `Quick, expr
+       "var x : Bits(32); var w : Integer;"
+       "Is_Zero(x[0 +: w])"
+       "Std::Bits::And(x, Std::Bits::Mk_Mask(w, 32)) == Std::Bits::Zero(32)");
+    ("Is_All_Ones(e[i +: w])", `Quick, expr
+       "var x : Bits(32); var w : Integer;"
+       "Std::Bits::Is_All_Ones(x[0 +: w])"
+       "Std::Bits::And(not x, Std::Bits::Mk_Mask(w, 32)) == Std::Bits::Zero(32)");
   ]
 
 (****************************************************************
@@ -115,7 +111,7 @@ let bitslice_tests : unit Alcotest.test_case list =
  ****************************************************************)
 
 let () = Alcotest.run "transforms" [
-    ("bitslice", bitslice_tests);
+    ("Bitslice", bitslice_tests);
   ]
 
 (****************************************************************

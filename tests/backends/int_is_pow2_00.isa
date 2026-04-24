@@ -1,0 +1,22 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function Test(x : Integer) -> Boolean
+begin
+    return Is_Power_Of_Two(x);
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Boolean(Test(0)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(Test(1)); Std::Print::String("\n");
+    // CHECK: True
+    Std::Print::Boolean(Test(2)); Std::Print::String("\n");
+    // CHECK: True
+    Std::Print::Boolean(Test(3)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(Test(4)); Std::Print::String("\n");
+    // CHECK: True
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

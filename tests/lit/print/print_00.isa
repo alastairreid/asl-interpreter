@@ -1,0 +1,19 @@
+// RUN: %iii --batchmode --runtime-checks --exec=":show --format=raw FUT*" %s | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+function FUT1(x : Bits(4), y : Integer, z : String, b : Boolean)
+begin
+    Print("x={x} y={y} z={z} b={b}");
+end
+
+// CHECK:      function FUT1.0{}(x : Bits(4), y : Integer, z : String, b : Boolean)
+// CHECK_NEXT: begin
+// CHECK_NEXT:     print_str.0("x=");
+// CHECK_NEXT:     print_bits_hex.0(x);
+// CHECK_NEXT:     print_str.0(" y=");
+// CHECK_NEXT:     Std::Print::Integer::Dec.0(y);
+// CHECK_NEXT:     print_str.0(" z=");
+// CHECK_NEXT:     print_str.0(z);
+// CHECK_NEXT:     print_str.0(" b=");
+// CHECK_NEXT:     builtin_print_bool.0(b);
+// CHECK_NEXT: end;

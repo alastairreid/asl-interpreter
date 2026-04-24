@@ -1,0 +1,27 @@
+// RUN: not %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+exception E0 ;
+exception E1 = { payload : Boolean };
+
+function FUT?(x : Integer) -> Integer
+begin
+    if x == 0 then
+        throw E0;
+    elsif x == 1 then
+        throw E1{ payload=>True };
+    elsif x == 2 then
+        throw E1{ payload=>False };
+    else
+        return 42;
+    end;
+    return -1;
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Integer::Dec(FUT?(0)); Print("\n");
+    // CHECK: ISA error: uncaught exception
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

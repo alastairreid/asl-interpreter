@@ -1,0 +1,36 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function Test_8_4(x : Bits(8), i : Integer, y : Bits(4)) -> Bits(8)
+begin
+    var r := x;
+    r[i +: 4] := y;
+    return r;
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Bits::Hex(Test_8_4(0b0000_0000, 0, 0b1111)); Print("\n");
+    // CHECK: 8'xf
+    Std::Print::Bits::Hex(Test_8_4(0b0000_0000, 1, 0b1111)); Print("\n");
+    // CHECK: 8'x1e
+    Std::Print::Bits::Hex(Test_8_4(0b0000_0000, 2, 0b1111)); Print("\n");
+    // CHECK: 8'x3c
+    Std::Print::Bits::Hex(Test_8_4(0b0000_0000, 3, 0b1111)); Print("\n");
+    // CHECK: 8'x78
+    Std::Print::Bits::Hex(Test_8_4(0b0000_0000, 4, 0b1111)); Print("\n");
+    // CHECK: 8'xf0
+
+    Std::Print::Bits::Hex(Test_8_4(0b1111_1111, 0, 0b0000)); Print("\n");
+    // CHECK: 8'xf0
+    Std::Print::Bits::Hex(Test_8_4(0b1111_1111, 1, 0b0000)); Print("\n");
+    // CHECK: 8'xe1
+    Std::Print::Bits::Hex(Test_8_4(0b1111_1111, 2, 0b0000)); Print("\n");
+    // CHECK: 8'xc3
+    Std::Print::Bits::Hex(Test_8_4(0b1111_1111, 3, 0b0000)); Print("\n");
+    // CHECK: 8'x87
+    Std::Print::Bits::Hex(Test_8_4(0b1111_1111, 4, 0b0000)); Print("\n");
+    // CHECK: 8'xf
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

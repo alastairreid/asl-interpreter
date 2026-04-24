@@ -1,17 +1,17 @@
 (****************************************************************
- * Test integer bitslicing transform
+ * Test Integer Bitslicing transform
  *
- * Copyright (C) 2023-2025 Intel Corporation
- * SPDX-Licence-Identifier: BSD-3-Clause
+ * Copyright (C) 2023-2026 Intel Corporation
+ * SPDX-License-Identifier: BSD-3-Clause
  ****************************************************************)
 
 open Test_utils
-open LibASL
-open Asl_utils
+open LibISA
+open Isa_utils
 module TC = Tcheck
 
 (****************************************************************
- * Test integer bitslicing
+ * Test Integer Bitslicing
  ****************************************************************)
 
 let int_bitslice_tests : unit Alcotest.test_case list =
@@ -20,10 +20,10 @@ let int_bitslice_tests : unit Alcotest.test_case list =
   let globals = TC.env0 in
   let expr = test_xform_expr Xform_int_bitslices.xform_expr globals prelude in
   [
-    ("integer bitslice", `Quick, expr
-       "var x : integer; var i : integer;"
+    ("Integer Bitslice", `Quick, expr
+       "var x : Integer; var i : Integer;"
        "x[i +: 8]"
-       "asl_cvt_int_bits(x, i + 8)[i +: 8]");
+       "Std::Bits::From_Integer(x, i + 8)[i +: 8]");
   ]
 
 (****************************************************************

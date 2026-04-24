@@ -1,3 +1,5 @@
 profile = default
 version = 0.21.0
+
+leading-nested-match-parens = true
 wrap-comments = true

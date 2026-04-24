@@ -1,0 +1,26 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function FUT(x : Boolean)
+begin
+    Std::Print::String("A"); Std::Print::String("\n");
+    if x then
+        return;
+    end;
+    // next statement not reached if x
+    Std::Print::String("B"); Std::Print::String("\n");
+    return;
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    FUT(True);
+    // CHECK: A
+    // CHECK-NOT: B
+    FUT(False);
+    // CHECK: A
+    // CHECK: B
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end
+

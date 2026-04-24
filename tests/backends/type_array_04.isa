@@ -1,0 +1,22 @@
+// RUN: not %aslrun --runtime-checks %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+var R : array [4] of Bits(32);
+
+function FUT(i : Integer) -> Bits(32)
+begin
+    return R[i];
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    R[0] := 10[0 +: 32];
+    R[1] := 11[0 +: 32];
+    R[2] := 12[0 +: 32];
+    R[3] := 13[0 +: 32];
+
+    Std::Print::Bits::Hex(FUT(-1)); Print("\n");
+    // CHECK: Evaluation error: assertion failure
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

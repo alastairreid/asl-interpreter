@@ -1,0 +1,26 @@
+// RUN: %iii --batchmode --exec=:xform_foreign --exec=":show --format=raw" %s | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+var v : array [1] of Integer;
+
+foreign import var "v" = v;
+
+function F() -> Integer
+begin
+    v[0] := 1;
+    return v[0];
+end
+
+// CHECK-NOT: var v : Integer;
+// CHECK:     function v_Read.0{}(i : Integer) -> Integer;
+// CHECK:     function v_Write.0{}(i : Integer, value : Integer) -> ();
+
+// CHECK-NOT: foreign import var "v" = v;
+// CHECK:     foreign import function "v_Read" = v_Read.0 with {};
+// CHECK:     foreign import function "v_Write" = v_Write.0 with {};
+
+// CHECK:               function F.0{}() -> Integer{{$}}
+// CHECK-NEXT:          begin
+// CHECK-NEXT:              v_Write.0{}(0, 1);
+// CHECK-NEXT:              return v_Read.0{}(0);
+// CHECK-NEXT:          end

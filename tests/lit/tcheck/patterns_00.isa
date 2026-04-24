@@ -1,0 +1,13 @@
+// RUN: not %iii --batchmode %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+var X : Integer;
+
+function F(x : Integer) -> Boolean
+begin
+    case x of
+        when X => return True;
+        otherwise => return False;
+    end;
+// CHECK: Type error: pattern match of `X` should be a constant.
+end

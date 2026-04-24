@@ -1,0 +1,8 @@
+// RUN: not %iii --batchmode %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function F(x : Integer)
+begin
+    x := 1;
+// CHECK: Type error: assignment to immutable variable `x` declared at
+end

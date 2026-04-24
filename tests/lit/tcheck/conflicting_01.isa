@@ -1,0 +1,5 @@
+// RUN: %iii --batchmode %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function F();
+function F(x : Integer);

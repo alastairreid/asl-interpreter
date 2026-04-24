@@ -10,9 +10,9 @@
         (copy build/libASL.a libASL.a)))))
 
 (install
- (section (site (asli runtime)))
- (files libASL.a))
+ (section lib)
+ (files (libASL.a as runtime/libASL.a)))
 
 (install
-  (section (site (asli runtime_include)))
-  (files (glob_files (include/asl/*.h* with_prefix asl))))
+  (section lib)
+  (files (glob_files (include/asl/*.h* with_prefix runtime_include/asl))))

@@ -1,0 +1,27 @@
+// RUN: %iii --batchmode --exec=:xform_lower --exec=:xform_constprop --exec=":show --format=raw FUT" %s | filecheck %s
+
+// Copyright (C) 2025-2026 Intel Corporation
+
+exception E;
+
+function Always_Throw!()
+begin
+    throw E;
+end
+
+function FUT!()
+begin
+    Always_Throw!();
+    FUT!();
+end
+
+// CHECK:       function FUT.0!{}()
+// CHECK:       begin
+// CHECK-NEXT:      Always_Throw.0!{}();
+// CHECK-NEXT:  end
+
+function main() -> Integer
+begin
+    FUT!();
+    return 0;
+end

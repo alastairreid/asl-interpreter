@@ -1,0 +1,47 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function Test_4(x : Integer, i : Integer, y : Bits(4)) -> Integer
+begin
+    var r := x;
+    r[i +: 4] := y;
+    return r;
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Integer::Hex(Test_4(0, 0, 0b1111)); Print("\n");
+    // CHECK: 0xf
+    Std::Print::Integer::Hex(Test_4(0, 1, 0b1111)); Print("\n");
+    // CHECK: 0x1e
+    Std::Print::Integer::Hex(Test_4(0, 2, 0b1111)); Print("\n");
+    // CHECK: 0x3c
+    Std::Print::Integer::Hex(Test_4(0, 3, 0b1111)); Print("\n");
+    // CHECK: 0x78
+    Std::Print::Integer::Hex(Test_4(0, 4, 0b1111)); Print("\n");
+    // CHECK: 0xf0
+
+    Std::Print::Integer::Hex(Test_4(255, 0, 0b0000)); Print("\n");
+    // CHECK: 0xf0
+    Std::Print::Integer::Hex(Test_4(255, 1, 0b0000)); Print("\n");
+    // CHECK: 0xe1
+    Std::Print::Integer::Hex(Test_4(255, 2, 0b0000)); Print("\n");
+    // CHECK: 0xc3
+    Std::Print::Integer::Hex(Test_4(255, 3, 0b0000)); Print("\n");
+    // CHECK: 0x87
+    Std::Print::Integer::Hex(Test_4(255, 4, 0b0000)); Print("\n");
+    // CHECK: 0xf
+
+    Std::Print::Integer::Dec(Test_4(-1, 0, 0b0000)); Print("\n");
+    // CHECK: -16
+    Std::Print::Integer::Dec(Test_4(-1, 1, 0b0000)); Print("\n");
+    // CHECK: -31
+    Std::Print::Integer::Dec(Test_4(-1, 2, 0b0000)); Print("\n");
+    // CHECK: -61
+    Std::Print::Integer::Dec(Test_4(-1, 3, 0b0000)); Print("\n");
+    // CHECK: -121
+    Std::Print::Integer::Dec(Test_4(-1, 4, 0b0000)); Print("\n");
+    // CHECK: -241
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

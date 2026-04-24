@@ -1,0 +1,28 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+record X = {
+  f : Bits(4),
+  g : Bits(4)
+};
+
+function Test(r : X) -> Bits(4)
+begin
+    return r.f;
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    var r1 : X;
+    r1.f := 0b0101;
+    r1.g := 0b0011;
+
+    Std::Print::Bits::Hex(Test(r1)); Print("\n");
+    // CHECK: 4'x5
+
+    let r2 := X{ f=>0b1000, g=>0b1001 };
+    Std::Print::Bits::Hex(Test(r2)); Print("\n");
+    // CHECK: 4'x8
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

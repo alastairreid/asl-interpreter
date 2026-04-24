@@ -1,0 +1,8 @@
+// RUN: not %iii --batchmode %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+record R = {
+    x : Integer,
+    x : Integer
+// CHECK: Type error: fieldname `x` is declared multiple times
+};

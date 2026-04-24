@@ -1,14 +1,14 @@
 (****************************************************************
  * Test expression simplification
  *
- * Copyright (C) 2022-2025 Intel Corporation
- * SPDX-Licence-Identifier: BSD-3-Clause
+ * Copyright (C) 2022-2026 Intel Corporation
+ * SPDX-License-Identifier: BSD-3-Clause
  ****************************************************************)
 
 open Test_utils
-open LibASL
-open Asl_utils
-module AST = Asl_ast
+open LibISA
+open Isa_utils
+module AST = Isa_ast
 module TC = Tcheck
 
 (****************************************************************
@@ -18,8 +18,8 @@ module TC = Tcheck
 let test_simplify_expr (globals : TC.GlobalEnv.t) (prelude : AST.declaration list) (decls : string)
     (l : string) (r : string) () : unit =
   let (tcenv, ds) = extend_tcenv globals decls in
-  let l' = LoadASL.read_expr tcenv Loc.Unknown l in
-  let r' = LoadASL.read_expr tcenv Loc.Unknown r in
+  let l' = LoadISA.read_expr tcenv Loc.Unknown l in
+  let r' = LoadISA.read_expr tcenv Loc.Unknown r in
   let what = l ^ " == " ^ r in
   Alcotest.check expr what r' (Xform_simplify_expr.simplify l')
 
@@ -30,21 +30,21 @@ let test_simplify_expr_id (globals : TC.GlobalEnv.t) (prelude : AST.declaration 
 let simplify_expr_tests : unit Alcotest.test_case list =
   let prelude = load_test_libraries () in
   let globals = TC.env0 in
-  let decl_x = "var x : integer;" in
-  let decl_xy = "var x : integer; var y : integer;" in
+  let decl_x = "var x : Integer;" in
+  let decl_xy = "var x : Integer; var y : Integer;" in
   [
     (* test some identities *)
     ("id_const", `Quick, test_simplify_expr_id globals prelude "" "3");
-    ("id_var", `Quick, test_simplify_expr_id globals prelude "var x : integer;" "x");
-    ("id_add_var_const", `Quick, test_simplify_expr_id globals prelude "var x : integer;" "3 + x");
+    ("id_var", `Quick, test_simplify_expr_id globals prelude "var x : Integer;" "x");
+    ("id_add_var_const", `Quick, test_simplify_expr_id globals prelude "var x : Integer;" "3 + x");
 
-    (* test that non-integer expressions are not changed *)
+    (* test that non-Integer expressions are not changed *)
     ("non_int", `Quick, test_simplify_expr_id globals prelude "" "3[0]");
-    ("non_triv", `Quick, test_simplify_expr_id globals prelude "" "1 + 2^3 + 4");
+    ("non_triv", `Quick, test_simplify_expr_id globals prelude "" "1 + 2**3 + 4");
 
     (* test that simplifications are being performed *)
     ("add_const", `Quick, test_simplify_expr globals prelude "" "1 + 1" "2");
-    ("add_const_var", `Quick, test_simplify_expr globals prelude "var x : integer;" "x + 3" "x + 3");
+    ("add_const_var", `Quick, test_simplify_expr globals prelude "var x : Integer;" "x + 3" "x + 3");
     ("add_var_var", `Quick, test_simplify_expr globals prelude decl_x "x + x" "2 * x");
     ("add_mul_add1", `Quick, test_simplify_expr globals prelude decl_x "2 * (x + 3)" "2*x + 6");
     ("add_mul_add2", `Quick, test_simplify_expr globals prelude decl_xy "2 * (x + y)" "2*x + 2*y");
@@ -59,7 +59,7 @@ let simplify_expr_tests : unit Alcotest.test_case list =
  * Main test harness
  ****************************************************************)
 
-let () = Alcotest.run "asl_utils" [
+let () = Alcotest.run "builtin_utils" [
     ("simplify_expr", simplify_expr_tests);
   ]
 

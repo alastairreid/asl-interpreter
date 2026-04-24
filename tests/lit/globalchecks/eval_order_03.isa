@@ -1,0 +1,38 @@
+// RUN: %iii --batchmode %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+var X : Integer;
+var Y : Integer;
+
+function WX() -> Integer
+begin
+    X := 1;
+    return 0;
+end
+
+function RX() -> Integer
+begin
+    return X;
+end
+
+function WY() -> Integer
+begin
+    Y := 1;
+    return 0;
+end
+
+function RY() -> Integer
+begin
+    return Y;
+end
+
+function F() -> Integer
+begin
+    // writing different globals is ok
+    let x := WX() + WY();
+    // reading and writing different globals is ok
+    let y := WX() + RY();
+    // reading the same global is ok
+    let z := RX() + RX();
+    return x + y + z;
+end

@@ -1,0 +1,33 @@
+// RUN: %iii --batchmode --runtime-checks --exec=":show --format=raw FUT*" %s | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+function FUT1(x : Bits(32), i : {0..31}) -> Bits(32)
+begin
+    return x with { [i] => All_Ones(1) };
+    // CHECK: return (__assert Std::Integer::Lt.0{}(i, 32) __in (__assert Std::Integer::Le.0{}(0, i) __in
+end
+
+function FUT2(x : Bits(32), h : {0..31}, l : {0..4}) -> Bits(32)
+begin
+    return x with { [h:l] => All_Ones(h-l+1) };
+    // CHECK: return (__assert Std::Integer::Lt.0{}(h, 32) __in (__assert Std::Integer::Le.0{}(l, Std::Integer::Add.0{}(h, 1)) __in (__assert Std::Integer::Le.0{}(0, l) __in
+end
+
+
+function FUT3(x : Bits(32), j : {0..15}, w : Integer) -> Bits(32)
+begin
+    return x with { [j+:w] => All_Ones(w) };
+    // CHECK: return (__assert Std::Integer::Le.0{}(Std::Integer::Add.0{}(j, w), 32) __in (__assert Std::Integer::Le.0{}(0, w) __in (__assert Std::Integer::Le.0{}(0, j) __in
+end
+
+function FUT4(x : Bits(32), j : {0..8}, w : Integer) -> Bits(32)
+begin
+    return x with { [j*:w] => All_Ones(w) };
+    // CHECK: return (__assert Std::Integer::Le.0{}(Std::Integer::Multiply.0{}(j, w), Std::Integer::Subtract.0{}(32, w)) __in (__assert Std::Integer::Le.0{}(0, w) __in (__assert Std::Integer::Le.0{}(0, j) __in
+end
+
+function FUT5(x : Bits(32), j : {0..15}, w : Integer) -> Bits(32)
+begin
+    return x with { [j-:w] => All_Ones(w) };
+    // CHECK: return (__assert Std::Integer::Le.0{}(w, Std::Integer::Add.0{}(j, 1)) __in (__assert Std::Integer::Le.0{}(0, w) __in (__assert Std::Integer::Lt.0{}(j, 32) __in
+end

@@ -1,0 +1,15 @@
+// RUN: %iii --batchmode --exec=":xform_monomorphize" --exec=":show Std::Bits::Zero_Extend" --exec=":show FUT" %s | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+optimize function Std::Bits::Zero_Extend with {source_size => 8, target_size => 16};
+
+function FUT(x : Bits(8)) -> Bits(16)
+begin
+    return Std::Bits::Zero_Extend(x, 16);
+end
+
+// __buildin function is not optimized
+// CHECK:      function FUT.0{}(x : Bits(8)) -> Bits(16){{$}}
+// CHECK-NEXT: begin
+// CHECK-NEXT:     return Std::Bits::Zero_Extend.0(x, 16);
+// CHECK-NEXT: end

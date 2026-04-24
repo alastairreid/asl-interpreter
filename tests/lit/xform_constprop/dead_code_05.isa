@@ -1,0 +1,42 @@
+// RUN: %iii --batchmode --exec=:xform_lower --exec=:xform_constprop --exec=":show --format=raw FUT" %s | filecheck %s
+
+// Copyright (C) 2025-2026 Intel Corporation
+
+enumeration Enum = { A, B, C };
+
+var E : Enum;
+
+function FUT() -> Integer
+begin
+    case E of
+        when A =>
+            return 1;
+        when B =>
+            return 2;
+        when C =>
+            return 3;
+        when _ =>
+            return 4;
+    endcase;
+    return 0;
+end
+
+// CHECK:       function FUT.0{}() -> Integer
+// CHECK:       begin
+// CHECK-NEXT:      case E : Enum of
+// CHECK-NEXT:          when A =>
+// CHECK-NEXT:              return 1;
+// CHECK-NEXT:          when B =>
+// CHECK-NEXT:              return 2;
+// CHECK-NEXT:          when C =>
+// CHECK-NEXT:              return 3;
+// CHECK-NEXT:          when _ =>
+// CHECK-NEXT:              return 4;
+// CHECK-NEXT:      endcase;
+// CHECK-NEXT:  end
+
+function main() -> Integer
+begin
+    Std::Print::Integer::Dec(FUT());
+    return 0;
+end

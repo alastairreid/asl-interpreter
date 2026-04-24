@@ -1,0 +1,17 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function FUT(x : __sint(8)) -> Bits(8)
+begin
+    return Std::SInt::To_Bits(x, 8);
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Bits::Hex(FUT(i8'd42)); Print("\n");
+    // CHECK: 8'x2a
+    Std::Print::Bits::Hex(FUT(-i8'd1)); Print("\n");
+    // CHECK: 8'xff
+    return Builtin::Foreign::CInt::From_Integer(0);
+end
+

@@ -1,0 +1,14 @@
+// RUN: not %aslrun --runtime-checks %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function FUT_8_4(x : Bits(8), i : Integer) -> Bits(4)
+begin
+    return x[i +: 4];
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Bits::Hex(FUT_8_4(0b1010_0101, 5)); Print("\n");
+    // CHECK: Evaluation error: assertion failure
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

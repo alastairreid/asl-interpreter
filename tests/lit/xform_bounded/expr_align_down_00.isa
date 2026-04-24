@@ -1,0 +1,25 @@
+// RUN: %aslopt -O0 -Obounded %s | filecheck --check-prefix=XFORM %s
+// RUN: %aslrun -Obounded %s | filecheck %s
+
+// Copyright (C) 2024-2026 Intel Corporation
+
+function FUT(x : {0..126}, y : {1, 2, 4}) -> {0..124}
+begin
+    return Std::Integer::Align_Down(x, y);
+end
+
+// Note: in theory, it would be sufficient to use 8-bits for the following
+// but the range analysis makes some over-approximations that leads
+// to using 9-bits for the calculation.
+
+// XFORM-LABEL: function FUT.0{}(x : __sint(8), y : __sint(4)) -> __sint(8){{$}}
+// XFORM-NEXT:  begin
+// XFORM-NEXT:      return Std::SInt::Resize.0{9, 8}(Std::SInt::Align_Down.0{9}(Std::SInt::Resize.0{8, 9}(x, 9), Std::SInt::Resize.0{4, 9}(y, 9)), 8);
+// XFORM-NEXT:  end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Integer::Dec(FUT(13, 2));
+    // CHECK: 12{{$}}
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

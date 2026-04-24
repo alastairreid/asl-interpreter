@@ -1,0 +1,8 @@
+// RUN: not %iii --batchmode %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function F(implicit N : {0..}, x : Bits(N))
+begin
+    let N := 32;
+// CHECK: Type error: variable `N` previously declared
+end

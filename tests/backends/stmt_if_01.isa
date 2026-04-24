@@ -1,0 +1,29 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function Test(x : Boolean, y : Boolean) -> Bits(4)
+begin
+    if x then
+        return 0b0001;
+    elsif y then 
+        return 0b0010;
+    else
+        return 0b0011;
+    end;
+    return 0b0100;
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Bits::Hex(Test(True, False)); Print("\n");
+    // CHECK: 4'x1
+    Std::Print::Bits::Hex(Test(True, True)); Print("\n");
+    // CHECK: 4'x1
+    Std::Print::Bits::Hex(Test(False, True)); Print("\n");
+    // CHECK: 4'x2
+    Std::Print::Bits::Hex(Test(False, False)); Print("\n");
+    // CHECK: 4'x3
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end
+

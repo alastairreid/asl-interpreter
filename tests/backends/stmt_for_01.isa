@@ -1,0 +1,23 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function Test(x : Integer) -> Integer
+begin
+    var s := 0;
+    for i := x downto 0 do
+        s := s + i;
+    end;
+    return s;
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Integer::Dec(Test(0)); Print("\n");
+    // CHECK: 0
+    Std::Print::Integer::Dec(Test(1)); Print("\n");
+    // CHECK: 1
+    Std::Print::Integer::Dec(Test(3)); Print("\n");
+    // CHECK: 6
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

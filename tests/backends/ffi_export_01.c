@@ -3,12 +3,14 @@
 // Exports a function FFI_test_exports that, for many
 // different ASL types "T":
 //
-// - calls an ASL function "FFI_{T}(x : {T}) => {T}"
+// - calls an ASL function "FFI_{T}(x : {T}) -> {T}"
 // - and prints the result
 //
-// Copyright (C) 2025-2025 Intel Corporation
+// Copyright (C) 2025-2026 Intel Corporation
 
-#include "asl_ffi.h"
+#include "isa_ffi.h"
+
+#include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -18,47 +20,43 @@ void FFI_test_exports() {
         printf("32'x%x\n", FFI_bits32(32));
         printf("64'x%lx\n", FFI_bits64(64));
 
-        uint64_t inbuf1[1];
-        uint64_t inbuf2[2];
+        printf("2'x%x\n", FFI_bits2(2));
+        printf("17'x%x\n", FFI_bits17(17));
 
-        uint64_t outbuf1[1];
-        uint64_t outbuf2[2];
+        uint64_t inbuf[2];
+        uint64_t outbuf[2];
 
-        outbuf1[0] = 17;
-        FFI_bits17(outbuf1, inbuf1);
-        printf("17'x%lx\n", inbuf1[0]);
+        outbuf[0] = 65;
+        outbuf[1] = 0;
+        FFI_bits65(outbuf, inbuf);
+        printf("65'x%" PRIx64 "_%016" PRIx64 "\n", inbuf[1], inbuf[0]);
 
-        outbuf2[0] = 65;
-        outbuf2[1] = 0;
-        FFI_bits65(outbuf2, inbuf2);
-        printf("65'x%lx%08lx\n", inbuf2[1], inbuf2[0]);
+        outbuf[0] = 127;
+        outbuf[1] = 0;
+        FFI_bits65(outbuf, inbuf);
+        printf("127'x%" PRIx64 "_%016" PRIx64 "\n", inbuf[1], inbuf[0]);
 
-        outbuf2[0] = 127;
-        outbuf2[1] = 0;
-        FFI_bits65(outbuf2, inbuf2);
-        printf("127'x%lx%08lx\n", inbuf2[1], inbuf2[0]);
-
-        outbuf2[0] = 128;
-        outbuf2[1] = 0;
-        FFI_bits65(outbuf2, inbuf2);
-        printf("128'x%lx%08lx\n", inbuf2[1], inbuf2[0]);
+        outbuf[0] = 128;
+        outbuf[1] = 0;
+        FFI_bits65(outbuf, inbuf);
+        printf("128'x%" PRIx64 "_%016" PRIx64 "\n", inbuf[1], inbuf[0]);
 
         printf("%s\n", FFI_string("abcd"));
 
         enum E eret = FFI_E(C);
-        printf("%s\n", (eret == C) ? "TRUE" : "FALSE");
+        printf("%s\n", (eret == C) ? "True" : "False");
 
-        bool bret = FFI_boolean(true);
-        printf("%s\n", bret ? "TRUE" : "FALSE");
+        bool bret = FFI_Boolean(true);
+        printf("%s\n", bret ? "True" : "False");
 
-        printf("%d\n", FFI_integer(42));
+        printf("%ld\n", FFI_integer(42));
         printf("i17'd%d\n", FFI_sint17(42));
 
-        int intret2;
+        int64_t intret2;
         bool boolret2;
         FFI_int_bool(1, &intret2, &boolret2);
-        printf("(%d, %s)\n", intret2, boolret2 ? "TRUE" : "FALSE");
+        printf("(%ld, %s)\n", intret2, boolret2 ? "True" : "False");
         FFI_int_bool(4, &intret2, &boolret2);
-        printf("(%d, %s)\n", intret2, boolret2 ? "TRUE" : "FALSE");
+        printf("(%ld, %s)\n", intret2, boolret2 ? "True" : "False");
 
 }

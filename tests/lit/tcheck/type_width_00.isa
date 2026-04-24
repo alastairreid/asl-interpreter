@@ -1,0 +1,13 @@
+// RUN: not %iii --batchmode %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function F(A : Integer, src : Bits(A))
+begin
+end
+
+function Test()
+begin
+    let src := Std::Bits::Zero(10);
+    F(5, src);
+// CHECK: Type error: type width parameter 10 does not match 5
+end

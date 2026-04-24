@@ -2,8 +2,8 @@
 // Runtime library for ASL's C backend to support tracking
 // validity masks
 //
-// Copyright (C) 2024-2025 Intel Corporation
-// SPDX-Licence-Identifier: BSD-3-Clause
+// Copyright (C) 2024-2026 Intel Corporation
+// SPDX-License-Identifier: BSD-3-Clause
 ////////////////////////////////////////////////////////////////
 
 #ifndef ASL_TRACK_VALID_H

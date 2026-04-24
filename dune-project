@@ -1,26 +1,26 @@
 (lang dune 3.13)
-(using dune_site 0.1)
 
-(name asli)
+(name isa-tools)
 (version 2.0.0)
 
 ; Copyright Arm Limited (c) 2017-2019
-; Copyright (C) 2022-2025 Intel Corporation
-; SPDX-Licence-Identifier: BSD-3-Clause
+; Copyright (C) 2022-2026 Intel Corporation
+; SPDX-License-Identifier: BSD-3-Clause
 
 (using menhir 3.0)
 
 (package
-  (name asli)
-  (synopsis "Interpreter for Architecture Specification Language (ASL)")
-  (description "\| Architecture Specification Language (ASL) is an executable language for writing
+  (name isa-tools)
+  (synopsis "Interpreter for Intel(R) ISA Specification Language")
+  (description "\| Intel(R) ISA Specification Language is an executable language for writing
                "\| clear, precise specifications of Instruction Set Architectures (ISAs).
                "\|
-               "\| The ASL interpreter (ASLi) is an implementation of ASL that can execute ASL
-               "\| specifications either in an interpreter or by compiling via C code.
+               "\| The Intel(R) ISA interpreter (iii) is an implementation of the language
+               "\| that can execute .isa specifications either in an interpreter or by
+               "\| compiling via C code.
                "\|
                "\| Currently supports reading/typechecking the specification,
-               "\| interactive execution of ASL statements and expressions,
+               "\| interactive execution of .isa statements and expressions,
                "\| executing opcodes one at a time,
                "\| loading ELF files and executing binaries.
                "\|
@@ -28,16 +28,11 @@
                "\| that can be used to execute binaries faster and can be
                "\| linked with other C/C++ libraries.
   )
-  (sites (lib plugins)
-         (lib runtime)
-         (lib runtime_include)
-         (share stdlib))
   (depends
     ("alcotest"  :with-test)
-    "dune-site"
     "linenoise"
     ("menhir"    :build)
-    ("ocaml"     (>= "4.14"))
+    ("ocaml"     (>= "5.4"))
     ("ocolor"    (>= "1.2.2"))
     "odoc"
     "yojson"
@@ -49,9 +44,9 @@
 (license BSD-3-Clause)
 (authors "Alastair Reid")
 (maintainers "Alastair Reid <alastair.reid@intel.com>")
-(source (github IntelLabs/asl-interpreter))
-(bug_reports "https://github.com/IntelLabs/asl-interpreter/issues")
-(homepage "https://github.com/IntelLabs/asl-interpreter")
+(source (github IntelLabs/isa-tools))
+(bug_reports "https://github.com/IntelLabs/isa-tools/issues")
+(homepage "https://github.com/IntelLabs/isa-tools")
 ; (documentation ...)
 
 (generate_opam_files true)

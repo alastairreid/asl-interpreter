@@ -1,0 +1,34 @@
+// RUN: %aslopt -O0 -Obounded %s | filecheck --check-prefix=XFORM %s
+// RUN: %aslrun -O0 -Obounded %s | filecheck %s
+// Copyright (C) 2024-2026 Intel Corporation
+
+function F(x : {0..15}) -> {0..32}
+begin
+    return x + 3;
+end
+
+function FUT(x : {0..15}) -> {0..2000}
+begin
+    var s : {0..2000} := 0;
+    // Can range inference exploit the constraint on the return type of F?
+    for i := 0 to F(x)-1 do
+        s := s + i;
+    end;
+    return s;
+end
+
+// XFORM:       function FUT.0{}(x : __sint(5)) -> __sint(12){{$}}
+// XFORM-NEXT:  begin
+// XFORM-NEXT:      var s : __sint(12) := i12'x0;
+// XFORM-NEXT:      for i : __sint(9) := i9'x0 to Std::SInt::Resize.0{8, 9}(Std::SInt::Subtract.0{8}(Std::SInt::Resize.0{7, 8}(F.0{}(x), 8), i8'x1), 9) do
+// XFORM-NEXT:          s := Std::SInt::Resize.0{13, 12}(Std::SInt::Add.0{13}(Std::SInt::Resize.0{12, 13}(s, 13), Std::SInt::Resize.0{9, 13}(i, 13)), 12);
+// XFORM-NEXT:      endfor;
+// XFORM-NEXT:      return s;
+// XFORM-NEXT:  end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Integer::Dec(FUT(4)); Std::Print("\n");
+    // CHECK: 21
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

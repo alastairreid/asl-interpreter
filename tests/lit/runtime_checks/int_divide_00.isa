@@ -1,0 +1,26 @@
+// RUN: %iii --batchmode --runtime-checks --exec=":show --format=raw FUT*" %s | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+function FUT1(x : Integer, y : Integer) -> Integer
+begin
+    return Std::Integer::Floor_Divide(x, y);
+    // CHECK: (__assert Std::Integer::Ne.0{}(0, y) __in Std::Integer::Floor_Divide.0{}(x, y));
+end
+
+function FUT2(x : Integer, y : Integer) -> Integer
+begin
+    return Std::Integer::Floor_Remainder(x, y);
+    // CHECK: (__assert Std::Integer::Ne.0{}(0, y) __in Std::Integer::Floor_Remainder.0{}(x, y));
+end
+
+function FUT3(x : Integer, y : Integer) -> Integer
+begin
+    return Std::Integer::Truncated_Divide(x, y);
+    // CHECK: (__assert Std::Integer::Ne.0{}(0, y) __in Std::Integer::Truncated_Divide.0{}(x, y));
+end
+
+function FUT4(x : Integer, y : Integer) -> Integer
+begin
+    return Std::Integer::Truncated_Remainder(x, y);
+    // CHECK: (__assert Std::Integer::Ne.0{}(0, y) __in Std::Integer::Truncated_Remainder.0{}(x, y));
+end

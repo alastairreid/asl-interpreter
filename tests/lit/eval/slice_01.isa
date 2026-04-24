@@ -1,0 +1,21 @@
+// RUN: %iii --batchmode %s '--exec=main()' | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+function main() -> Integer
+begin
+    let x := 24'xABCDEF;
+
+    Std::Print::Bits::Hex(x[7:4]); Std::Print("\n");
+    // CHECK: 4'xe
+
+    Std::Print::Bits::Hex(x[8 +: 4]); Std::Print("\n");
+    // CHECK: 4'xd
+
+    Std::Print::Bits::Hex(x[15 -: 4]); Std::Print("\n");
+    // CHECK: 4'xc
+
+    Std::Print::Bits::Hex(x[4 *: 4]); Std::Print("\n");
+    // CHECK: 4'xb
+
+    return 0;
+end

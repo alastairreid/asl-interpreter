@@ -1,6 +1,6 @@
 ; Copyright Arm Limited (c) 2017-2019
-; Copyright (C) 2022-2025 Intel Corporation
-; SPDX-Licence-Identifier: BSD-3-Clause
+; Copyright (C) 2022-2026 Intel Corporation
+; SPDX-License-Identifier: BSD-3-Clause
 
 (tests
  (names
@@ -8,7 +8,7 @@
   asl_utils_test
   backend_c_c23_test
   backend_c_fallback_test
-  loadasl_test
+  loadisa_test
   xform_bitslices_test
   xform_bittuples_test
   xform_case_test
@@ -16,7 +16,6 @@
   xform_getset_test
   xform_int_bitslices_test
   xform_lower_test
-  xform_mono_test
   xform_named_type_test
   xform_simplify_expr_test
   xform_tuples_test
@@ -25,8 +24,8 @@
  (modes exe)
  (flags
   (-cclib -lstdc++))
- (libraries alcotest libASL)
+ (libraries alcotest libISA)
  (deps
-  ../bin/asli.exe
-  ../prelude.asl
+  ../bin/iii.exe
+  ../stdlib.isa
   (glob_files ../runtime/include/asl/*)))

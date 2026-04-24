@@ -1,0 +1,8 @@
+// RUN: not %iii --batchmode %s | filecheck %s
+// Copyright (C) 2026-2026 Intel Corporation
+
+function F()
+begin
+    Std::Info(1, "x = {x}");
+    // CHECK: Type error: Error in format string: unknown variable 'x'
+end

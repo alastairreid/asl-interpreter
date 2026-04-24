@@ -1,0 +1,17 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function Test(x : Integer) -> Integer
+begin
+    return (__let r : Integer := x*x __in r+r);
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Integer::Dec(Test(5)); Print("\n");
+    // CHECK: 50
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end
+
+

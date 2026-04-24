@@ -1,4 +1,4 @@
-log.*.asl
+log.*.isa
 sim.prj
 sim_types.h
 sim_exceptions.h

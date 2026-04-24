@@ -1,0 +1,29 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function Test(x : Bits(4)) -> Integer
+begin
+    case x of
+        when 0b0001 => return 3;
+        when 0b0010 => return 4;
+        when 0b1111 => return 5;
+        otherwise => return 10;
+    end;
+    return 20; // unreachable
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Integer::Dec(Test(0b0000)); Print("\n");
+    // CHECK: 10
+    Std::Print::Integer::Dec(Test(0b0001)); Print("\n");
+    // CHECK: 3
+    Std::Print::Integer::Dec(Test(0b0010)); Print("\n");
+    // CHECK: 4
+    Std::Print::Integer::Dec(Test(0b0011)); Print("\n");
+    // CHECK: 10
+    Std::Print::Integer::Dec(Test(0b1111)); Print("\n");
+    // CHECK: 5
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

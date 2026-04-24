@@ -1,3 +1,10 @@
+2.0.0 (2025-08-29)
+------------------
+
+* ASLi now supports a new language Intel (R) ISA Specification Language
+  using the .isa file suffix.
+  ASL support is deprecated and will be removed soon.
+
 1.0.0 (2024-12-19)
 ------------------
 

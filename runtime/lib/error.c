@@ -1,11 +1,11 @@
 ////////////////////////////////////////////////////////////////
-// Runtime error support library for ASL's C backend
+// Runtime error support library for ISA's C backend
 //
 // Note: these functions can (and usually are) overridden in the linker
 // command line by providing .o files that override both functions.
 //
-// Copyright (C) 2022-2025 Intel Corporation
-// SPDX-Licence-Identifier: BSD-3-Clause
+// Copyright (C) 2022-2026 Intel Corporation
+// SPDX-License-Identifier: BSD-3-Clause
 ////////////////////////////////////////////////////////////////
 
 #include "asl/error.h"
@@ -20,7 +20,7 @@ extern "C" {
 void
 ASL_error(const char* loc, const char* msg)
 {
-        printf("%s: ASL error: %s\n\n", loc, msg);
+        printf("%s: ISA error: %s\n\n", loc, msg);
         exit(1);
 }
 

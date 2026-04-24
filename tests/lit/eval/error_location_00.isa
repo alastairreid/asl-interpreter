@@ -1,0 +1,27 @@
+// RUN: not %iii --batchmode --exec="FUT1(2)" %s | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+// This function has a potential runtime failure in it
+// Until recently, the error was being reported as an error in FUT1
+//
+//    line 16 char 4 - 19: runtime exception thrown in ReadBit.0
+//
+// instead of reporting the actual line number where the runtime error occurs
+function ReadBit(x : Integer) -> Bit
+begin
+    return 0b00[x]; // this will trigger a runtime error unless x in {0 .. 1}
+end
+
+function FUT1(i : Integer) -> Bit
+begin
+    return ReadBit(i);
+end
+
+// An erroneous call to FUT1(2) should generate an error message
+// that identifies the line in ReadBit that performs the bitslice
+// as well as the line in FUT1 that calls ReadBit.
+
+// CHECK:       line 12 char 4 - 19: runtime exception thrown in 2'x0[x]
+// CHECK-NEXT:  line 17 char 4 - 22: runtime exception thrown in ReadBit.0(i)
+// CHECK-NEXT:  file <argv> line 1 char 0 - 7: runtime exception thrown in FUT1.0(2)
+// CHECK-NEXT:  Assertion failed

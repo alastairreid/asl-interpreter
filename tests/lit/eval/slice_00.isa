@@ -1,0 +1,21 @@
+// RUN: %iii --batchmode %s '--exec=F()' | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+bitfield Flags = {
+    A => [0],
+    B => [1],
+    C => [2],
+    D => [3]
+} : Bits(4);
+
+function F() -> Flags
+begin
+    var r : Flags := Std::Bits::Zero(4);
+    // These assignments used to fail because the type of r is a
+    // typedef instead of either Bits(N) or Integer
+    r.A := 0b1;
+    r.C := 0b1;
+    return r;
+end
+
+// CHECK: 4'x5

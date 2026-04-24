@@ -1,0 +1,16 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function Test(x : Bits(8), y : Integer) -> Bits(8)
+begin
+    return Std::Bits::Shift_Right_Arithmetic_Restricted(x, y);
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Bits::Hex(Test(0b1010_0101, 3)); Print("\n");
+    // CHECK: 8'xf4
+    Std::Print::Bits::Hex(Test(0b0101_1010, 2)); Print("\n");
+    // CHECK: 8'x16
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

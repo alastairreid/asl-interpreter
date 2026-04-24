@@ -1,0 +1,28 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+var R : array [2] of array [2] of Bits(32);
+
+function Test(i : Integer, j : Integer) -> Bits(32)
+begin
+    return R[i][j];
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    R[0][0] := 10[0 +: 32];
+    R[0][1] := 11[0 +: 32];
+    R[1][0] := 12[0 +: 32];
+    R[1][1] := 13[0 +: 32];
+
+    Std::Print::Bits::Hex(Test(0,0)); Print("\n");
+    // CHECK: 32'xa
+    Std::Print::Bits::Hex(Test(0,1)); Print("\n");
+    // CHECK: 32'xb
+    Std::Print::Bits::Hex(Test(1,0)); Print("\n");
+    // CHECK: 32'xc
+    Std::Print::Bits::Hex(Test(1,1)); Print("\n");
+    // CHECK: 32'xd
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

@@ -1,0 +1,20 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function Test(x : Integer, y : Integer) -> Boolean
+begin
+    return x <= y;
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Boolean(Test(1, 2)); Std::Print::String("\n");
+    // CHECK: True
+    Std::Print::Boolean(Test(1, 1)); Std::Print::String("\n");
+    // CHECK: True
+    Std::Print::Boolean(Test(1, 0)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(Test(-1, 0)); Std::Print::String("\n");
+    // CHECK: True
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

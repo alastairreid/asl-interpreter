@@ -1,0 +1,23 @@
+// RUN: %iii --batchmode %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+// Correct type parameters: N can be synthesized from the type of x
+function F1(implicit N : {0..}, x : Bits(N)) -> Boolean;
+
+// Correct function type: we can synthesize N from the type of x
+function F2(implicit N : {0..}, x : Bits(N)) -> Boolean;
+
+// Correct function type: N is an explicit argument
+function F3(N : Integer, x : Bits(N)) -> Boolean;
+
+// Correct function type: N is an explicit argument and argument order does not matter
+function F4(x : Bits(N), N : Integer) -> Boolean;
+
+// Correct function type: N is an explicit argument
+function F5(N : Integer) -> Bits(N);
+
+// Correct function type: N is an explicit parameter and an explicit argument
+function F6(N : Integer) -> Bits(N);
+
+// Correct function type: N is an explicit parameter and an explicit argument
+function F7(N : Integer, x : Bits(N)) -> Bits(N);

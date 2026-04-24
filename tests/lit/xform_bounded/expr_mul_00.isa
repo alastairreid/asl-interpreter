@@ -1,0 +1,57 @@
+// RUN: %aslopt -O0 -Obounded %s | filecheck --check-prefix=XFORM %s
+// RUN: %aslrun -Obounded %s | filecheck %s
+
+// Copyright (C) 2025-2026 Intel Corporation
+
+function FUT1(x : {-1..1}, y : {-2..3}) -> {-3..3}
+begin
+    return x * y;
+end
+
+function FUT2(x : {0..2}, y : {0..7}) -> {0..14}
+begin
+    return x * y;
+end
+
+function FUT3(x : {-8..0}, y : {-8..0}) -> {0..64}
+begin
+    return x * y;
+end
+
+function FUT4(x : {-8..1}, y : {-8..1}) -> {-8..64}
+begin
+    return x * y;
+end
+
+// XFORM-LABEL: function FUT4.0{}(x : __sint(4), y : __sint(4)) -> __sint(8){{$}}
+// XFORM-NEXT:  begin
+// XFORM-NEXT:      return Std::SInt::Multiply.0{8}(Std::SInt::Resize.0{4, 8}(x, 8), Std::SInt::Resize.0{4, 8}(y, 8));
+// XFORM-NEXT:  end
+
+// XFORM-LABEL: function FUT3.0{}(x : __sint(4), y : __sint(4)) -> __sint(8){{$}}
+// XFORM-NEXT:  begin
+// XFORM-NEXT:      return Std::SInt::Multiply.0{8}(Std::SInt::Resize.0{4, 8}(x, 8), Std::SInt::Resize.0{4, 8}(y, 8));
+// XFORM-NEXT:  end
+
+// XFORM-LABEL: function FUT2.0{}(x : __sint(3), y : __sint(4)) -> __sint(5){{$}}
+// XFORM-NEXT:  begin
+// XFORM-NEXT:      return Std::SInt::Resize.0{7, 5}(Std::SInt::Multiply.0{7}(Std::SInt::Resize.0{3, 7}(x, 7), Std::SInt::Resize.0{4, 7}(y, 7)), 5);
+// XFORM-NEXT:  end
+
+// XFORM-LABEL: function FUT1.0{}(x : __sint(2), y : __sint(3)) -> __sint(3){{$}}
+// XFORM-NEXT:  begin
+// XFORM-NEXT:      return Std::SInt::Resize.0{5, 3}(Std::SInt::Multiply.0{5}(Std::SInt::Resize.0{2, 5}(x, 5), Std::SInt::Resize.0{3, 5}(y, 5)), 3);
+// XFORM-NEXT:  end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Integer::Dec(FUT1(-1, -2)); Std::Print("\n");
+    // CHECK: 2
+    Std::Print::Integer::Dec(FUT2(2, 7)); Std::Print("\n");
+    // CHECK: 14
+    Std::Print::Integer::Dec(FUT3(-8, -1)); Std::Print("\n");
+    // CHECK: 8
+    Std::Print::Integer::Dec(FUT4(-8, 1)); Std::Print("\n");
+    // CHECK: -8
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

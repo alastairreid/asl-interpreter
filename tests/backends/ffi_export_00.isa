@@ -1,0 +1,21 @@
+// RUN: %aslrun %s --import=FFI_Call128 --export=FFI_Extract128_32 --extra-c=%S/ffi_export_00.c | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+// UNSUPPORTED: interpreter
+
+// Function imported from C
+function FFI_Call128(x : Bits(128)) -> Bits(32);
+
+// Function exported to C
+function FFI_Extract128_32(x : Bits(128), i : Integer) -> Bits(32)
+begin
+    return x[i +: 32];
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Bits::Hex(FFI_Call128(128'xfedcba98765432100123456789abcdef)); Print("\n");
+    // CHECK: 32'x56789abc
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

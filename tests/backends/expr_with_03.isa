@@ -1,0 +1,41 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+record R = {
+    f0 : Bits(4),
+    f1 : Boolean
+};
+
+function FUT1(x : R, y : Bits(4)) -> R
+begin
+    return x with { f0 => y };
+end
+
+function FUT2(x : R, y : Boolean) -> R
+begin
+    return x with { f1 => y };
+end
+
+function printR(x : R)
+begin
+    Std::Print::String("R{");
+    Std::Print::String("f0=>"); Std::Print::Bits::Hex(x.f0);
+    Std::Print::String(", ");
+    Std::Print::String("f1=>"); Std::Print::Boolean(x.f1);
+    Std::Print::String("}");
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    let r := R{f0 => 0b0000, f1 => False};
+    printR(FUT1(r, 0b1001)); Print("\n");
+    // CHECK: R{f0=>4'x9, f1=>False}
+
+    printR(FUT1(r, 0b1011)); Print("\n");
+    // CHECK: R{f0=>4'xb, f1=>False}
+
+    printR(FUT2(r, True)); Print("\n");
+    // CHECK: R{f0=>4'x0, f1=>True}
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

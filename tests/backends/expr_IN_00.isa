@@ -1,0 +1,30 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function Test(x : Bits(3)) -> Boolean
+begin
+    return x in 0b10x;
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Boolean(Test(0b000)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(Test(0b001)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(Test(0b010)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(Test(0b011)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(Test(0b100)); Std::Print::String("\n");
+    // CHECK: True
+    Std::Print::Boolean(Test(0b101)); Std::Print::String("\n");
+    // CHECK: True
+    Std::Print::Boolean(Test(0b110)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(Test(0b111)); Std::Print::String("\n");
+    // CHECK: False
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end
+

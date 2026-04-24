@@ -1,15 +1,15 @@
 (****************************************************************
- * Test ASL utils module
+ * Test ISA utils module
  *
- * Copyright (C) 2023-2025 Intel Corporation
- * SPDX-Licence-Identifier: BSD-3-Clause
+ * Copyright (C) 2023-2026 Intel Corporation
+ * SPDX-License-Identifier: BSD-3-Clause
  ****************************************************************)
 
 open Test_utils
-open LibASL
-open Asl_utils
+open LibISA
+open Isa_utils
 open Identset
-module AST = Asl_ast
+module AST = Isa_ast
 module TC = Tcheck
 
 (****************************************************************
@@ -18,7 +18,7 @@ module TC = Tcheck
 
 let format_identSet (fmt : Format.formatter) (s : IdentSet.t) : unit =
     Format.fprintf fmt "{ ";
-    IdentSet.iter (fun f -> Format.fprintf fmt "%a" Asl_fmt.varname f) s;
+    IdentSet.iter (fun f -> Format.fprintf fmt "%a" Isa_fmt.varname f) s;
     Format.fprintf fmt "}"
 
 let identSet = Alcotest.testable format_identSet IdentSet.equal
@@ -69,19 +69,19 @@ let side_effect_tests : unit Alcotest.test_case list =
   let globals = TC.env0 in
   [
     ("empty function", `Quick, test_side_effects globals prelude
-       "func T() begin return; end" "T" ([], [], [], false));
+       "function T() begin return; end" "T" ([], [], [], false));
     ("identity function", `Quick, test_side_effects globals prelude
-       "func T(x : integer) => integer begin return x; end" "T" ([], [], [], false));
+       "function T(x : Integer) -> Integer begin return x; end" "T" ([], [], [], false));
     ("length function", `Quick, test_side_effects globals prelude
-       "func T(x : bits(N)) => integer begin return N; end" "T" ([], [], [], false));
+       "function T(x : Bits(N)) -> Integer begin return N; end" "T" ([], [], [], false));
     ("increment function", `Quick, test_side_effects globals prelude
-       "func T(x : integer) => integer begin return x + 1; end" "T" ([], [], ["asl_add_int"], false));
+       "function T(x : Integer) -> Integer begin return x + 1; end" "T" ([], [], ["Std::Integer::Add"], false));
     ("destructive increment function", `Quick, test_side_effects globals prelude
-       "func T(x : integer) => integer begin var y = x; y = y + 1; return y; end" "T" ([], [], ["asl_add_int"], false));
+       "function T(x : Integer) -> Integer begin var y = x; y = y + 1; return y; end" "T" ([], [], ["Std::Integer::Add"], false));
     ("global read function", `Quick, test_side_effects globals prelude
-       "var X : integer; func T() => integer begin return X; end" "T" (["X"], [], [], false));
+       "var X : Integer; function T() -> Integer begin return X; end" "T" (["X"], [], [], false));
     ("global write function", `Quick, test_side_effects globals prelude
-       "var X : integer; func T() begin X = 1; return; end" "T" ([], ["X"], [], false));
+       "var X : Integer; function T() begin X = 1; return; end" "T" ([], ["X"], [], false));
   ]
 
 (****************************************************************
@@ -113,27 +113,27 @@ let impure_function_tests : unit Alcotest.test_case list =
   [
     ("prelude functions", `Quick, test_impure_functions globals prelude
        ""
-       [ "UInt"; "SInt"; "Align"; "Min"; "Max"; "Abs";
-         "SignedSat"; "UnsignedSat"; "BitCount"; "LowestSetBit"; "HighestSetBit";
-         "asl_add_int"; "asl_add_real"; "asl_add_bits"; "asl_add_bits_int";
+       [ "Unsigned"; "Signed"; "Align"; "Min"; "Max"; "Abs";
+         "Signed_Saturate"; "Unsigned_Saturate"; "Count_Set_Bits"; "Lowest_Set_Bit"; "Highest_Set_Bit";
+         "Std::Integer::Add"; "Std::Bits::Add"; "Std::Bits::Add_int";
        ]
-       [ "asl_ram_init"; "asl_ram_read"; "asl_ram_write";
+       [ "Std::RAM::Init"; "Std::RAM::Read"; "Std::RAM::Write";
        ]
     );
     ("user-defined functions", `Quick, test_impure_functions globals prelude
        "
-       func Null() begin return; end
-       func Id(x : integer) => integer begin return x; end
-       func Len2(x : bits(N)) => integer begin return N; end
-       func Inc(x : integer) => integer begin return x + 1; end
-       func Inc2(x : integer) => integer begin var y = x; y = y + 1; return y; end
-       let K42 : integer = 42;
-       var X : integer;
-       func ReadConst() => integer begin return K42; end
-       func Read() => integer begin return X; end
-       func Write() begin X = 1; return; end
-       func IndirectRead() => integer begin return Read(); end
-       func IndirectWrite() begin Write(); end
+       function Null() begin return; end
+       function Id(x : Integer) -> Integer begin return x; end
+       function Len2(x : Bits(n)) -> Integer begin return n; end
+       function Inc(x : Integer) -> Integer begin return x + 1; end
+       function Inc2(x : Integer) -> Integer begin var y = x; y = y + 1; return y; end
+       let K42 : Integer = 42;
+       var X : Integer;
+       function ReadConst() -> Integer begin return K42; end
+       function Read() -> Integer begin return X; end
+       function Write() begin X = 1; return; end
+       function IndirectRead() -> Integer begin return Read(); end
+       function IndirectWrite() begin Write(); end
        "
        [ "Null"; "Id"; "Len2"; "Inc"; "Inc2"; "ReadConst" ]
        [ "Read"; "Write";
@@ -233,26 +233,26 @@ let reachable_decls_tests : unit Alcotest.test_case list =
   let globals = TC.env0 in
   [
     ("diamond graph", `Quick, test_reachable_decls globals prelude
-       "var X : integer;
-        func Read() => integer begin return X; end
-        func Write(x : integer) begin X = x; end
-        func T() begin var x = Read(); Write(x); end"
+       "var X : Integer;
+        function Read() -> Integer begin return X; end
+        function Write(x : Integer) begin X = x; end
+        function T() begin var x = Read(); Write(x); end"
        ["T"] ["T.0"; "T.0"; "Write.0"; "Write.0"; "Read.0"; "Read.0"; "X"]
     );
     ("lexpr write", `Quick, test_reachable_decls globals prelude
-       "getter F => bits(1);
-        setter F = value : bits(1);
-        func T() begin F = '0'; end"
+       "function F => Bits(1);
+        function F := value : Bits(1);
+        function T() begin F := 0b0; end"
        ["T"] ["T.0"; "T.0"; "F_write.0"]
     );
     ("lexpr read-write", `Quick, test_reachable_decls globals prelude
-       "getter F => bits(1);
-        setter F = x : bits(1);
-        getter G => bits(1);
-        setter G = x : bits(1);
-        func T() begin [F, G] = '00'; end"
+       "function F => Bits(1);
+        function F := x : Bits(1);
+        function G => Bits(1);
+        function G := x : Bits(1);
+        function T() begin [F, G] = 0b00; end"
        ["T"]
-       ["T.0"; "T.0"; "G_write.0"; "G_read.0"; "F_write.0"; "F_read.0"]
+       ["T.0"; "T.0"; "G_write.0"; "G.0"; "F_write.0"; "F.0"]
     );
   ]
 
@@ -260,7 +260,7 @@ let reachable_decls_tests : unit Alcotest.test_case list =
  * Main test harness
  ****************************************************************)
 
-let () = Alcotest.run "asl_utils" [
+let () = Alcotest.run "builtin_utils" [
     ("side_effects", side_effect_tests);
     ("impure_functions", impure_function_tests);
     ("topological_sort", toposort_tests);

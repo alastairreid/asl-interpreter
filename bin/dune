@@ -1,36 +1,26 @@
 ; Copyright Arm Limited (c) 2017-2019
-; Copyright (C) 2022-2025 Intel Corporation
-; SPDX-Licence-Identifier: BSD-3-Clause
+; Copyright (C) 2022-2026 Intel Corporation
+; SPDX-License-Identifier: BSD-3-Clause
 
 (executable
- (name asli)
- (public_name asli)
+ (name iii)
+ (public_name iii)
  (modes exe)
- (modules asli sites)
+ (modules iii)
  (flags
-  (-cclib -lstdc++))
- (libraries libASL linenoise dune-site dune-site.plugins))
-
-(generate_sites_module
-  (module sites)
-  (sites asli)
-  (plugins (asli plugins)))
-
-(executable
- (name testlexer)
- (modes exe)
- ; (public_name test_asl_lexer)
- (modules testlexer)
- (flags
-  (-cclib -lstdc++))
- (libraries libASL))
+  (-cclib -lstdc++ -linkall))
+ (link_flags (-ccopt -Wl,--rpath,\$ORIGIN/../lib))
+ (libraries libISA linenoise))
 
 (install
- (section (site (asli stdlib)))
+ (section share)
  (files
-  (../prelude.asl as prelude.asl)))
+  (../stdlib.isa as stdlib/stdlib.isa)
+  (../old_prelude.asl as stdlib/old_prelude.asl)))
 
 (install
  (section bin)
  (files
-  (asl2c.py as asl2c)))
+  (iii.exe as asli) ; deprecated
+  (iic.py as asl2c) ; deprecated
+  (iic.py as iic)))

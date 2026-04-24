@@ -1,0 +1,22 @@
+// RUN: %aslrun %s --transform-foreign --extra-c=%S/ffi_export_03.c | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+// UNSUPPORTED: interpreter
+
+// Helper function imported from C
+function Helper() -> ();
+foreign import function "Helper" = Helper with {};
+
+var v : array [1] of Integer;
+
+foreign export var "v" = v;
+
+function main() -> Builtin::Foreign::CInt
+begin
+    v[0] := 1;
+    Helper();
+    Std::Print::Integer::Dec(v[0]); Print("\n");
+    // CHECK: 2
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

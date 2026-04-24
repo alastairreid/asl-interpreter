@@ -1,0 +1,20 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function FUT(x : Bits(8), i : Integer) -> Bit
+begin
+    return (__assert 0 <= i and then i < 8 __in x[i +: 1]);
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    // assertion that do not fail
+    Std::Print::Bits::Hex(FUT(0b1100_1111, 0)); Print("\n");
+    // CHECK: 1'x1
+    Std::Print::Bits::Hex(FUT(0b1100_1111, 4)); Print("\n");
+    // CHECK: 1'x0
+    Std::Print::Bits::Hex(FUT(0b1100_1111, 7)); Print("\n");
+    // CHECK: 1'x1
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

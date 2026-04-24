@@ -1,14 +1,14 @@
 (****************************************************************
  * Test case lowering transform
  *
- * Copyright (C) 2022-2025 Intel Corporation
- * SPDX-Licence-Identifier: BSD-3-Clause
+ * Copyright (C) 2022-2026 Intel Corporation
+ * SPDX-License-Identifier: BSD-3-Clause
  ****************************************************************)
 
 open Test_utils
-open LibASL
-open Asl_utils
-module AST = Asl_ast
+open LibISA
+open Isa_utils
+module AST = Isa_ast
 module TC = Tcheck
 
 (****************************************************************
@@ -30,58 +30,58 @@ let case_tests : unit Alcotest.test_case list =
   let globals = TC.env0 in
   [
     ("mask", `Quick, test_case_stmts globals prelude
-       "var x : bits(4);
-        var z : integer;"
+       "var x : Bits(4);
+        var z : Integer;"
        "case x of
-            when '11xx' => z = 1;
-            otherwise => z = 2;
-        end"
-       "if x IN '11xx' then
-            z = 1;
+            when 0b11xx => z := 1;
+            otherwise => z := 2;
+        endcase;"
+       "if x in 0b11xx then
+            z := 1;
         else
-            z = 2;
-        end");
+            z := 2;
+        endif;");
 
     ("pattern set", `Quick, test_case_stmts globals prelude
-       "var x : integer;
-        var z : integer;"
+       "var x : Integer;
+        var z : Integer;"
        "case x of
-            when 1, 2 => z = 1;
-            otherwise => z = 2;
-        end"
-       "if x == 1 || x == 2 then
-            z = 1;
+            when 1, 2 => z := 1;
+            otherwise => z := 2;
+        endcase;"
+       "if x == 1 or else x == 2 then
+            z := 1;
         else
-            z = 2;
-        end");
+            z := 2;
+        endif;");
 
     ("tuple", `Quick, test_case_stmts globals prelude
-       "var x : integer;
-        var y : integer;
-        var z : integer;"
+       "var x : Integer;
+        var y : Integer;
+        var z : Integer;"
        "case (x, y) of
-            when (1, 2) => z = 1;
-            otherwise => z = 2;
-        end"
-       "if x == 1 && y == 2 then
-            z = 1;
+            when (1, 2) => z := 1;
+            otherwise => z := 2;
+        endcase;"
+       "if x == 1 and then y == 2 then
+            z := 1;
         else
-            z = 2;
-        end");
+            z := 2;
+        endif;");
 
     ("guard", `Quick, test_case_stmts globals prelude
-       "var x : integer;
-        var y : integer;
-        var z : integer;"
+       "var x : Integer;
+        var y : Integer;
+        var z : Integer;"
        "case x of
-            when 1 where y < 3 => z = 1;
-            otherwise => z = 2;
-        end"
-       "if x == 1 && y < 3 then
-            z = 1;
+            when 1 if y < 3 => z := 1;
+            otherwise => z := 2;
+        endcase;"
+       "if x == 1 and then y < 3 then
+            z := 1;
         else
-            z = 2;
-        end");
+            z := 2;
+        endif;");
 
   ]
 
@@ -90,10 +90,10 @@ let in_tests : unit Alcotest.test_case list =
   let globals = TC.env0 in
   [
     ("tuple", `Quick, test_case_expr globals prelude
-       "var x : integer;
-        var y : integer;"
-       "(x, y) IN (1, 2)"
-       "x == 1 && y == 2");
+       "var x : Integer;
+        var y : Integer;"
+       "(x, y) in (1, 2)"
+       "x == 1 and then y == 2");
 
   ]
 

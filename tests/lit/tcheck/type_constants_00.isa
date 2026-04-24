@@ -1,0 +1,10 @@
+// RUN: not %iii --batchmode %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function F(A : Integer, src : Bits(A)) -> Boolean
+begin
+    var B : Integer;
+    B := A;
+    return Std::Bits::Zero(A) == Std::Bits::Zero(B);
+// CHECK: Type error: type width parameter B does not match A
+end

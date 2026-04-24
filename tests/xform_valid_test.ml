@@ -1,12 +1,12 @@
 (****************************************************************
- * Test transform that helps tracking valid bits
+ * Test transform that helps tracking valid Bits
  *
- * Copyright (C) 2024-2025 Intel Corporation
- * SPDX-Licence-Identifier: BSD-3-Clause
+ * Copyright (C) 2024-2026 Intel Corporation
+ * SPDX-License-Identifier: BSD-3-Clause
  ****************************************************************)
 
 open Test_utils
-open LibASL
+open LibISA
 module TC = Tcheck
 
 (****************************************************************
@@ -20,19 +20,20 @@ let valid_tests : unit Alcotest.test_case list =
   let stmt = test_xform_stmts (Xform_valid.xform_stmts vars) globals prelude in
   [
     ("field", `Quick, stmt
-      "var x : bits(3) { [0] F0 [1 +: 2] F1 };
-       func ASL_fuzz(var_name : string, low : integer, width : integer) => ();"
-      "x.F1 = UNKNOWN : bits(2);"
-      "x.F1 = UNKNOWN : bits(2);
-       ASL_fuzz(\"x\", 1, 2);");
+      "bitfield T = { F0 => [0], F1 => [1 +: 2] } : Bits(4);
+       var x : T;
+       function builtin_fuzz(var_name : String, low : Integer, width : Integer) -> ();"
+      "x.F1 := UNSPECIFIED : Bits(2);"
+      "x.F1 := UNSPECIFIED : Bits(2);
+       builtin_fuzz(\"x\", 1, 2);");
 
     ("var", `Quick, stmt
-      "let N = 2;
-       var x : bits(N);
-       func ASL_fuzz(var_name : string, low : integer, width : integer) => ();"
-      "x = UNKNOWN : bits(N);"
-      "x = UNKNOWN : bits(N);
-       ASL_fuzz(\"x\", 0, N);");
+      "let n := 2;
+       var x : Bits(n);
+       function builtin_fuzz(var_name : String, low : Integer, width : Integer) -> ();"
+      "x := UNSPECIFIED : Bits(n);"
+      "x := UNSPECIFIED : Bits(n);
+       builtin_fuzz(\"x\", 0, n);");
   ]
 
 (****************************************************************

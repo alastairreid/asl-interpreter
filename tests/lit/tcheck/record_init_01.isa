@@ -1,0 +1,17 @@
+// RUN: not %iii --batchmode %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+record R(M) = {
+    x : Bits(M)
+};
+
+function S4(r : R(4)) -> Bits(4)
+begin
+    return r.x;
+end
+
+function T()
+begin
+    let t := S4(R{x=>0b111});
+// CHECK: Type error: wrong number of type parameters
+end

@@ -1,0 +1,54 @@
+// RUN: %iii --batchmode --exec=:xform_hoist_lets --exec=":show --format=raw FUT" %s | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+function FUT(i : Integer) -> Boolean
+begin
+    // Check that lets are not lifted past sequencing points
+
+    // AND
+    let r1 := i >= 0 and then (__let t : Integer := 10 __in i <= t);
+    // CHECK: Std::Boolean::Lazy_And.0{}(Std::Integer::Ge.0{}(i, 0), (__let t : Integer := 10 __in Std::Integer::Le.0{}(i, t)));
+    let r2 := i >= 0 and then i <= (__let t : Integer := 10 __in t);
+    // CHECK: Std::Boolean::Lazy_And.0{}(Std::Integer::Ge.0{}(i, 0), (__let t : Integer := 10 __in Std::Integer::Le.0{}(i, t)));
+
+    // OR
+    let r3 := i >= 0 or else i <= (__let t : Integer := 10 __in t);
+    // CHECK: Std::Boolean::Lazy_Or.0{}(Std::Integer::Ge.0{}(i, 0), (__let t : Integer := 10 __in Std::Integer::Le.0{}(i, t)));
+
+    // IF expression
+    let r5 := if i >= 0 then i <= (__let t : Integer := 10 __in t) else False;
+    // CHECK: (if Std::Integer::Ge.0{}(i, 0) then (__let t : Integer := 10 __in Std::Integer::Le.0{}(i, t)) else False);
+
+    // IF statement
+    if __let b1 : Boolean := i >= 0 __in b1 then
+        let r6 := i <= (__let t : Integer := 10 __in t);
+    else
+        let r7 := i <= (__let t : Integer := 10 __in t);
+    end;
+    // CHECK:       let b1 : Boolean := Std::Integer::Ge.0{}(i, 0);
+    // CHECK-NEXT:  if b1 then
+    // CHECK-NEXT:      let t : Integer := 10;
+    // CHECK-NEXT:      let r6 : Boolean := Std::Integer::Le.0{}(i, t);
+    // CHECK-NEXT:  else
+    // CHECK-NEXT:      let t : Integer := 10;
+    // CHECK-NEXT:      let r7 : Boolean := Std::Integer::Le.0{}(i, t);
+    // CHECK-NEXT:  endif;
+
+    // WHILE loop
+    while i <= (__let t : Integer := 10 __in t) do
+    end;
+    // CHECK:       while (__let t : Integer := 10 __in Std::Integer::Le.0{}(i, t)) do
+    // CHECK:       endwhile;
+
+    // REPEAT loop
+    repeat
+        let x := 42;
+    until i <= (__let t : Integer := 10 __in t);
+    // CHECK:       repeat
+    // CHECK-NEXT:      let x : {42} := 42;
+    // CHECK-NEXT:      let t : Integer := 10;
+    // CHECK-NEXT:  until Std::Integer::Le.0{}(i, t);
+
+    return r1 and then r2 and then r3 and then r5;
+end
+

@@ -1,0 +1,18 @@
+// RUN: %iii --batchmode %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+exception E;
+
+function T?() -> Integer
+begin
+    // Note: functions that return a value cannot be noreturn
+    // so we add an if statement to make it look optional
+    if True then throw E; end;
+    return 0;
+end
+
+function F() -> Integer
+begin
+    return T?();
+end
+

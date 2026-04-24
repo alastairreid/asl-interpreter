@@ -1,0 +1,25 @@
+// RUN: %aslopt -O0 -Obounded %s | filecheck --check-prefix=XFORM %s
+// RUN: %aslrun -Obounded %s | filecheck %s
+
+// Copyright (C) 2024-2026 Intel Corporation
+
+function FUT(x : {0..15}) -> {-15..0}
+begin
+    return -x;
+end
+
+// Note: the analysis is slightly imprecise: a 6-bit negation is performed when
+// 5 Bits would be sufficient.
+// This will probably result in good code though because LLVM is more than
+// capable of further refining the size based on the available information.
+// XFORM-LABEL: function FUT.0{}(x : __sint(5)) -> __sint(5){{$}}
+// XFORM-NEXT:  begin
+// XFORM-NEXT:      return Std::SInt::Resize.0{6, 5}(Std::SInt::Negate.0{6}(Std::SInt::Resize.0{5, 6}(x, 6)), 5);
+// XFORM-NEXT:  end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Integer::Dec(FUT(14));
+    // CHECK: -14
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

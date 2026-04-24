@@ -1,0 +1,46 @@
+// RUN: not %iii --batchmode %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+var ram1 : Std::RAM(64);
+
+function I1() -> Integer
+begin
+    Std::RAM::Init(ram1, Std::Bits::Zero(64));
+    return 0;
+end
+
+function R1() -> Bits(8)
+begin
+    return Std::RAM::Read(ram1, Std::Bits::Zero(64), 1);
+end
+
+function W1() -> Integer
+begin
+    Std::RAM::Write(ram1, Std::Bits::Zero(64), 1, Std::Bits::Zero(8));
+    return 0;
+end
+
+var ram2 : Std::RAM(64);
+
+function I2() -> Integer
+begin
+    Std::RAM::Init(ram2, Std::Bits::Zero(64));
+    return 0;
+end
+
+function R2() -> Bits(8)
+begin
+    return Std::RAM::Read(ram2, Std::Bits::Zero(64), 1);
+end
+
+function W2() -> Integer
+begin
+    Std::RAM::Write(ram2, Std::Bits::Zero(64), 1, Std::Bits::Zero(8));
+    return 0;
+end
+
+function F() -> Integer
+begin
+    return W1() + W2();
+// CHECK: Type error: expression behaviour depends on evaluation order
+end

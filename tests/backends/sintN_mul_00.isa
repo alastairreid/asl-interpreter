@@ -1,0 +1,18 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function FUT(x : __sint(8), y : __sint(8)) -> __sint(8)
+begin
+    return Std::SInt::Multiply(x, y);
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::SInt::Dec(FUT(i8'd4, i8'd5)); Print("\n");
+    // CHECK: i8'd20
+    Std::Print::SInt::Dec(FUT(i8'd0, i8'd2)); Print("\n");
+    // CHECK: i8'd0
+    Std::Print::SInt::Dec(FUT(i8'd3, -i8'd2)); Print("\n");
+    // CHECK: -i8'd6
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

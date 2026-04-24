@@ -1,0 +1,29 @@
+// RUN: %iii --batchmode %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+bitfield TwoHalves = {
+    LO => [7:0],
+    HI => [15:8]
+} : Bits(16);
+
+function Is_ZeroHalf(x : Bits(16)) -> Boolean
+begin
+    // This tests for an old bug where r was given the type of x, not TwoHalves
+    var r : TwoHalves := x;
+    return Std::Bits::Is_Zero(r.LO);
+end
+
+function ZeroHalf(x : Bits(16)) -> TwoHalves
+begin
+    // This tests for an old bug where r was given the type of x, not TwoHalves
+    var r : TwoHalves := x;
+    r.LO := Std::Bits::Zero(8);
+    return r;
+end
+
+function Is_ZeroHalf_(x : Bits(16)) -> Boolean
+begin
+    // Variant of Is_ZeroHalf that (pointlessly) casts and then discards x
+    var _ : TwoHalves := x;
+    return True;
+end

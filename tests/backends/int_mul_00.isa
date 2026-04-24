@@ -1,0 +1,18 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function Test(x : Integer, y : Integer) -> Integer
+begin
+    return x * y;
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Integer::Dec(Test(4, 5)); Print("\n");
+    // CHECK: 20
+    Std::Print::Integer::Dec(Test(0, 2)); Print("\n");
+    // CHECK: 0
+    Std::Print::Integer::Dec(Test(3, -2)); Print("\n");
+    // CHECK: -6
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

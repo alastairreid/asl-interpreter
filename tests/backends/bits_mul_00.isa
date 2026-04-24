@@ -1,0 +1,17 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function Test(x : Bits(8), y : Bits(8)) -> Bits(8)
+begin
+    return Std::Bits::Multiply(x, y);
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Bits::Hex(Test(3[0 +: 8], 7[0 +: 8])); Print("\n");
+    // CHECK: 8'x15
+    Std::Print::Bits::Hex(Test(255[0 +: 8], 255[0 +: 8])); Print("\n");
+    // CHECK: 8'x1
+    return Builtin::Foreign::CInt::From_Integer(0);
+end
+

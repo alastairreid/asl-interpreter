@@ -1,0 +1,8 @@
+// RUN: not %iii --batchmode %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+bitfield B = {
+    X => [7],
+    X => [6]
+// CHECK: Type error: fieldname `X` is declared multiple times
+} : Bits(8);

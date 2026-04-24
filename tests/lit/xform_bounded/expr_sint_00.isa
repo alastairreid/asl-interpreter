@@ -1,0 +1,21 @@
+// RUN: %aslopt -O0 -Obounded %s | filecheck --check-prefix=XFORM %s
+// RUN: %aslrun -Obounded %s | filecheck %s
+
+// Copyright (C) 2024-2026 Intel Corporation
+
+function FUT(x : Bits(8)) -> {-128..127}
+begin
+    return Std::Bits::Signed(x);
+end
+
+// XFORM-LABEL: function FUT.0{}(x : Bits(8)) -> __sint(8){{$}}
+// XFORM-NEXT:  begin
+// XFORM-NEXT:      return Std::SInt::Signed.0{8}(x);
+// XFORM-NEXT:  end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Integer::Dec(FUT(0b1110_0111)); Std::Print("\n");
+    // CHECK: -25
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

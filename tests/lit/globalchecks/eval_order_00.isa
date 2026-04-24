@@ -1,0 +1,16 @@
+// RUN: not %iii --batchmode %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+var X : Integer;
+
+function WX() -> Integer
+begin
+    X := 1;
+    return 0;
+end
+
+function F() -> Integer
+begin
+    return WX() + WX();
+// CHECK: Type error: expression behaviour depends on evaluation order
+end

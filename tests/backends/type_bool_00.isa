@@ -1,0 +1,116 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function Test_id(x : Boolean) -> Boolean
+begin
+    return x;
+end
+
+function Test_not(x : Boolean) -> Boolean
+begin
+    return !x;
+end
+
+function Test_lazy_and(x : Boolean, y : Boolean) -> Boolean
+begin
+    return x and then y;
+end
+
+function Test_lazy_or(x : Boolean, y : Boolean) -> Boolean
+begin
+    return x or else y;
+end
+
+function Test_strict_and(x : Boolean, y : Boolean) -> Boolean
+begin
+    return x and y;
+end
+
+function Test_strict_or(x : Boolean, y : Boolean) -> Boolean
+begin
+    return x or y;
+end
+
+function Test_eq(x : Boolean, y : Boolean) -> Boolean
+begin
+    return x == y;
+end
+
+function Test_ne(x : Boolean, y : Boolean) -> Boolean
+begin
+    return x != y;
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Boolean(True); Std::Print::String("\n");
+    // CHECK: True
+    Std::Print::Boolean(False); Std::Print::String("\n");
+    // CHECK: False
+
+    Std::Print::Boolean(Test_id(True)); Std::Print::String("\n");
+    // CHECK: True
+    Std::Print::Boolean(Test_id(False)); Std::Print::String("\n");
+    // CHECK: False
+
+    Std::Print::Boolean(Test_not(True)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(Test_not(False)); Std::Print::String("\n");
+    // CHECK: True
+
+    Std::Print::Boolean(Test_lazy_and(False, False)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(Test_lazy_and(False, True)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(Test_lazy_and(True, False)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(Test_lazy_and(True, True)); Std::Print::String("\n");
+    // CHECK: True
+
+    Std::Print::Boolean(Test_lazy_or(False, False)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(Test_lazy_or(False, True)); Std::Print::String("\n");
+    // CHECK: True
+    Std::Print::Boolean(Test_lazy_or(True, False)); Std::Print::String("\n");
+    // CHECK: True
+    Std::Print::Boolean(Test_lazy_or(True, True)); Std::Print::String("\n");
+    // CHECK: True
+
+    Std::Print::Boolean(Test_strict_and(False, False)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(Test_strict_and(False, True)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(Test_strict_and(True, False)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(Test_strict_and(True, True)); Std::Print::String("\n");
+    // CHECK: True
+
+    Std::Print::Boolean(Test_strict_or(False, False)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(Test_strict_or(False, True)); Std::Print::String("\n");
+    // CHECK: True
+    Std::Print::Boolean(Test_strict_or(True, False)); Std::Print::String("\n");
+    // CHECK: True
+    Std::Print::Boolean(Test_strict_or(True, True)); Std::Print::String("\n");
+    // CHECK: True
+
+    Std::Print::Boolean(Test_eq(False, False)); Std::Print::String("\n");
+    // CHECK: True
+    Std::Print::Boolean(Test_eq(False, True)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(Test_eq(True, False)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(Test_eq(True, True)); Std::Print::String("\n");
+    // CHECK: True
+
+    Std::Print::Boolean(Test_ne(False, False)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(Test_ne(False, True)); Std::Print::String("\n");
+    // CHECK: True
+    Std::Print::Boolean(Test_ne(True, False)); Std::Print::String("\n");
+    // CHECK: True
+    Std::Print::Boolean(Test_ne(True, True)); Std::Print::String("\n");
+    // CHECK: False
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

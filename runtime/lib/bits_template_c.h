@@ -1,8 +1,8 @@
 ////////////////////////////////////////////////////////////////
 // Runtime bitvector support library for ASL's C backend
 //
-// Copyright (C) 2023-2025 Intel Corporation
-// SPDX-Licence-Identifier: BSD-3-Clause
+// Copyright (C) 2023-2026 Intel Corporation
+// SPDX-License-Identifier: BSD-3-Clause
 ////////////////////////////////////////////////////////////////
 
 #define ASL_BITS_LIMBS_64 (N >> 6)
@@ -224,6 +224,16 @@ ASL_zero_extend_bits(N, N, int width, ASL_BITS_TYPE x, ASL_int_t n)
 #undef M
 
 #define M 1024
+#include "sign_extend_bits_template_c.h"
+#include "set_slice_template_c.h"
+#undef M
+
+#define M 2048
+#include "sign_extend_bits_template_c.h"
+#include "set_slice_template_c.h"
+#undef M
+
+#define M 4096
 #include "sign_extend_bits_template_c.h"
 #include "set_slice_template_c.h"
 #undef M

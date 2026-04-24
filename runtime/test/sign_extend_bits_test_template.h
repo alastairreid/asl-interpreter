@@ -1,8 +1,8 @@
 ////////////////////////////////////////////////////////////////
 // Tests for C runtime bitvector support library
 //
-// Copyright (C) 2024-2025 Intel Corporation
-// SPDX-Licence-Identifier: BSD-3-Clause
+// Copyright (C) 2024-2026 Intel Corporation
+// SPDX-License-Identifier: BSD-3-Clause
 ////////////////////////////////////////////////////////////////
 
 #if M <= N

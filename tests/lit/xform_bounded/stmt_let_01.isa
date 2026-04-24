@@ -1,0 +1,29 @@
+// RUN: %aslopt -O0 -Obounded %s | filecheck --check-prefix=XFORM %s
+// RUN: %aslrun -Obounded %s | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+function FUT(x : {0..10}) -> {1..11}
+begin
+    // The following line is just complicated enough that the typechecker
+    // cannot infer that the type is {1..11}. This forces xform_bounded
+    // to infer the width from the width of "x+1" and also causes us to use
+    // 6 bits instead of only using 5 bits.
+    //
+    // (Note: the typechecker infers that the type is {1..10+1} - which
+    // is not quite the same as {1..11}.)
+    let y := x+1;
+    return y;
+end
+
+// XFORM:       function FUT.0{}(x : __sint(5)) -> __sint(5){{$}}
+// XFORM-NEXT:  begin
+// XFORM-NEXT:      let y : __sint(6) := Std::SInt::Add.0{6}(Std::SInt::Resize.0{5, 6}(x, 6), i6'x1);
+// XFORM-NEXT:      return Std::SInt::Resize.0{6, 5}(y, 5);
+// XFORM-NEXT:  end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Integer::Dec(FUT(3));
+    // CHECK: 4
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

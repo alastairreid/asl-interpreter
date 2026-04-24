@@ -1,0 +1,172 @@
+/////////////////////////////////////////////////////////////////
+// A simple 64-bit processor spec for use as a demo.
+// (This is not intended to match any actual processor)
+//
+// Copyright (C) 2023-2026 Intel Corporation
+/////////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////////////////////////////
+// Reset and Step
+/////////////////////////////////////////////////////////////////
+
+function Reset()
+begin
+    halted := False;
+    PC := 64'x0;
+    for i := 0 to 3 do
+        R[i] := 64'x0;
+    endfor;
+    RAM_Init();
+end
+
+// The 'Step' function takes a single atomic step
+// such as executing an instruction
+function Step()
+begin
+    if halted then
+        return;
+    endif;
+
+    let opcode := RAM[PC, 1];
+
+    case opcode of
+        when 0b0001_00xx => // INC r
+            let r := Unsigned(opcode[1:0]);
+            R[r] := R[r] + 1;
+
+        otherwise =>
+            // Unrecognized instructions halt the processor
+            halted := True;
+    endcase;
+
+    PC := PC + 1;
+end
+
+/////////////////////////////////////////////////////////////////
+// Registers
+/////////////////////////////////////////////////////////////////
+
+// Has the processor halted?
+var halted : Boolean;
+
+// Program counter
+var PC : Bits(64);
+
+// 4 entry 64-bit register file
+var R : array [4] of Bits(64);
+
+/////////////////////////////////////////////////////////////////
+// 64-bit byte-addressable memory
+/////////////////////////////////////////////////////////////////
+
+var __Memory : Std::RAM(64);
+
+function RAM_Init()
+begin
+    Std::RAM::Init(__Memory, 64'xdead_beef_dead_beef);
+end
+
+function RAM[address : Bits(64), size_in_bytes : Integer] -> Bits(8 * size_in_bytes)
+begin
+    return Std::RAM::Read(__Memory, address, size_in_bytes);
+end
+
+function RAM[address : Bits(64), size_in_bytes : Integer] := value : Bits(8 * size_in_bytes)
+begin
+    Std::RAM::Write(__Memory, address, size_in_bytes, value);
+end
+
+/////////////////////////////////////////////////////////////////
+// Debugging support: print processor state
+/////////////////////////////////////////////////////////////////
+
+function Print_State()
+begin
+    if halted then
+        Std::Print("HALTED ");
+    else
+        Std::Print("RUNNING ");
+    endif;
+    Std::Print("PC="); Std::Print::Bits::Hex(PC);
+    Std::Print(" R=[");
+    for i := 0 to 3 do
+        Std::Print(" "); Std::Print::Bits::Hex(R[i]);
+    endfor;
+    Std::Print(" ]");
+    Std::Print("\n");
+end
+
+/////////////////////////////////////////////////////////////////
+// Simulator interface
+/////////////////////////////////////////////////////////////////
+
+function ASL_Reset()
+begin
+    Reset();
+end
+
+function ASL_Step()
+begin
+    Step();
+end
+
+function ASL_IsHalted() -> Boolean
+begin
+    return halted;
+end
+
+function ASL_GetPC() -> Integer
+begin
+    return Unsigned(PC);
+end
+
+function ASL_SetPC(x : Bits(64))
+begin
+    PC := x;
+end
+
+// Used when loading ELF files
+function ASL_WriteMemory8(address : Bits(64), x : Bits(8))
+begin
+    RAM[address, 1] := x;
+end
+
+function ASL_ReadReg64(index : Integer) -> Bits(64)
+begin
+    case index of
+        when 0 => return PC;
+        when 1 => return (if halted then 64'x1 else 64'x0);
+        when 10 => return R[0];
+        when 11 => return R[1];
+        when 12 => return R[2];
+        when 13 => return R[3];
+        otherwise => Unimplemented_Feature("ASL_ReadReg64"); return Zero(64);
+    endcase;
+end
+
+function ASL_WriteReg64(index : Integer, val : Bits(64))
+begin
+    case index of
+        when 0 => PC := val;
+        when 1 => halted := val[0] == 0b1;
+        when 10 => R[0] := val;
+        when 11 => R[1] := val;
+        when 12 => R[2] := val;
+        when 13 => R[3] := val;
+        otherwise => Unimplemented_Feature("ASL_WriteReg64");
+    endcase;
+end
+
+// If this function is called, it indicates that there is a gap in the specification
+// caused by a missing feature.
+//
+// In a complete specification, there should be no calls to this function.
+function Unimplemented_Feature(name : String)
+begin
+    Std::Print("Unimplemented feature ({name}): Report a bug in the specification\n");
+    Std::End_Execution(False);
+end
+
+/////////////////////////////////////////////////////////////////
+// End
+/////////////////////////////////////////////////////////////////

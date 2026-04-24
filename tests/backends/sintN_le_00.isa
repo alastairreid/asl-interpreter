@@ -1,0 +1,20 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function FUT(x : __sint(8), y : __sint(8)) -> Boolean
+begin
+    return Std::SInt::Le(x, y);
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Boolean(FUT(i8'd1, i8'd2)); Std::Print::String("\n");
+    // CHECK: True
+    Std::Print::Boolean(FUT(i8'd1, i8'd1)); Std::Print::String("\n");
+    // CHECK: True
+    Std::Print::Boolean(FUT(i8'd1, i8'd0)); Std::Print::String("\n");
+    // CHECK: False
+    Std::Print::Boolean(FUT(-i8'd1, i8'd0)); Std::Print::String("\n");
+    // CHECK: True
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

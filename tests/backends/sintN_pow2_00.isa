@@ -1,0 +1,16 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function FUT(x : __sint(8)) -> __sint(8)
+begin
+    return Std::SInt::Exp2(x);
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::SInt::Dec(FUT(i8'd3)); Print("\n");
+    // CHECK: i8'd8
+    Std::Print::SInt::Dec(FUT(i8'd6)); Print("\n");
+    // CHECK: i8'd64
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

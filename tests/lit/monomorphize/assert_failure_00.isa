@@ -1,0 +1,29 @@
+// RUN: %iii --batchmode --runtime-checks --exec=":xform_monomorphize" --exec=":show --format=raw FUT*" %s | filecheck %s
+// Copyright (C) 2025-2026 Intel Corporation
+
+// This function has a potential assertion failure in it
+function Error(x : Integer, y : Integer) -> Integer
+begin
+    return x / y;
+end
+
+function FUT1(i : {0..3}) -> Integer
+begin
+    return Error(4, i);
+end
+
+// This case will trigger an assertion failure - which is caught and disables the optimization
+foreign export function "F0" = FUT1 with { i => 0 };
+
+// CHECK: function FUT1_i_0.0{}() -> Integer{{$}}
+// CHECK: begin
+// CHECK:     return Error.0{}(4, 0);
+// CHECK: end
+
+// This case does not trigger an assertion failure and is optimized
+foreign export function "F1" = FUT1 with { i => 1 };
+
+// CHECK: function FUT1_i_1.0{}() -> Integer{{$}}
+// CHECK: begin
+// CHECK:     return 4;
+// CHECK: end

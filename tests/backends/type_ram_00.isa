@@ -1,0 +1,77 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+// A RAM block with 8-bit addresses
+// RAMs should always be declared as global variables
+var __Memory : Std::RAM(8);
+
+function Read1(address : Bits(8)) -> Bits(8)
+begin
+    return Std::RAM::Read(__Memory, address, 1);
+end
+
+function Read8(address : Bits(8)) -> Bits(64)
+begin
+    return Std::RAM::Read(__Memory, address, 8);
+end
+
+function Write1(address : Bits(8), value : Bits(8))
+begin
+    Std::RAM::Write(__Memory, address, 1, value);
+end
+
+function Write4(address : Bits(8), value : Bits(32))
+begin
+    Std::RAM::Write(__Memory, address, 4, value);
+end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::RAM::Init(__Memory, 64'xf0ccac1adeadbeef);
+
+    // Initial values - set to 0xf0ccac1a_dead_beef
+    Std::Print::Bits::Hex(Read1(8'd0)); Print("\n");
+    // CHECK: 8'xef
+    Std::Print::Bits::Hex(Read1(8'd1)); Print("\n");
+    // CHECK: 8'xbe
+    Std::Print::Bits::Hex(Read1(8'd2)); Print("\n");
+    // CHECK: 8'xad
+    Std::Print::Bits::Hex(Read1(8'd3)); Print("\n");
+    // CHECK: 8'xde
+    Std::Print::Bits::Hex(Read1(8'd4)); Print("\n");
+    // CHECK: 8'x1a
+    Std::Print::Bits::Hex(Read1(8'd5)); Print("\n");
+    // CHECK: 8'xac
+    Std::Print::Bits::Hex(Read1(8'd6)); Print("\n");
+    // CHECK: 8'xcc
+    Std::Print::Bits::Hex(Read1(8'd7)); Print("\n");
+    // CHECK: 8'xf0
+    Std::Print::Bits::Hex(Read1(8'd8)); Print("\n");
+    // CHECK: 8'xef
+    Std::Print::Bits::Hex(Read1(8'd9)); Print("\n");
+    // CHECK: 8'xbe
+
+    // Multibyte read - need not be aligned
+    Std::Print::Bits::Hex(Read8(8'd0)); Print("\n");
+    // CHECK: 64'xf0ccac1adeadbeef
+    Std::Print::Bits::Hex(Read8(8'd1)); Print("\n");
+    // CHECK: 64'xeff0ccac1adeadbe
+    Std::Print::Bits::Hex(Read8(8'd2)); Print("\n");
+    // CHECK: 64'xbeeff0ccac1adead
+
+    Write1(8'd5, 8'x00);
+
+    Std::Print::Bits::Hex(Read8(8'd0)); Print("\n");
+    // CHECK: 64'xf0cc001adeadbeef
+    Std::Print::Bits::Hex(Read8(8'd8)); Print("\n");
+    // CHECK: 64'xf0ccac1adeadbeef
+
+    Write4(8'd7, 32'x11223344);
+
+    Std::Print::Bits::Hex(Read8(8'd0)); Print("\n");
+    // CHECK: 64'x44cc001adeadbeef
+    Std::Print::Bits::Hex(Read8(8'd8)); Print("\n");
+    // CHECK: 64'xf0ccac1ade112233
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

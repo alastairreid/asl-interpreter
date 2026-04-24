@@ -1,0 +1,25 @@
+// RUN: %aslopt -O0 -Obounded %s | filecheck --check-prefix=XFORM %s
+// RUN: %aslrun -Obounded %s | filecheck %s
+
+// Copyright (C) 2024-2026 Intel Corporation
+
+function FUT(x : {0..15}, y : {0..15}) -> Boolean
+begin
+    return x <= y;
+end
+
+// XFORM-LABEL: function FUT.0{}(x : __sint(5), y : __sint(5)) -> Boolean{{$}}
+// XFORM-NEXT:  begin
+// XFORM-NEXT:      return Std::SInt::Le.0{5}(x, y);
+// XFORM-NEXT:  end
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Boolean(FUT(13, 14));
+    // CHECK: True
+    Std::Print::Boolean(FUT(14, 14));
+    // CHECK: True
+    Std::Print::Boolean(FUT(15, 14));
+    // CHECK: False
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

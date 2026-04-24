@@ -1,8 +1,8 @@
 ////////////////////////////////////////////////////////////////
 // Runtime print support for ASL's C backend
 //
-// Copyright (C) 2023-2025 Intel Corporation
-// SPDX-Licence-Identifier: BSD-3-Clause
+// Copyright (C) 2023-2026 Intel Corporation
+// SPDX-License-Identifier: BSD-3-Clause
 ////////////////////////////////////////////////////////////////
 
 #ifndef ASL_PRINT_H
@@ -17,6 +17,9 @@
 #include "asl/bits256.h"
 #include "asl/bits512.h"
 #include "asl/bits1024.h"
+#include "asl/bits2048.h"
+#include "asl/bits4096.h"
+#include "asl/bits8192.h"
 #include "asl/integer.h"
 
 #ifdef __cplusplus
@@ -47,6 +50,18 @@ ASL_print_bits_hex_64(int width, ASL_bits64_t x)
 #undef N
 
 #define N 1024
+#include "asl/print_template.h"
+#undef N
+
+#define N 2048
+#include "asl/print_template.h"
+#undef N
+
+#define N 4096
+#include "asl/print_template.h"
+#undef N
+
+#define N 8192
 #include "asl/print_template.h"
 #undef N
 
@@ -117,7 +132,7 @@ ASL_print_int_dec(int n, bool add_size, ASL_int_t x)
                 printf("%" PRId64, -bottom);
         } else {
                 // despite the name, large numbers are printed in hex
-                printf("x%08" PRIx64 "_%08" PRIx64, top, bottom);
+                printf("0x%016" PRIx64 "_%016" PRIx64, top, bottom);
         }
 #else
         if (x < 0) {

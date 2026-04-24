@@ -1,17 +1,17 @@
 (****************************************************************
- * Test getters and setters elimination transform
+ * Test assignment function elimination transform
  *
- * Copyright (C) 2023-2025 Intel Corporation
- * SPDX-Licence-Identifier: BSD-3-Clause
+ * Copyright (C) 2023-2026 Intel Corporation
+ * SPDX-License-Identifier: BSD-3-Clause
  ****************************************************************)
 
 open Test_utils
-open LibASL
-open Asl_utils
+open LibISA
+open Isa_utils
 module TC = Tcheck
 
 (****************************************************************
- * Test getters and setters elimination
+ * Test elimination of assignment functions
  ****************************************************************)
 
 let getset_tests : unit Alcotest.test_case list =
@@ -20,65 +20,65 @@ let getset_tests : unit Alcotest.test_case list =
   let globals = TC.env0 in
   let decl = test_xform_decls Xform_getset.xform_decls globals prelude in
   [
-    ("getter type", `Quick, decl
+    ("nullary type", `Quick, decl
       ""
-      "getter G => integer;"
-      "func G_read() => integer;");
+      "function G => Integer;"
+      "function G() => Integer;");
 
-    ("getter", `Quick, decl
-      "var x : integer;"
-      "getter G => integer begin return x; end"
-      "func G_read() => integer begin return x; end");
+    ("function", `Quick, decl
+      "var x : Integer;"
+      "function G => Integer begin return x; end"
+      "function G() => Integer begin return x; end");
 
-    ("setter type", `Quick, decl
+    ("assignment function type", `Quick, decl
       ""
-      "setter S = val : integer;"
-      "func S_write(val : integer);");
+      "function S := val : Integer;"
+      "function S_write(val : Integer);");
 
-    ("setter", `Quick, decl
-      "var x : integer;"
-      "setter S = val : integer begin x = val; end"
-      "func S_write(val : integer) begin x = val; end");
+    ("assignment function", `Quick, decl
+      "var x : Integer;"
+      "function S := val : Integer begin x := val; end"
+      "function S_write(val : Integer) begin x := val; end");
 
-    ("array getter type", `Quick, decl
+    ("array function type", `Quick, decl
       ""
-      "getter G[i : integer] => integer;"
-      "func G_read(i : integer) => integer;");
+      "function G[i : Integer] => Integer;"
+      "function G(i : Integer) => Integer;");
 
-    ("array getter", `Quick, decl
-      "var x : array [1] of integer;"
-      "getter G[i : integer] => integer begin return x[i]; end"
-      "func G_read(i : integer) => integer begin return x[i]; end");
+    ("array function", `Quick, decl
+      "var x : array [1] of Integer;"
+      "function G[i : Integer] => Integer begin return x[i]; end"
+      "function G(i : Integer) => Integer begin return x[i]; end");
 
-    ("array setter type", `Quick, decl
+    ("array assignment function type", `Quick, decl
       ""
-      "setter S[i : integer] = val : integer;"
-      "func S_write(i : integer, val : integer);");
+      "function S[i : Integer] := val : Integer;"
+      "function S_write(i : Integer, val : Integer);");
 
-    ("array setter", `Quick, decl
-      "var x : array [1] of integer;"
-      "setter S[i : integer] = val : integer begin x[i] = val; end"
-      "func S_write(i : integer, val : integer) begin x[i] = val; end");
+    ("array assignment function", `Quick, decl
+      "var x : array [1] of Integer;"
+      "function S[i : Integer] := val : Integer begin x[i] := val; end"
+      "function S_write(i : Integer, val : Integer) begin x[i] := val; end");
 
     ("__write l-expr", `Quick, decl
-      "var x : integer;"
-      "setter S = val : integer begin x = val; end
-       func P() begin S = 0; end
-       func F() => integer begin S = 0; return 0; end"
-      "func S_write(val : integer) begin x = val; end
-       func P() begin S_write(0); end
-       func F() => integer begin S_write(0); return 0; end");
+      "var x : Integer;"
+      "function S := val : Integer begin x := val; end
+       function P() begin S = 0; end
+       function F() => Integer begin S = 0; return 0; end"
+      "function S_write(val : Integer) begin x := val; end
+       function P() begin S_write(0); end
+       function F() => Integer begin S_write(0); return 0; end");
 
     ("__readwrite l-expr", `Quick, decl
-      "var x : bits(3);"
-      "getter X => bits(3) begin return x; end
-       setter X = val : bits(3) begin x = val; end
-       func P() begin X[1 +: 2] = '10'; end
-       func F() => bits(3) begin X[1 +: 2] = '10'; return X; end"
-      "func X_read() => bits(3) begin return x; end
-       func X_write(val : bits(3)) begin x = val; end
-       func P() begin var __rmw0 = X_read(); __rmw0[1 +: 2] = '10'; X_write(__rmw0); end
-       func F() => bits(3) begin var __rmw1 = X_read(); __rmw1[1 +: 2] = '10'; X_write(__rmw1); return X_read(); end");
+      "var x : Bits(3);"
+      "function X => Bits(3) begin return x; end
+       function X := val : Bits(3) begin x := val; end
+       function P() begin X[1 +: 2] = 0b10; end
+       function F() => Bits(3) begin X[1 +: 2] = 0b10; return X; end"
+      "function X() => Bits(3) begin return x; end
+       function X_write(val : Bits(3)) begin x := val; end
+       function P() begin var __rmw0 = X(); __rmw0[1 +: 2] = 0b10; X_write(__rmw0); end
+       function F() => Bits(3) begin var __rmw1 = X(); __rmw1[1 +: 2] = 0b10; X_write(__rmw1); return X(); end");
   ]
 
 (****************************************************************

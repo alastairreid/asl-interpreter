@@ -1,0 +1,14 @@
+// RUN: %aslrun %s | filecheck %s
+// Copyright (C) 2023-2026 Intel Corporation
+
+function main() -> Builtin::Foreign::CInt
+begin
+    Std::Print::Char(65);
+    // CHECK: A
+    Std::Print::Char(66);
+    // CHECK: B
+    Std::Print::Char(67);
+    // CHECK: C
+
+    return Builtin::Foreign::CInt::From_Integer(0);
+end

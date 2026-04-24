@@ -2,5 +2,7 @@
 .*.swo
 .*.un~
 
+isa_history
+
 _build
 _opam
