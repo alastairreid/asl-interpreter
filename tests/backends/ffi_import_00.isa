@@ -1,7 +1,10 @@
-// RUN: %aslrun %s --import=FFI_Invert32 --import=FFI_Invert128 --extra-c=%S/ffi_import_00.c | filecheck %s
+// RUN: %aslrun %s --extra-c=%S/ffi_import_00.c | filecheck %s
 // Copyright (C) 2025-2026 Intel Corporation
 
 // UNSUPPORTED: interpreter
+
+foreign import function "FFI_Invert32" = FFI_Invert with { size => 32 };
+foreign import function "FFI_Invert128" = FFI_Invert with { size => 128 };
 
 // The following functions will be replaced by
 // a version that is defined externally.
@@ -9,22 +12,14 @@
 // similar behaviour but, for testing purposes, the
 // internal version is the identity function
 // and the external version inverts its argument.
-function FFI_Invert32(x : Bits(32)) -> Bits(32)
-begin
-    return x;
-end
-
-function FFI_Invert128(x : Bits(128)) -> Bits(128)
-begin
-    return x;
-end
+function FFI_Invert(implicit size : {0..}, x : Bits(size)) -> Bits(size);
 
 function main() -> Builtin::Foreign::CInt
 begin
-    Std::Print::Bits::Hex(FFI_Invert32(32'x3)); Print("\n");
+    Std::Print::Bits::Hex(FFI_Invert(32'x3)); Print("\n");
     // CHECK: 32'xfffffffc
 
-    Std::Print::Bits::Hex(FFI_Invert128(128'x3)); Print("\n");
+    Std::Print::Bits::Hex(FFI_Invert(128'x3)); Print("\n");
     // CHECK: 128'xfffffffffffffffffffffffffffffffc
 
     return Builtin::Foreign::CInt::From_Integer(0);

@@ -1,7 +1,26 @@
-// RUN: %aslrun %s --configuration=%S/ffi_export_01.json --extra-c=%S/ffi_export_01.c | filecheck %s
+// RUN: %aslrun %s --extra-c=%S/ffi_export_01.c | filecheck %s
 // Copyright (C) 2025-2026 Intel Corporation
 
 // UNSUPPORTED: interpreter
+
+foreign export type "E" = E;
+foreign export function "FFI_bits8"        = FFI_bits8 with {};
+foreign export function "FFI_bits16"       = FFI_bits16 with {};
+foreign export function "FFI_bits32"       = FFI_bits32 with {};
+foreign export function "FFI_bits64"       = FFI_bits64 with {};
+foreign export function "FFI_bits2"        = FFI_bits2 with {};
+foreign export function "FFI_bits17"       = FFI_bits17 with {};
+foreign export function "FFI_bits65"       = FFI_bits65 with {};
+foreign export function "FFI_bits127"      = FFI_bits127 with {};
+foreign export function "FFI_bits128"      = FFI_bits128 with {};
+foreign export function "FFI_string"       = FFI_string with {};
+foreign export function "FFI_E"            = FFI_E with {};
+foreign export function "FFI_Boolean"      = FFI_Boolean with {};
+foreign export function "FFI_integer"      = FFI_integer with {};
+foreign export function "FFI_sint17"       = FFI_sint17 with {};
+foreign export function "FFI_int_bool"     = FFI_int_bool with {};
+
+foreign import function "FFI_test_exports" = FFI_test_exports with {};
 
 enumeration E = { A, B, C };
 

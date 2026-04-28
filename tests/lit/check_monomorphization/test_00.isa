@@ -1,4 +1,4 @@
-// RUN: %iii --batchmode --configuration=%S/config.json --project=%S/iii.prj %s | filecheck %s
+// RUN: %iii --batchmode --project=%S/iii.prj %s | filecheck %s
 // Copyright (C) 2024-2026 Intel Corporation
 
 function C(x : Bits(N)) -> Integer
@@ -15,6 +15,8 @@ function A() -> Integer
 begin
     return B(0b0);
 end
+
+foreign export function "A" = A with {};
 
 // CHECK:       WARNING: Bitwidth parameters are not statically known in the following definitions.
 // CHECK-NEXT:  This will cause code generation to fail.

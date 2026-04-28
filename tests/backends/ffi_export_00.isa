@@ -1,7 +1,10 @@
-// RUN: %aslrun %s --import=FFI_Call128 --export=FFI_Extract128_32 --extra-c=%S/ffi_export_00.c | filecheck %s
+// RUN: %aslrun %s --extra-c=%S/ffi_export_00.c | filecheck %s
 // Copyright (C) 2025-2026 Intel Corporation
 
 // UNSUPPORTED: interpreter
+
+foreign import function "FFI_Call128" = FFI_Call128 with {};
+foreign export function "FFI_Extract128_32" = FFI_Extract128_32 with {};
 
 // Function imported from C
 function FFI_Call128(x : Bits(128)) -> Bits(32);
