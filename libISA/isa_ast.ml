@@ -193,7 +193,7 @@ declaration =
  | Decl_FunInstance of Ident.t * (Ident.t * Value.value option) list * Loc.t
  | Decl_FunFFI of string * bool * Ident.t * (Ident.t * Value.value) list * Loc.t
  | Decl_VarFFI of string * bool * Ident.t * Loc.t
- | Decl_TypeFFI of string * bool * ty * Loc.t
+ | Decl_TypeFFI of string * bool * Ident.t * Loc.t
  | Decl_Operator1 of unop * Ident.t list * Loc.t
  | Decl_Operator2 of binop * Ident.t list * Loc.t
  | Decl_Config of Ident.t * ty * expr * Loc.t

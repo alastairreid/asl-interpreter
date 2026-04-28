@@ -665,9 +665,9 @@ let visit_decl (vis : isaVisitor) (x : declaration) : declaration =
     | Decl_VarFFI (nm, is_export, v, loc) ->
         let v' = visit_var vis Definition v in
         if v == v' then x else Decl_VarFFI (nm, is_export, v', loc)
-    | Decl_TypeFFI (nm, is_export, t, loc) ->
-        let t' = visit_type vis t in
-        if t == t' then x else Decl_TypeFFI (nm, is_export, t', loc)
+    | Decl_TypeFFI (nm, is_export, tc, loc) ->
+        let tc' = visit_var vis Definition tc in
+        if tc == tc' then x else Decl_TypeFFI (nm, is_export, tc', loc)
     | Decl_Operator1 (op, vs, loc) ->
         let vs' = mapNoCopy (visit_var vis Definition) vs in
         if vs == vs' then x else Decl_Operator1 (op, vs', loc)

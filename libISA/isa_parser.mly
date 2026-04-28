@@ -679,9 +679,9 @@ let ffi_definition :=
     | "foreign"; is_export=ffi_direction;
       "var"; nm=STRINGLIT; "="; v=path; ";";
       { Decl_VarFFI(nm, is_export, v, Range($symbolstartpos, $endpos)) }
-    | "foreign"; is_export=ffi_direction;
-      "type"; nm=STRINGLIT; "="; t=ty; ";";
-      { Decl_TypeFFI(nm, is_export, t, Range($symbolstartpos, $endpos)) }
+    | "foreign"; "export"; (* foreign import of types not currently supported *)
+      "type"; nm=STRINGLIT; "="; t=path; ";";
+      { Decl_TypeFFI(nm, true, t, Range($symbolstartpos, $endpos)) }
 
 let ffi_parameter_value :=
     | p = ident ; "=>" ; v = literal_expression ; { (p, v) }

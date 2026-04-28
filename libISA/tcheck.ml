@@ -3293,9 +3293,13 @@ let tc_declaration (env : GlobalEnv.t) (d : AST.declaration) :
   | Decl_VarFFI (nm, is_export, v, loc) ->
       let v' = get_var (Env.mkEnv env) loc v in
       [ Decl_VarFFI (nm, is_export, v'.name, loc) ]
-  | Decl_TypeFFI (nm, is_export, t, loc) ->
-      let t' = tc_type (Env.mkEnv env) loc t in
-      [ Decl_TypeFFI (nm, is_export, t', loc) ]
+  | Decl_TypeFFI (nm, is_export, tc, loc) ->
+      let tc' = GlobalEnv.renameType env tc in
+      if (tc' = Builtin_idents.sintN) || (GlobalEnv.isTycon env tc') then (
+        [ Decl_TypeFFI (nm, is_export, tc', loc) ]
+      ) else (
+        raise (IsNotA (loc, "type constructor", Ident.to_string tc))
+      )
   | Decl_Operator1 (op, funs, loc) ->
       let funs' =
         List.concat

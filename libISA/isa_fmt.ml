@@ -920,7 +920,7 @@ let declaration ?(short=false) (fmt : PP.formatter) (x : AST.declaration) : unit
             ffi_direction is_export
             kw_type
             nm
-            ty t
+            tycon t
       | Decl_Operator1 (op, fs, loc) ->
           kw_underscore_operator1 fmt;
           nbsp fmt;

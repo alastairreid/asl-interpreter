@@ -513,7 +513,7 @@ let decl_name (x : declaration) : Ident.t option =
   | Decl_FunInstance (f, _, loc) -> Some f
   | Decl_FunFFI (nm, is_export, f, _, loc) -> Some f
   | Decl_VarFFI (nm, is_export, v, loc) -> Some v
-  | Decl_TypeFFI (nm, is_export, t, loc) -> None
+  | Decl_TypeFFI (nm, is_export, t, loc) -> Some t
   | Decl_Operator1 (op, vs, loc) -> None
   | Decl_Operator2 (op, vs, loc) -> None
   | Decl_Config (v, ty, e, loc) -> Some v
