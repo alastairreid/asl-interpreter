@@ -1569,7 +1569,7 @@ let mk_ffi_conversion (loc : Loc.t) (indirect : bool) (c_name : Ident.t) (asl_na
     when Ident.equal f cvt_sintN_int
     -> mk_ffi_convert_large_bits (Z.to_int n.v)
   | _ ->
-      let msg = PP.asprintf "Type '%a' cannot be used in functions that are imported or exported between ASL and C"
+      let msg = PP.asprintf "Type '%a' cannot be used in functions that are imported from or exported to C"
         FMT.ty asl_type
       in
       raise (Error.TypeError (loc, msg))
@@ -1908,26 +1908,62 @@ let mk_ffi_import_wrapper
 
   (pp_proto, pp_wrapper)
 
+(* Make list of foreign import/export pairs based either on old-style config files
+ * or new-style foreign import/export declarations.
+ *)
+let get_ffi (get_exports : bool) (decls : AST.declaration list) : (string * Ident.t) list =
+  (* old-style imports/exports are specified via a configuration json file *)
+  let key = if get_exports then "exports" else "imports" in
+  let raw_exports = if !new_ffi then Configuration.get_strings key else [] in
+  let old_exports = List.filter_map (fun d ->
+    ( match d with
+    | AST.Decl_Record (x, _, _, _)
+    | AST.Decl_Enum (x, _, _)
+    | AST.Decl_Var (x, _, _)
+    | AST.Decl_Config (x, _, _, _)
+    | AST.Decl_Const (x, _, _, _)
+    | AST.Decl_FunType (x, _, _)
+    when List.mem (Ident.name x) raw_exports
+    -> Some (Ident.name x, x)
+    | _
+    -> None
+    ))
+    decls
+  in
+
+  (* new-style imports/exports are specified using foreign import/export declarations *)
+  let new_exports = List.filter_map (fun d ->
+    ( match d with
+    | AST.Decl_FunFFI (nm, is_export, x, _, _)
+    | AST.Decl_TypeFFI (nm, is_export, x, _)
+    when is_export = get_exports
+    -> Some (nm, x)
+    | _
+    -> None
+    )) decls
+  in
+  old_exports @ new_exports
+
+
 let mk_ffi_infos (is_import : bool) (decl_map : AST.declaration list Bindings.t)
-    (c_names : string list) :
+    (xs : (string * Ident.t) list) :
     (Ident.t * Ident.t * AST.function_type * Loc.t) list =
   let missing : string list ref = ref [] in
-  let infos = List.filter_map (fun c_name ->
-      let asl_ident = Ident.mk_fident c_name in
+  let infos = List.filter_map (fun (c_name, isa_ident) ->
       let c_ident = Ident.mk_ident c_name in
-      let info = ( match Bindings.find_opt asl_ident decl_map with
+      let info = ( match Bindings.find_opt isa_ident decl_map with
       | Some ds ->
           ( match List.find_opt (function AST.Decl_FunType _ -> true | _ -> false) ds with
-          | Some (AST.Decl_FunType (_, fty, loc)) -> Some (c_ident, asl_ident, fty, loc)
+          | Some (AST.Decl_FunType (_, fty, loc)) -> Some (c_ident, isa_ident, fty, loc)
           | _ -> None
           )
       | _ -> None
       ) in
-      if Option.is_none info && not (is_enumerated_type c_ident) then begin
+      if Option.is_none info && not (is_enumerated_type isa_ident) then begin
           missing := c_name :: !missing
       end;
       info
-    ) c_names
+    ) xs
   in
   if not (Utils.is_empty !missing) then begin
     let direction = if is_import then "Import" else "Export" in
@@ -1935,32 +1971,6 @@ let mk_ffi_infos (is_import : bool) (decl_map : AST.declaration list Bindings.t)
     exit 1
   end;
   infos
-
-let mk_new_ffi_infos (is_import : bool)
-    (decl_map : AST.declaration list Bindings.t) (ds : AST.declaration list) :
-    (Ident.t * Ident.t * AST.function_type * Loc.t) list =
-  List.filter_map (fun x ->
-      match x with
-      | AST.Decl_FunFFI (nm, is_export, f, ps, loc) when is_export = not is_import ->
-          let c_ident = Ident.mk_ident nm in
-          let info = ( match Bindings.find_opt f decl_map with
-          | Some ds ->
-              ( match List.find_opt (function AST.Decl_FunType _ -> true | _ -> false) ds with
-              | Some (AST.Decl_FunType (_, fty, loc)) -> Some (c_ident, f, fty, loc)
-              | _ -> None
-              )
-          | _ -> None
-          ) in
-          if Option.is_none info then begin
-              let direction = if is_import then "Import" else "Export" in
-              let pp fmt = FMT.declaration fmt x in
-              let fname = Ident.name_with_tag f in
-              raise (InternalError
-                (loc, PP.asprintf "%sed function '%s' is not defined" direction fname, pp, __LOC__))
-          end;
-          info
-      | _ -> None)
-    ds
 
 (* Build ffi wrapper functions *)
 let mk_ffi_wrappers (is_import : bool)
@@ -1987,12 +1997,16 @@ let mk_ffi_wrappers (is_import : bool)
   let pp_defns fmt : unit = List.iter (fun f -> f fmt) mk_defns in
   (pp_protos, pp_defns)
 
-let ffi_track_enums (decl_map : (AST.declaration list) Bindings.t) (exports : string list) : unit =
-  List.iter (fun c_name ->
-    let c_ident = Ident.mk_ident c_name in
-    ( match Bindings.find_opt c_ident decl_map with
-    | Some (Decl_Enum (tc, es, loc) :: _) ->
-      add_enumerated_type tc es
+let ffi_track_enums (decl_map : (AST.declaration list) Bindings.t) (exports : (string * Ident.t) list) : unit =
+  List.iter (fun (c_name, isa_ident) ->
+    ( match Bindings.find_opt isa_ident decl_map with
+    | Some ds ->
+        List.iter (fun d ->
+          ( match d with
+          | AST.Decl_Enum (tc, es, loc) -> add_enumerated_type tc es
+          | _ -> ()
+          ))
+          ds
     | _ ->
       ()
     ))
@@ -2019,7 +2033,7 @@ let config_getter_prefix = "ASL_get_config_"
 (* Generate ASL functions for reading/writing configuration variables.
  * These will then be exported so that C code can read/write the variables.
  *)
-let mk_ffi_config (decls : AST.declaration list) : (string list * AST.declaration list) =
+let mk_ffi_config (decls : AST.declaration list) : ((string * Ident.t) list * AST.declaration list) =
   let configs = List.filter_map (fun x ->
       ( match x with
       | AST.Decl_Config (v, ty, i, loc) -> Some (v, ty, loc)
@@ -2028,7 +2042,7 @@ let mk_ffi_config (decls : AST.declaration list) : (string list * AST.declaratio
     decls
   in
 
-  let mk_functions ((v, ty, loc) : (Ident.t * AST.ty * Loc.t)) : (string list * AST.declaration list) =
+  let mk_functions ((v, ty, loc) : (Ident.t * AST.ty * Loc.t)) : ((string * Ident.t) list * AST.declaration list) =
     let getter_name = config_getter_prefix ^ Ident.name v in
     let getter_id = Ident.mk_fident getter_name in
     let getter_fty : AST.function_type = {
@@ -2064,7 +2078,7 @@ let mk_ffi_config (decls : AST.declaration list) : (string list * AST.declaratio
     let setter_defn = AST.Decl_FunDefn (setter_id, setter_fty, setter_body, loc) in
     let setter_type = AST.Decl_FunType (setter_id, setter_fty, loc) in
 
-    ([getter_name; setter_name], [getter_defn; getter_type; setter_defn; setter_type])
+    ([(getter_name, getter_id); (setter_name, setter_id)], [getter_defn; getter_type; setter_defn; setter_type])
   in
 
   let (names, decls) = List.map mk_functions configs |> List.split in
@@ -2275,22 +2289,19 @@ let _ =
     let (cfg_exports, cfg_funs) = mk_ffi_config decls in
     let decls' = decls @ cfg_funs in
     let decl_map = Isa_utils.decls_map_of decls' in
-    let imports = if !new_ffi then Configuration.get_strings "imports" else [] in
-    let exports = if !new_ffi then Configuration.get_strings "exports" else [] in
+
+    let imports = get_ffi false decls' in
+    let exports = get_ffi true decls' in
 
     ffi_track_enums decl_map exports;
     ffi_track_return_types decls';
 
     let ffi_import_infos = mk_ffi_infos true decl_map imports in
-    let new_ffi_import_infos = mk_new_ffi_infos true decl_map decls' in
-    let (ffi_import_protos, ffi_import_defns) =
-      mk_ffi_wrappers true (ffi_import_infos @ new_ffi_import_infos)
+    let (ffi_import_protos, ffi_import_defns) = mk_ffi_wrappers true ffi_import_infos
     in
 
     let ffi_export_infos = mk_ffi_infos false decl_map (cfg_exports @ exports) in
-    let new_ffi_export_infos = mk_new_ffi_infos false decl_map decls' in
-    let (ffi_export_protos, ffi_export_defns) =
-      mk_ffi_wrappers false (ffi_export_infos @ new_ffi_export_infos)
+    let (ffi_export_protos, ffi_export_defns) = mk_ffi_wrappers false ffi_export_infos
     in
 
     let ffi_protos (fmt : PP.formatter) : unit =
