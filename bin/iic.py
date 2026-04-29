@@ -343,6 +343,7 @@ def mk_script(args, output_directory):
     if args.O0:
         script = []
         script.append(":filter_unlisted_functions imports")
+        script.append(":xform_monomorphize")
         script.append(":filter_reachable_from --no-keep-builtins exports")
         if args.Oarrays: script.append(":xform_arrays")
         if args.Obounded: script.append(":xform_bounded")
