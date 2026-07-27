@@ -33,15 +33,15 @@ begin
 
     // Some runtimes optimize the handling of 64-bit values
     // so test the extreme values and near neighbors.
-    let max_64 := Std::Bits::Unsigned(0x7fff_ffff_ffff_ffff);
-    let min_64 := -Std::Bits::Unsigned(0x8000_0000_0000_0000);
+    let max_64 := Std::Bits::Signed(0x7fff_ffff_ffff_ffff);
+    let min_64 := Std::Bits::Signed(0x8000_0000_0000_0000);
     Std::Info(1, "{max_64}");
     // CHECK:  {{^9223372036854775807$}}
     Std::Info(1, "{min_64}");
     // CHECK: {{^-9223372036854775808$}}
 
-    let max_64m1 :=  Std::Bits::Unsigned(0x7fff_ffff_ffff_fffe);
-    let min_64p1 := -Std::Bits::Unsigned(0x7fff_ffff_ffff_ffff);
+    let max_64m1 := Std::Bits::Signed(0x7fff_ffff_ffff_fffe);
+    let min_64p1 := Std::Bits::Signed(0x8000_0000_0000_0001);
     Std::Info(1, "{max_64m1}");
     // CHECK:  {{^9223372036854775806$}}
     Std::Info(1, "{min_64p1}");
@@ -49,8 +49,8 @@ begin
 
     // Most runtimes use 128 bits as the default int sizes
     // so test the extreme values and near neighbors.
-    let max_128 :=  Std::Bits::Unsigned(0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_ffff);
-    let min_128 := -Std::Bits::Unsigned(0x8000_0000_0000_0000_0000_0000_0000_0000);
+    let max_128 := Std::Bits::Signed(0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_ffff);
+    let min_128 := Std::Bits::Signed(0x8000_0000_0000_0000_0000_0000_0000_0000);
     Std::Info(1, "{max_128}");
     // CHECK-c23:          {{^0x7fffffffffffffffffffffffffffffff$}}
     // CHECK-fallback:     {{^0x7fffffffffffffffffffffffffffffff$}}
@@ -60,8 +60,8 @@ begin
     // CHECK-fallback:    {{^-0x80000000000000000000000000000000$}}
     // CHECK-interpreter: {{^-170141183460469231731687303715884105728$}}
 
-    let max_128m1 :=  Std::Bits::Unsigned(0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_fffe);
-    let min_128p1 := -Std::Bits::Unsigned(0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_ffff);
+    let max_128m1 := Std::Bits::Signed(0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_fffe);
+    let min_128p1 := Std::Bits::Signed(0x8000_0000_0000_0000_0000_0000_0000_0001);
     Std::Info(1, "{max_128m1}");
     // CHECK-c23:          {{^0x7ffffffffffffffffffffffffffffffe$}}
     // CHECK-fallback:     {{^0x7ffffffffffffffffffffffffffffffe$}}

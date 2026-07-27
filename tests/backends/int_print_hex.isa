@@ -10,15 +10,15 @@ begin
 
     // Some runtimes optimize the handling of 64-bit values
     // so test the extreme values and near neighbors.
-    let max_64 := Std::Bits::Unsigned(0x7fff_ffff_ffff_ffff);
-    let min_64 := -Std::Bits::Unsigned(0x8000_0000_0000_0000);
+    let max_64 := Std::Bits::Signed(0x7fff_ffff_ffff_ffff);
+    let min_64 := Std::Bits::Signed(0x8000_0000_0000_0000);
     Std::Print::Integer::Hex(max_64); Print("\n");
     // CHECK:  {{^0x7fffffffffffffff$}}
     Std::Print::Integer::Hex(min_64); Print("\n");
     // CHECK: {{^-0x8000000000000000$}}
 
-    let max_64m1 :=  Std::Bits::Unsigned(0x7fff_ffff_ffff_fffe);
-    let min_64p1 := -Std::Bits::Unsigned(0x7fff_ffff_ffff_ffff);
+    let max_64m1 := Std::Bits::Signed(0x7fff_ffff_ffff_fffe);
+    let min_64p1 := Std::Bits::Signed(0x8000_0000_0000_0001);
     Std::Print::Integer::Hex(max_64m1); Print("\n");
     // CHECK:  {{^0x7ffffffffffffffe$}}
     Std::Print::Integer::Hex(min_64p1); Print("\n");
@@ -26,15 +26,15 @@ begin
 
     // Most runtimes use 128 bits as the default int sizes
     // so test the extreme values and near neighbors.
-    let max_128 :=  Std::Bits::Unsigned(0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_ffff);
-    let min_128 := -Std::Bits::Unsigned(0x8000_0000_0000_0000_0000_0000_0000_0000);
+    let max_128 := Std::Bits::Signed(0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_ffff);
+    let min_128 := Std::Bits::Signed(0x8000_0000_0000_0000_0000_0000_0000_0000);
     Std::Print::Integer::Hex(max_128); Print("\n");
     // CHECK:  {{^0x7fffffffffffffffffffffffffffffff$}}
     Std::Print::Integer::Hex(min_128); Print("\n");
     // CHECK: {{^-0x80000000000000000000000000000000$}}
 
-    let max_128m1 :=  Std::Bits::Unsigned(0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_fffe);
-    let min_128p1 := -Std::Bits::Unsigned(0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_ffff);
+    let max_128m1 := Std::Bits::Signed(0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_fffe);
+    let min_128p1 := Std::Bits::Signed(0x8000_0000_0000_0000_0000_0000_0000_0001);
     Std::Print::Integer::Hex(max_128m1); Print("\n");
     // CHECK:  {{^0x7ffffffffffffffffffffffffffffffe$}}
     Std::Print::Integer::Hex(min_128p1); Print("\n");

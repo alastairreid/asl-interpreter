@@ -8,7 +8,7 @@ begin
     Std::Print::Integer::Dec(-42); Print("\n");
     // CHECK: {{^-42$}}
 
-    let max_128 := Std::Bits::Unsigned(0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_ffff);
+    let max_128 := Std::Bits::Signed(0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_ffff);
     Std::Print::Integer::Dec(max_128); Print("\n");
     // CHECK-ac:          {{^0x7fffffffffffffffffffffffffffffff$}}
     // CHECK-c23:         {{^0x7fffffffffffffffffffffffffffffff$}}
@@ -16,7 +16,7 @@ begin
     // CHECK-interpreter: {{^170141183460469231731687303715884105727$}}
     // CHECK-sc:          {{^0x7fffffffffffffffffffffffffffffff$}}
 
-    let min_128 := -Std::Bits::Unsigned(0x8000_0000_0000_0000_0000_0000_0000_0000);
+    let min_128 := Std::Bits::Signed(0x8000_0000_0000_0000_0000_0000_0000_0000);
     Std::Print::Integer::Dec(min_128); Print("\n");
     // CHECK-ac:         {{^-0x80000000000000000000000000000000$}}
     // CHECK-c23:        {{^-0x80000000000000000000000000000000$}}
