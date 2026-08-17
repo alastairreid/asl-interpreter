@@ -295,7 +295,7 @@ def get_ld_flags(iii, iii_flags, backend):
     else:
         # iii has not been installed so let's assume that it is being run
         # directly out of the build tree and the path looks like this ../_build/install/default/bin/iii
-        # and the include path that we need is ../_build/install/default/runtime
+        # and the linker path that we need is ../_build/install/default/lib/isa-tools/runtime/libASL.a
         bindir = os.path.dirname(iii)
         rootdir = os.path.dirname(bindir)
         path = os.path.join(rootdir, "lib/isa-tools/runtime/libASL.a")
