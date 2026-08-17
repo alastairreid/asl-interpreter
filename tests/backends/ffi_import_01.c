@@ -23,7 +23,7 @@ const char* FFI_null_string(const char *x) { return x; }
 enum E FFI_null_E(enum E x) { return x; }
 bool FFI_null_Boolean(bool x) { return x; }
 int64_t FFI_null_integer(int64_t x) { return x; }
-int FFI_null_sint17(int x) { return x; }
+int64_t FFI_null_sint17(int64_t x) { return x; }
 
 void FFI_int_bool(int64_t x, int64_t* ret1, bool* ret2)
 {

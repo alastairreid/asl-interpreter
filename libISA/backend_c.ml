@@ -1544,8 +1544,8 @@ let mk_ffi_conversion (loc : Loc.t) (indirect : bool) (c_name : Ident.t) (asl_na
       { asl_name = asl_name;
         asl_type = asl_type;
         c_name = c_name;
-        pp_c_type = Some (fun fmt -> PP.fprintf fmt "int%a" ptr ());
-        pp_c_decl = (fun fmt -> PP.fprintf fmt "int %a%a" ptr () ident c_name);
+        pp_c_type = Some (fun fmt -> PP.fprintf fmt "%s%a" !ffi_integer ptr ());
+        pp_c_decl = (fun fmt -> PP.fprintf fmt "%s %a%a" !ffi_integer ptr () ident c_name);
         pp_c_ref = (fun fmt -> PP.fprintf fmt "&%a" ident c_name);
         pp_asl_to_c = (fun fmt ->
           PP.fprintf fmt "%a%a = %a;"
