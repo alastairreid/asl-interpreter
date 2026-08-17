@@ -1,0 +1,16 @@
+log.*.isa
+sim.prj
+
+sim_types.h
+sim_exceptions.h
+sim_vars.h
+sim_exceptions.c
+sim_ffi.h
+sim_vars.c
+sim_funs.c
+
+simulator
+
+test.s
+test.o
+test.elf

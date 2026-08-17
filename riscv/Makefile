@@ -1,15 +1,15 @@
 ################################################################
-# Demo Makefile
+# RISC-V Makefile
 #
-# Copyright (C) 2022-2024 Intel Corporation
+# Copyright (C) 2022-2026 Intel Corporation
 # SPDX-Licence-Identifier: BSD-3-Clause
 ################################################################
 
 .default: simulator
 
-ASL_PATH = ..:.
-ASLI     = ../_build/default/bin/asli.exe
-ASL2C    = ../_build/default/bin/asl2c.py
+ISA_PATH = ..:.
+III     = ../_build/install/default/bin/iii
+IIC    = ../_build/install/default/bin/iic
 
 BACKEND = c23
 
@@ -18,17 +18,17 @@ BACKEND = c23
 ################################################################
 
 test_interpreter: test.elf test.prj
-	env ASL_PATH="${ASL_PATH}" ${ASLI} --nobanner --batchmode riscv.asl --project test.prj | filecheck test.prj
+	env ISA_PATH="${ISA_PATH}" ${III} --batchmode riscv.isa --project test.prj | filecheck test.prj
 
 trace_interpreter: test.elf
-	env ASL_PATH="${ASL_PATH}" ${ASLI} --batchmode riscv.asl --project test.prj
+	env ISA_PATH="${ISA_PATH}" ${III} --batchmode riscv.isa --project test.prj
 
 ################################################################
 # Build simulator using C backend
 ################################################################
 
-CFLAGS = $(shell ${ASL2C} --print-c-flags)
-LDFLAGS = $(shell ${ASL2C} --print-ld-flags)
+CFLAGS = $(shell ${IIC} --print-c-flags)
+LDFLAGS = $(shell ${IIC} --print-ld-flags)
 
 CFLAGS += -Wall
 CFLAGS += -g
@@ -36,13 +36,13 @@ CFLAGS += -Wno-parentheses-equality
 CFLAGS += -Wno-unused-variable
 CFLAGS += -Wno-unused-function
 
-CC=clang-16 -std=c2x
+CC=clang-18 -std=c2x
 
 .PRECIOUS: simulator_%
 
-simulator : simulator.c exports.json riscv.asl
-	$(ASL2C) --basename=sim --intermediates=log --backend=${BACKEND} > sim.prj
-	env ASL_PATH="${ASL_PATH}" $(ASLI) --nobanner --batchmode --project=sim.prj --configuration=exports.json riscv.asl
+simulator : simulator.c riscv.isa
+	$(IIC) --basename=sim --intermediates=log --backend=${BACKEND} --new-ffi > sim.prj
+	env ISA_PATH="${ISA_PATH}" $(III) --batchmode --project=sim.prj riscv.isa
 	$(CC) ${CFLAGS} simulator.c -o $@ ${LDFLAGS}
 
 test : simulator test.elf test.prj
@@ -53,8 +53,8 @@ trace : simulator test.elf test.prj
 
 clean ::
 	$(RM) sim.prj
-	$(RM) log.*.asl
-	$(RM) sim_types.h sim_exceptions.h sim_vars.h
+	$(RM) log.*.isa
+	$(RM) sim_types.h sim_exceptions.h sim_vars.h sim_ffi.h
 	$(RM) sim_exceptions.c sim_vars.c sim_funs.c
 	$(RM) sim_types.hpp sim_exceptions.hpp sim_vars.hpp
 	$(RM) sim_exceptions.cpp sim_vars.cpp sim_funs.cpp

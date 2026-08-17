@@ -1,0 +1,831 @@
+/////////////////////////////////////////////////////////////////
+// Copyright (C) 2022-2026 Intel Corporation
+// SPDX-Licence-Identifier: BSD-3-Clause
+//
+// A subset of the RISC-V RV32I ISA written in .isa
+//
+// This subset is intended to support small scale experimentation
+// and research and to act as a slightly larger example than the
+// 'demo' architecture included in the ISA-tools repository
+// (https://github.com/IntelLabs/isa-tools).
+//
+// This sample code is unsupported and incompletely tested
+// and may contain bugs.
+// We do not intend to extend this to support the full RISC-V ISA.
+//
+// For an accurate, supported specification of RISC-V, we strongly
+// recommend use of the official RISC-V specification
+// (https://github.com/riscv/sail-riscv) and the
+// Sail toolchain (https://github.com/rems-project/sail).
+/////////////////////////////////////////////////////////////////
+
+// XLEN is a constant in RV32I
+// (It can only be changed by editing this file.)
+let XLEN : {32, 64} := 32;
+
+/////////////////////////////////////////////////////////////////
+// Reset and Step
+/////////////////////////////////////////////////////////////////
+
+function Reset()
+begin
+    Halted := False;
+    PC := Zero(XLEN);
+    for i := 1 to 31 do
+        X[i] := Zero(XLEN);
+    endfor;
+    RAM::Init();
+end
+
+// The 'Step' function takes a single atomic step
+// such as executing an instruction
+//
+// In a full ISA specification, it also handles
+// breakpoints, single-stepping, exceptions, etc.
+function Step?()
+begin
+    if Halted then
+        return;
+    endif;
+
+    let encoding := RAM[PC, 4];
+    _NextPC := PC + 4;
+    Decode_And_Execute32?(encoding);
+
+    PC := _NextPC;
+end
+
+exception ExceptionTaken;
+
+/////////////////////////////////////////////////////////////////
+// Registers
+/////////////////////////////////////////////////////////////////
+
+// Value that PC will be set to after successful completion of
+// the current instruction.
+// This is usually PC + <instruction length> but it can
+// be set to some other value by branches, exceptions, etc.
+var _NextPC : Bits(XLEN);
+
+// Register file
+// (Note that this is only accessed via the X accessor functions
+// and that element 0 is never read or written)
+var _X : array [32] of Bits(XLEN);
+
+// Has the processor Halted?
+var Halted : Boolean;
+
+// Program counter
+// Note that the bottom bit is ignored by the accessor function
+var _PC : Bits(XLEN);
+
+/////////////////////////////////////////////////////////////////
+// Accessor functions
+/////////////////////////////////////////////////////////////////
+
+// Note that X[0] always returns zero
+// (Design detail: this could also be specified by initializing _X[0]
+// to zero and never modifying it. Special casing it on reads makes
+// it easier for readers and analysis tools to recognize that X[0] := 0
+// without having to keep track of system invariants.)
+function X[i : {0..31}] -> Bits(XLEN)
+begin
+    if i == 0 then
+        return Zero(XLEN);
+    else
+        return _X[i];
+    endif;
+end
+
+function X[i : {0..31}] := val : Bits(XLEN)
+begin
+    if i != 0 then
+        _X[i] := val;
+    endif;
+end
+
+function PC -> Bits(XLEN)
+begin
+    return _PC[XLEN-1 : 1] ++ 0b0;
+end
+
+function PC := target : Bits(XLEN)
+begin
+    _PC := target[XLEN-1 : 1] ++ 0b0;
+end
+
+function Branch_To(target : Bits(XLEN))
+begin
+    _NextPC := target[XLEN-1 : 1] ++ 0b0;
+end
+
+/////////////////////////////////////////////////////////////////
+// Instruction decode (for 32-bit encoding)
+/////////////////////////////////////////////////////////////////
+
+function Decode_And_Execute32?(encoding : Bits(32))
+begin
+    // Note: this case statement would normally be machine
+    // generated from an instruction encoding database.
+    // Note too that the immediate field is reverse permutation
+    // from that normally shown in documents
+    // Note: this code is based on the table in chapter 34 
+    // "RV32/64G Instruction Set Listings" of the RVI
+    // Instruction Set Manual volume 1. (page 554)
+    case encoding of
+        when 0bxxxx_xxxx_xxxx_xxxx_xxxx_xxxx_x011_0111 => Instr::LUI  (encoding[31:12], encoding[11:7]);
+        when 0bxxxx_xxxx_xxxx_xxxx_xxxx_xxxx_x001_0111 => Instr::AUIPC(encoding[31:12], encoding[11:7]);
+        when 0bxxxx_xxxx_xxxx_xxxx_xxxx_xxxx_x110_1111 => Iform_JAL   (encoding[31,19:12,20,30:21], encoding[11:7]);
+        when 0bxxxx_xxxx_xxxx_xxxx_xxxx_xxxx_x110_0111 => Instr::JALR (encoding[31:20], encoding[19:15], encoding[11:7]);
+        when 0bxxxx_xxxx_xxxx_xxxx_x000_xxxx_x110_0011 => Iform_BEQ   (encoding[31,7,30:25,11:7], encoding[24:20], encoding[19:15]);
+        when 0bxxxx_xxxx_xxxx_xxxx_x001_xxxx_x110_0011 => Instr::BNE  (encoding[31,7,30:25,11:7], encoding[24:20], encoding[19:15]);
+        when 0bxxxx_xxxx_xxxx_xxxx_x100_xxxx_x110_0011 => Instr::BLT  (encoding[31,7,30:25,11:7], encoding[24:20], encoding[19:15]);
+        when 0bxxxx_xxxx_xxxx_xxxx_x101_xxxx_x110_0011 => Instr::BGE  (encoding[31,7,30:25,11:7], encoding[24:20], encoding[19:15]);
+        when 0bxxxx_xxxx_xxxx_xxxx_x110_xxxx_x110_0011 => Instr::BLTU (encoding[31,7,30:25,11:7], encoding[24:20], encoding[19:15]);
+        when 0bxxxx_xxxx_xxxx_xxxx_x111_xxxx_x110_0011 => Instr::BGEU (encoding[31,7,30:25,11:7], encoding[24:20], encoding[19:15]);
+        when 0bxxxx_xxxx_xxxx_xxxx_x000_xxxx_x000_0011 => Instr::LB   (encoding[31:20], encoding[19:15], encoding[11:7]);
+        when 0bxxxx_xxxx_xxxx_xxxx_x001_xxxx_x000_0011 => Instr::LH   (encoding[31:20], encoding[19:15], encoding[11:7]);
+        when 0bxxxx_xxxx_xxxx_xxxx_x010_xxxx_x000_0011 => Instr::LW   (encoding[31:20], encoding[19:15], encoding[11:7]);
+        when 0bxxxx_xxxx_xxxx_xxxx_x100_xxxx_x000_0011 => Instr::LBU  (encoding[31:20], encoding[19:15], encoding[11:7]);
+        when 0bxxxx_xxxx_xxxx_xxxx_x101_xxxx_x000_0011 => Instr::LHU  (encoding[31:20], encoding[19:15], encoding[11:7]);
+        when 0bxxxx_xxxx_xxxx_xxxx_x000_xxxx_x010_0011 => Instr::SB   (encoding[31:25,11:7], encoding[24:20], encoding[19:15]);
+        when 0bxxxx_xxxx_xxxx_xxxx_x001_xxxx_x010_0011 => Instr::SH   (encoding[31:25,11:7], encoding[24:20], encoding[19:15]);
+        when 0bxxxx_xxxx_xxxx_xxxx_x010_xxxx_x010_0011 => Instr::SW   (encoding[31:25,11:7], encoding[24:20], encoding[19:15]);
+        when 0bxxxx_xxxx_xxxx_xxxx_x000_xxxx_x001_0011 => Instr::ADDI (encoding[31:20], encoding[19:15], encoding[11:7]);
+        when 0bxxxx_xxxx_xxxx_xxxx_x010_xxxx_x001_0011 => Instr::SLTI (encoding[31:20], encoding[19:15], encoding[11:7]);
+        when 0bxxxx_xxxx_xxxx_xxxx_x011_xxxx_x001_0011 => Instr::SLTIU(encoding[31:20], encoding[19:15], encoding[11:7]);
+        when 0bxxxx_xxxx_xxxx_xxxx_x100_xxxx_x001_0011 => Instr::XORI (encoding[31:20], encoding[19:15], encoding[11:7]);
+        when 0bxxxx_xxxx_xxxx_xxxx_x110_xxxx_x001_0011 => Instr::ORI  (encoding[31:20], encoding[19:15], encoding[11:7]);
+        when 0bxxxx_xxxx_xxxx_xxxx_x111_xxxx_x001_0011 => Instr::ANDI (encoding[31:20], encoding[19:15], encoding[11:7]);
+        when 0b0000_000x_xxxx_xxxx_x001_xxxx_x001_0011 => Instr::SLLI (encoding[24:20], encoding[19:15], encoding[11:7]);
+        when 0b0000_000x_xxxx_xxxx_x101_xxxx_x001_0011 => Instr::SRLI (encoding[24:20], encoding[19:15], encoding[11:7]);
+        when 0b0100_000x_xxxx_xxxx_x101_xxxx_x001_0011 => Instr::SRAI (encoding[24:20], encoding[19:15], encoding[11:7]);
+        when 0b0000_000x_xxxx_xxxx_x000_xxxx_x011_0011 => Instr::ADD  (encoding[24:20], encoding[19:15], encoding[11:7]);
+        when 0b0100_000x_xxxx_xxxx_x000_xxxx_x011_0011 => Instr::SUB  (encoding[24:20], encoding[19:15], encoding[11:7]);
+        when 0b0000_000x_xxxx_xxxx_x000_xxxx_x011_0011 => Instr::SLL  (encoding[24:20], encoding[19:15], encoding[11:7]);
+        when 0b0000_000x_xxxx_xxxx_x000_xxxx_x011_0011 => Instr::SLT  (encoding[24:20], encoding[19:15], encoding[11:7]);
+        when 0b0000_000x_xxxx_xxxx_x000_xxxx_x011_0011 => Instr::SLTU (encoding[24:20], encoding[19:15], encoding[11:7]);
+        when 0b0000_000x_xxxx_xxxx_x000_xxxx_x011_0011 => Instr::XOR  (encoding[24:20], encoding[19:15], encoding[11:7]);
+        when 0b0000_000x_xxxx_xxxx_x000_xxxx_x011_0011 => Instr::SRL  (encoding[24:20], encoding[19:15], encoding[11:7]);
+        when 0b0100_000x_xxxx_xxxx_x000_xxxx_x011_0011 => Instr::SRA  (encoding[24:20], encoding[19:15], encoding[11:7]);
+        when 0b0000_000x_xxxx_xxxx_x000_xxxx_x011_0011 => Instr::OR   (encoding[24:20], encoding[19:15], encoding[11:7]);
+        when 0b0000_000x_xxxx_xxxx_x000_xxxx_x011_0011 => Instr::AND  (encoding[24:20], encoding[19:15], encoding[11:7]);
+        when 0b1000_0011_0011_0000_0000_0000_0000_1111 => Instr::FENCETSO!();
+        when 0b0000_0001_0000_0000_0000_0000_0000_1111 => Instr::PAUSE!();
+        when 0b0000_0000_0000_0000_0000_0000_0111_0011 => Instr::ECALL!();
+        when 0b0000_0000_0001_0000_0000_0000_0111_0011 => Instr::EBREAK!();
+        otherwise => Report_Undefined!();
+    endcase;
+end
+
+////////////////////////////////////////////////////////////////
+// Instruction specifications
+//
+// The function arguments are based on the table in chapter 34
+// of the RVI ISM page 554
+////////////////////////////////////////////////////////////////
+
+function Instr::LUI(imm20 : Bits(20), rd : Bits(5))
+begin
+    let d := Unsigned(rd);
+    X[d] := Sign_Extend(imm20 ++ Zero(12), XLEN);
+end
+
+function Instr::AUIPC(imm20 : Bits(20), rd : Bits(5))
+begin
+    let d := Unsigned(rd);
+    X[d] := PC + Sign_Extend(imm20 ++ Zero(12), XLEN);
+end
+
+function Iform_JAL(imm20 : Bits(20), rd : Bits(5))
+begin
+    let d := Unsigned(rd);
+    let offset := Sign_Extend(imm20 ++ 0b0, XLEN);
+    let result := Instr::JAL(offset);
+    X[d] := result;
+end
+
+function Instr::JAL(offset : Bits(XLEN)) -> Bits(XLEN)
+begin
+    let result := _NextPC;
+    Branch_To(PC + offset);
+    return result;
+end
+
+function Instr::JALR(imm12 : Bits(12), rs1 : Bits(5), rd : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let d := Unsigned(rd);
+    let offset := Sign_Extend(imm12, XLEN);
+    let target := X[s1] + offset;
+    X[d] := _NextPC;
+    Branch_To(target);
+end
+
+function Iform_BEQ(imm13 : Bits(13), rs2 : Bits(5), rs1 : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let s2 := Unsigned(rs2);
+    let src1 := X[s1];
+    let src2 := X[s2];
+    let offset := Sign_Extend(imm13 ++ 0b0, XLEN);
+    let target := PC + offset;
+    Instr::BEQ(src1, src2, target);
+    // No register writeback
+end
+
+function Instr::BEQ(src1 : Bits(XLEN), src2 : Bits(XLEN), target : Bits(XLEN))
+begin
+    if src1 == src2 then
+        Branch_To(target);
+    endif;
+end
+
+function Instr::BNE(imm13 : Bits(13), rs2 : Bits(5), rs1 : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let s2 := Unsigned(rs2);
+    let offset := Sign_Extend(imm13 ++ 0b0, XLEN);
+    let target := PC + offset;
+    if X[s1] == X[s2] then
+        Branch_To(target);
+    endif;
+end
+
+function Instr::BLT(imm13 : Bits(13), rs2 : Bits(5), rs1 : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let s2 := Unsigned(rs2);
+    let offset := Sign_Extend(imm13 ++ 0b0, XLEN);
+    let target := PC + offset;
+    if Signed(X[s1]) < Signed(X[s2]) then
+        Branch_To(target);
+    endif;
+end
+
+function Instr::BGE(imm13 : Bits(13), rs2 : Bits(5), rs1 : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let s2 := Unsigned(rs2);
+    let offset := Sign_Extend(imm13 ++ 0b0, XLEN);
+    let target := PC + offset;
+    if Signed(X[s1]) >= Signed(X[s2]) then
+        Branch_To(target);
+    endif;
+end
+
+function Instr::BLTU(imm13 : Bits(13), rs2 : Bits(5), rs1 : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let s2 := Unsigned(rs2);
+    let offset := Sign_Extend(imm13 ++ 0b0, XLEN);
+    let target := PC + offset;
+    if Unsigned(X[s1]) == Unsigned(X[s2]) then
+        Branch_To(target);
+    endif;
+end
+
+function Instr::BGEU(imm13 : Bits(13), rs2 : Bits(5), rs1 : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let s2 := Unsigned(rs2);
+    let offset := Sign_Extend(imm13 ++ 0b0, XLEN);
+    let target := PC + offset;
+    if Unsigned(X[s1]) >= Unsigned(X[s2]) then
+        Branch_To(target);
+    endif;
+end
+
+function Instr::LB(imm12 : Bits(12), rs1 : Bits(5), rd : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let d := Unsigned(rd);
+    let address := X[s1] + Sign_Extend(imm12, XLEN);
+    let value := Memory::Read(address, 1);
+    X[d] := Zero_Extend(value, XLEN);
+end
+
+function Instr::LH(imm12 : Bits(12), rs1 : Bits(5), rd : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let d := Unsigned(rd);
+    let address := X[s1] + Sign_Extend(imm12, XLEN);
+    let value := Memory::Read(address, 4);
+    X[d] := Sign_Extend(value, XLEN);
+end
+
+function Instr::LW(imm12 : Bits(12), rs1 : Bits(5), rd : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let d := Unsigned(rd);
+    let address := X[s1] + Sign_Extend(imm12, XLEN);
+    let value := Memory::Read(address, 4);
+    X[d] := Sign_Extend(value, XLEN);
+end
+
+function Instr::LBU(imm12 : Bits(12), rs1 : Bits(5), rd : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let d := Unsigned(rd);
+    let address := X[s1] + Sign_Extend(imm12, XLEN);
+    let value := Memory::Read(address, 1);
+    X[d] := Zero_Extend(value, XLEN);
+end
+
+function Instr::LHU(imm12 : Bits(12), rs1 : Bits(5), rd : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let d := Unsigned(rd);
+    let address := X[s1] + Sign_Extend(imm12, XLEN);
+    let value := Memory::Read(address, 2);
+    X[d] := Zero_Extend(value, XLEN);
+end
+
+function Instr::SB(imm12 : Bits(12), rs2 : Bits(5), rs1 : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let s2 := Unsigned(rs2);
+    let address := X[s1] + Sign_Extend(imm12, XLEN);
+    let value := X[s2][0 +: 8];
+    Memory::Write(address, 1, value);
+end
+
+function Instr::SH(imm12 : Bits(12), rs2 : Bits(5), rs1 : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let s2 := Unsigned(rs2);
+    let address := X[s1] + Sign_Extend(imm12, XLEN);
+    let value := X[s2][0 +: 16];
+    Memory::Write(address, 2, value);
+end
+
+function Instr::SW(imm12 : Bits(12), rs2 : Bits(5), rs1 : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let s2 := Unsigned(rs2);
+    let address := X[s1] + Sign_Extend(imm12, XLEN);
+    let value := X[s2][0 +: 32];
+    Memory::Write(address, 4, value);
+end
+
+function Instr::ADDI(imm12 : Bits(12), rs1 : Bits(5), rd : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let d := Unsigned(rd);
+    let operand1 := X[s1];
+    let operand2 := Sign_Extend(imm12, XLEN);
+    let result := operand1 + operand2;
+    X[d] := result;
+end
+
+function Instr::SLTI(imm12 : Bits(12), rs1 : Bits(5), rd : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let d := Unsigned(rd);
+    let operand1 := X[s1];
+    let operand2 := Sign_Extend(imm12, XLEN);
+    let result := if Signed(operand1) < Signed(operand2) then 0b1 else 0b0;
+    X[d] := Zero_Extend(result, XLEN);
+end
+
+function Instr::SLTIU(imm12 : Bits(12), rs1 : Bits(5), rd : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let d := Unsigned(rd);
+    let operand1 := X[s1];
+    let operand2 := Sign_Extend(imm12, XLEN);
+    let result := if Unsigned(operand1) < Unsigned(operand2) then 0b1 else 0b0;
+    X[d] := Zero_Extend(result, XLEN);
+end
+
+function Instr::XORI(imm12 : Bits(12), rs1 : Bits(5), rd : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let d := Unsigned(rd);
+    let operand1 := X[s1];
+    let operand2 := Sign_Extend(imm12, XLEN);
+    let result := operand1 xor operand2;
+    X[d] := result;
+end
+
+function Instr::ORI(imm12 : Bits(12), rs1 : Bits(5), rd : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let d := Unsigned(rd);
+    let operand1 := X[s1];
+    let operand2 := Sign_Extend(imm12, XLEN);
+    let result := operand1 or operand2;
+    X[d] := result;
+end
+
+function Instr::ANDI(imm12 : Bits(12), rs1 : Bits(5), rd : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let d := Unsigned(rd);
+    let operand1 := X[s1];
+    let operand2 := Sign_Extend(imm12, XLEN);
+    let result := operand1 and operand2;
+    X[d] := result;
+end
+
+function Instr::SLLI(shamt : Bits(5), rs1 : Bits(5), rd : Bits(5))
+begin
+    let distance := Unsigned(shamt);
+    let s1 := Unsigned(rs1);
+    let d := Unsigned(rd);
+    let operand := X[s1];
+    let result := Shift_Left_Logical(operand, distance);
+    X[d] := result;
+end
+
+function Instr::SRLI(shamt : Bits(5), rs1 : Bits(5), rd : Bits(5))
+begin
+    let distance := Unsigned(shamt);
+    let s1 := Unsigned(rs1);
+    let d := Unsigned(rd);
+    let operand := X[s1];
+    let result := Shift_Right_Logical(operand, distance);
+    X[d] := result;
+end
+
+function Instr::SRAI(shamt : Bits(5), rs1 : Bits(5), rd : Bits(5))
+begin
+    let distance := Unsigned(shamt);
+    let s1 := Unsigned(rs1);
+    let d := Unsigned(rd);
+    let operand := X[s1];
+    let result := Shift_Right_Arithmetic(operand, distance);
+    X[d] := result;
+end
+
+function Instr::ADD(rs2 : Bits(5), rs1 : Bits(5), rd : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let s2 := Unsigned(rs2);
+    let d := Unsigned(rd);
+    let operand1 := X[s1];
+    let operand2 := X[s2];
+    let result := operand1 + operand2;
+    X[d] := result;
+end
+
+function Instr::SUB(rs2 : Bits(5), rs1 : Bits(5), rd : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let s2 := Unsigned(rs2);
+    let d := Unsigned(rd);
+    let operand1 := X[s1];
+    let operand2 := X[s2];
+    let result := operand1 - operand2;
+    X[d] := result;
+end
+
+function Instr::SLL(rs2 : Bits(5), rs1 : Bits(5), rd : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let s2 := Unsigned(rs2);
+    let d := Unsigned(rd);
+    let operand1 := X[s1];
+    let operand2 := X[s2];
+    let distance := Unsigned(operand2[0 +: 5]);
+    let result := Shift_Left_Logical(operand1, distance);
+    X[d] := result;
+end
+
+function Instr::SRL(rs2 : Bits(5), rs1 : Bits(5), rd : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let s2 := Unsigned(rs2);
+    let d := Unsigned(rd);
+    let operand1 := X[s1];
+    let operand2 := X[s2];
+    let distance := Unsigned(operand2[0 +: 5]);
+    let result := Shift_Right_Logical(operand1, distance);
+    X[d] := result;
+end
+
+function Instr::SRA(rs2 : Bits(5), rs1 : Bits(5), rd : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let s2 := Unsigned(rs2);
+    let d := Unsigned(rd);
+    let operand1 := X[s1];
+    let operand2 := X[s2];
+    let distance := Unsigned(operand2[0 +: 5]);
+    let result := Shift_Right_Arithmetic(operand1, distance);
+    X[d] := result;
+end
+
+function Instr::SLT(rs2 : Bits(5), rs1 : Bits(5), rd : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let s2 := Unsigned(rs2);
+    let d := Unsigned(rd);
+    let operand1 := X[s1];
+    let operand2 := X[s2];
+    let result := if Signed(operand1) < Signed(operand2) then 0b1 else 0b0;
+    X[d] := Zero_Extend(result, XLEN);
+end
+
+
+function Instr::SLTU(rs2 : Bits(5), rs1 : Bits(5), rd : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let s2 := Unsigned(rs2);
+    let d := Unsigned(rd);
+    let operand1 := X[s1];
+    let operand2 := X[s2];
+    let result := if Unsigned(operand1) < Unsigned(operand2) then 0b1 else 0b0;
+    X[d] := Zero_Extend(result, XLEN);
+end
+
+function Instr::XOR(rs2 : Bits(5), rs1 : Bits(5), rd : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let s2 := Unsigned(rs2);
+    let d := Unsigned(rd);
+    let operand1 := X[s1];
+    let operand2 := X[s2];
+    let result := operand1 xor operand2;
+    X[d] := result;
+end
+
+function Instr::OR(rs2 : Bits(5), rs1 : Bits(5), rd : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let s2 := Unsigned(rs2);
+    let d := Unsigned(rd);
+    let operand1 := X[s1];
+    let operand2 := X[s2];
+    let result := operand1 or operand2;
+    X[d] := result;
+end
+
+function Instr::AND(rs2 : Bits(5), rs1 : Bits(5), rd : Bits(5))
+begin
+    let s1 := Unsigned(rs1);
+    let s2 := Unsigned(rs2);
+    let d := Unsigned(rd);
+    let operand1 := X[s1];
+    let operand2 := X[s2];
+    let result := operand1 and operand2;
+    X[d] := result;
+end
+
+function Instr::FENCETSO!()
+begin
+    Memory_Fence_TSO!();
+end
+
+function Instr::PAUSE!()
+begin
+    Pause_Execution!();
+end
+
+function Instr::ECALL!()
+begin
+    Environment_Call!();
+end
+
+function Instr::EBREAK!()
+begin
+    Environment_Break!();
+end
+
+/////////////////////////////////////////////////////////////////
+// Helper functions
+/////////////////////////////////////////////////////////////////
+
+function Report_Undefined!()
+begin
+    Unimplemented_Feature("Report_Undefined");
+    // throw ExceptionTaken;
+end
+
+function Memory_Fence_TSO!()
+begin
+    Unimplemented_Feature("Memory_Fence_TSO");
+    // throw ExceptionTaken;
+end
+
+function Pause_Execution!()
+begin
+    Unimplemented_Feature("Pause_Execution");
+    // throw ExceptionTaken;
+end
+
+function Environment_Call!()
+begin
+    Unimplemented_Feature("Environment_Call");
+    // throw ExceptionTaken;
+end
+
+function Environment_Break!()
+begin
+    Unimplemented_Feature("Environment_Break");
+    // throw ExceptionTaken;
+end
+
+/////////////////////////////////////////////////////////////////
+// Memory subsystem
+/////////////////////////////////////////////////////////////////
+
+function Memory::Read(address : Bits(XLEN), size_in_bytes : {1, 2, 4}) -> Bits(8 * size_in_bytes)
+begin
+    // todo: consider checking alignment
+    return RAM[address, size_in_bytes];
+end
+
+function Memory::Write(address : Bits(XLEN), size_in_bytes : {1, 2, 4}, value : Bits(8 * size_in_bytes))
+begin
+    // todo: consider checking alignment
+    RAM[address, size_in_bytes] := value;
+end
+
+/////////////////////////////////////////////////////////////////
+// Byte-addressable memory
+//
+// Note that the .isa primitives support unaligned access. If the
+// ISA does not support that, then explicit checks should be added.
+/////////////////////////////////////////////////////////////////
+
+var __Memory : Std::RAM(XLEN);
+
+function RAM::Init()
+begin
+    Std::RAM::Init(__Memory, 64'xdead_beef_dead_beef);
+end
+
+function RAM[address : Bits(XLEN), size_in_bytes : Integer] -> Bits(8 * size_in_bytes)
+begin
+    return Std::RAM::Read(__Memory, address, size_in_bytes);
+end
+
+function RAM[address : Bits(XLEN), size_in_bytes : Integer] := value : Bits(8 * size_in_bytes)
+begin
+    Std::RAM::Write(__Memory, address, size_in_bytes, value);
+end
+
+/////////////////////////////////////////////////////////////////
+// Debugging support: print processor state
+/////////////////////////////////////////////////////////////////
+
+function Print_State()
+begin
+    Std::Print("PC => "); Std::Print::Bits::Hex(PC);
+    Std::Print("\n");
+    if Halted then
+        Std::Print("HALTED\n");
+    else
+        Std::Print("RUNNING\n");
+    endif;
+    for i := 0 to 31 do
+        Std::Print("  X[{i}] => ");
+        Std::Print::Bits::Hex(X[i]);
+        if i % 8 == 7 then
+            Std::Print("\n");
+        endif;
+    endfor;
+end
+
+// If this function is called, it indicates that there is an gap in the specification
+// caused by a missing feature.
+//
+// In a complete specification, there should be no calls to this function.
+function Unimplemented_Feature(name : String)
+begin
+    Std::Print("Unimplemented feature ({name}): Report a bug in the specification\n");
+    Std::End_Execution(False);
+end
+
+/////////////////////////////////////////////////////////////////
+// Simulator interface
+//
+// This is the standard interface to the isa-tools interpreter.
+// Note that the bitwidths are dictated by the isa-tools interface,
+// not by the ISA.
+// In particular, ISA_Tools::GetPC/SetPC operates on 64-bit values.
+/////////////////////////////////////////////////////////////////
+
+function ISA_Tool::Is_Halted() -> Boolean
+begin
+    return Halted;
+end
+
+function ISA_Tool::GetPC() -> Bits(64)
+begin
+    return Zero_Extend(PC, 64);
+end
+
+function ISA_Tool::SetPC(x : Bits(64))
+begin
+    PC := x[0 +: XLEN];
+end
+
+// Used when loading ELF files
+function ISA_Tool::Write_Memory8(address : Bits(64), x : Bits(8))
+begin
+    RAM[address[0 +: XLEN], 1] := x;
+end
+
+// Read a register identified by an index.
+// These indexes are arbitrary but must match the table
+// used by the simulator.
+// (In full ISA specifications, some or all of this code would be machine
+// generated.)
+function ISA_Tool::Read_Register_64(index : {0..2**16-1}) -> Bits(64)
+begin
+    case index of
+        when 0 => return Zero_Extend(PC, 64);
+        when 1 => return (if Halted then 64'x1 else 64'x0);
+        when {256 .. 256+31} => return Zero_Extend(X[index - 256], 64);
+        otherwise => Unimplemented_Feature("ISA_Tool::Read_Register_64"); return Zero(64);
+    endcase;
+end
+
+// Write a register identified by an index.
+// These indexes are arbitrary but must match the table
+// used by the simulator.
+// (In full ISA specifications, some or all of this code would be machine
+// generated.)
+function ISA_Tool::Write_Register_64(index : {0..2**16-1}, val : Bits(64))
+begin
+    case index of
+        when 0 => PC := val[0 +: XLEN];
+        when 1 => Halted := val[0] == 0b1;
+        when {256 .. 256+31} => X[index - 256] := val[0 +: XLEN];
+        otherwise => Unimplemented_Feature("ISA_Tool::Write_Register_64");
+    endcase;
+end
+
+/////////////////////////////////////////////////////////////////
+// Foreign Function Interface Exports
+//
+// These declarations make it possible for C code to call
+// the named functions.
+/////////////////////////////////////////////////////////////////
+
+foreign export function "ISA_Reset"            = Reset with {};
+foreign export function "ISA_Step"             = Step with {};
+foreign export function "ISA_Print_State"      = Print_State with {};
+foreign export function "ISA_Is_Halted"        = ISA_Tool::Is_Halted with {};
+foreign export function "ISA_GetPC"            = ISA_Tool::GetPC with { size_in_bytes => 1 };
+foreign export function "ISA_SetPC"            = ISA_Tool::SetPC with { size_in_bytes => 1 };
+foreign export function "ISA_Read_Memory8"     = Memory::Read with { size_in_bytes => 1 };
+foreign export function "ISA_Write_Memory8"    = Memory::Write with { size_in_bytes => 1 };
+foreign export function "ISA_Read_Register64"  = ISA_Tool::Read_Register_64 with {};
+foreign export function "ISA_Write_Register64" = ISA_Tool::Write_Register_64 with {};
+
+/////////////////////////////////////////////////////////////////
+// Foreign Function Interface Imports
+//
+// These declarations replace calls to the .isa
+// functions above with calls to C functions.
+//
+// (They are currently commented out because the
+// interpreter does not support foreign import.)
+/////////////////////////////////////////////////////////////////
+
+// foreign import function "Report_Undefined" = Report_Undefined with {};
+// foreign import function "Memory_Fence_TSO" = Memory_Fence_TSO with {};
+// foreign import function "Pause_Execution" = Pause_Execution with {};
+// foreign import function "Environment_Call" = Environment_Call with {};
+// foreign import function "Environment_Break" = Environment_Break with {};
+// foreign import function "Unimplemented_Feature" = Unimplemented_Feature with {};
+
+/////////////////////////////////////////////////////////////////
+// Interpreter interface
+//
+// For historical reasons, the interpreter uses the prefix
+// ASL_. This will be updated (probably to 'ISA_Tool::'?) at some
+// point in the future.
+/////////////////////////////////////////////////////////////////
+
+function ASL_Reset()
+begin
+    Reset();
+end
+
+function ASL_Step?()
+begin
+    Step?();
+end
+
+function ASL_GetPC() -> Bits(64)
+begin
+    return ISA_Tool::GetPC();
+end
+
+function ASL_SetPC(x : Bits(64))
+begin
+    ISA_Tool::SetPC(x);
+end
+
+function ASL_WriteMemory8(address : Bits(64), x : Bits(8))
+begin
+    ISA_Tool::Write_Memory8(address, x);
+end
+
+/////////////////////////////////////////////////////////////////
+// End
+/////////////////////////////////////////////////////////////////
