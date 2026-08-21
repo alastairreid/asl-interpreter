@@ -40,7 +40,7 @@ depends: [
   "conf-python-3" {= "9.0.0"}
   "cppo" {= "1.8.0"}
   "crunch" {= "4.0.0"}
-  "dune" {= "3.22.2"}
+  "dune" {= "3.24.2"}
   "fmt" {= "0.11.0"}
   "fpath" {= "0.7.3"}
   "linenoise" {= "1.5.1"}
