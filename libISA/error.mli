@@ -13,6 +13,7 @@ exception Ambiguous of (Loc.t * string * string)
 exception TypeError of (Loc.t * string)
 exception ParseError of (Loc.t * string)
 
+val fprint_exception : Format.formatter -> exn -> unit
 val print_exception : exn -> unit
 
 (****************************************************************
