@@ -51,6 +51,7 @@
    isa_lexer
    isa_parser
    isa_parser_messages
+   isa_to_mlir
    isa_utils
    isa_visitor
    lattice
