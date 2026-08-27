@@ -351,7 +351,7 @@ and expr (fmt : PP.formatter) (x : AST.expr) : unit =
       brackets fmt (fun _ -> commasep fmt (fieldname fmt) fs)
   | Expr_Slices (t, e, ss) ->
       if !show_type_params then braces fmt (fun _ -> ty fmt t);
-      expr fmt e;
+      parens fmt (fun _ -> expr fmt e);
       brackets fmt (fun _ -> slices fmt ss)
   | Expr_WithChanges (t, e, cs) ->
       if !show_type_params then braces fmt (fun _ -> ty fmt t);
