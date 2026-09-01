@@ -45,11 +45,11 @@ end
 function Step?()
 begin
     if Halted then
-        return;
+        // return;
     endif;
 
     let encoding := RAM[PC, 4];
-    _NextPC := PC + 4;
+    _NextPC := PC + 4[0 +: XLEN];
     Decode_And_Execute32?(encoding);
 
     PC := _NextPC;
@@ -90,11 +90,8 @@ var _PC : Bits(XLEN);
 // without having to keep track of system invariants.)
 function X[i : {0..31}] -> Bits(XLEN)
 begin
-    if i == 0 then
-        return Zero(XLEN);
-    else
-        return _X[i];
-    endif;
+    let r := if i == 0 then Zero(XLEN) else _X[i];
+    return r;
 end
 
 function X[i : {0..31}] := val : Bits(XLEN)
@@ -735,12 +732,13 @@ end
 // generated.)
 function ISA_Tool::Read_Register_64(index : {0..2**16-1}) -> Bits(64)
 begin
-    case index of
-        when 0 => return Zero_Extend(PC, 64);
-        when 1 => return (if Halted then 64'x1 else 64'x0);
-        when {256 .. 256+31} => return Zero_Extend(X[index - 256], 64);
-        otherwise => Unimplemented_Feature("ISA_Tool::Read_Register_64"); return Zero(64);
-    endcase;
+    // case index of
+    //     when 0 => return Zero_Extend(PC, 64);
+    //     when 1 => return (if Halted then 64'x1 else 64'x0);
+    //     when {256 .. 256+31} => return Zero_Extend(X[index - 256], 64);
+    //     otherwise => Unimplemented_Feature("ISA_Tool::Read_Register_64"); return Zero(64);
+    // endcase;
+    return Zero_Extend(PC, 64);
 end
 
 // Write a register identified by an index.
