@@ -188,31 +188,17 @@ end
 
 function Std::Bits::Shift_Left_Logical(implicit size : Integer, x : Bits(size), amount : {0..}) -> Bits(size)
 begin
-    if amount < size then
-        return Std::Bits::Shift_Left_Logical_Restricted(x, amount);
-    else
-        return Std::Bits::Zero(size);
-    endif;
+    return Std::Bits::Shift_Left_Logical_Restricted(x, amount);
 end
 
 function Std::Bits::Shift_Right_Logical(implicit size : Integer, x : Bits(size), amount : Integer) -> Bits(size)
 begin
-    if amount < size then
-        return Std::Bits::Shift_Right_Logical_Restricted(x, amount);
-    else
-        return Std::Bits::Zero(size);
-    endif;
+    return Std::Bits::Shift_Right_Logical_Restricted(x, amount);
 end
 
 function Std::Bits::Shift_Right_Arithmetic(implicit size : Integer, x : Bits(size), amount : Integer) -> Bits(size)
 begin
-    if amount < size then
-        return Std::Bits::Shift_Right_Arithmetic_Restricted(x, amount);
-    elsif x[size-1] == 0b0 then
-        return Std::Bits::Zero(size);
-    else
-        return Std::Bits::All_Ones(size);
-    endif;
+    return Std::Bits::Shift_Right_Arithmetic_Restricted(x, amount);
 end
 
 function Std::Boolean::To_Bit(x : Boolean) -> Bit
@@ -248,16 +234,16 @@ __builtin function Std::Bits::Append(implicit m : Integer, implicit n : Integer,
 
 function Std::Integer::Exp(left : Integer, right : Integer) -> Integer
 begin
-    if left == 2 then
+    // if left == 2 then
         return Std::Integer::Power2(right); // optimized case
-    else
-        assert right >= 0;
-        var result : Integer := 1;
-        for i := 1 to right do
-            result := result * left;
-        end;
-        return result;
-    end;
+    // else
+    //     assert right >= 0;
+    //     var result : Integer := 1;
+    //     for i := 1 to right do
+    //         result := result * left;
+    //     end;
+    //     return result;
+    // end;
 end
 
 __operator2 ++  = Std::Bits::Append;
@@ -388,30 +374,30 @@ begin
     return result;
 end
 
-function Std::Bits::Count_Leading_Zero_Bits(implicit size : Integer, x : Bits(size)) -> {0 .. size}
-begin
-    for i := size-1 downto 0 do
-        if x[i] == 0b1 then
-            return size - i - 1;
-        end;
-    end;
-    return size;
-end
+// function Std::Bits::Count_Leading_Zero_Bits(implicit size : Integer, x : Bits(size)) -> {0 .. size}
+// begin
+//     for i := size-1 downto 0 do
+//         if x[i] == 0b1 then
+//             return size - i - 1;
+//         end;
+//     end;
+//     return size;
+// end
 
-function Std::Bits::Count_Trailing_Zero_Bits(implicit size : Integer, x : Bits(size)) -> {0 .. size}
-begin
-    for i := 0 to size-1 do
-        if x[i] == 0b1 then
-            return i;
-        end;
-    end;
-    return size;
-end
+// function Std::Bits::Count_Trailing_Zero_Bits(implicit size : Integer, x : Bits(size)) -> {0 .. size}
+// begin
+//     for i := 0 to size-1 do
+//         if x[i] == 0b1 then
+//             return i;
+//         end;
+//     end;
+//     return size;
+// end
 
-function Std::Bits::Count_Leading_Sign_Bits(implicit size : {1..}, x : Bits(size)) -> {1 .. size}
-begin
-    return Std::Bits::Count_Leading_Zero_Bits(x[size-1:1] xor x[size-2:0]);
-end
+// function Std::Bits::Count_Leading_Sign_Bits(implicit size : {1..}, x : Bits(size)) -> {1 .. size}
+// begin
+//     return Std::Bits::Count_Leading_Zero_Bits(x[size-1:1] xor x[size-2:0]);
+// end
 
 function Std::Bits::Rotate_Left(implicit size : Integer, x : Bits(size), amount : Integer) -> Bits(size)
 begin
