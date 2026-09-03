@@ -304,7 +304,7 @@ and ixtype (fmt : PP.formatter) (x : AST.ixtype) : unit =
 
 and expr (fmt : PP.formatter) (x : AST.expr) : unit =
   ( match x with
-  | Expr_If (els, e) ->
+  | Expr_If (els, e, oty) ->
     parens fmt (fun _ ->
       let first = ref true in
       map fmt
@@ -324,7 +324,11 @@ and expr (fmt : PP.formatter) (x : AST.expr) : unit =
       nbsp fmt;
       kw_else fmt;
       nbsp fmt;
-      expr fmt e
+      expr fmt e;
+      ( match oty with
+      | Some t -> nbsp fmt; colon fmt; nbsp fmt; ty fmt t
+      | None -> ()
+      );
     )
   | Expr_Let (v, t, e, b) ->
       PP.fprintf fmt "(__let %a : %a := %a __in %a)"

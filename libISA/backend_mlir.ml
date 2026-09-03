@@ -391,14 +391,14 @@ let rec expr_to_ir (loc : Loc.t) (ctx : context) (x : AST.expr) : HLIR.ident =
       let masked = add_simple_op loc ctx ty (Builtin Builtins.and_bits) [e'; mask] in
       add_simple_op loc ctx ty (Builtin Builtins.eq_bits) [masked; value]
 
-  | Expr_If (els, e) ->
+  | Expr_If (els, e, oty) ->
       let rec ir_ites els ctx : HLIR.ident =
         ( match els with
         | [] -> expr_to_ir loc ctx e
         | (c,t)::els' ->
            let c' = expr_to_ir loc ctx c in
            let t' = expr_to_region loc ctx t in
-           let e' = expr_to_region loc ctx (AST.Expr_If (els', e)) in
+           let e' = expr_to_region loc ctx (AST.Expr_If (els', e, oty)) in
            ir_ite loc ctx c' t' e'
         )
       in ir_ites els ctx
@@ -1465,7 +1465,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
         varident eref
         (pp_type loc) ty;
       (t, elty)
-  | Expr_If (els, e) ->
+  | Expr_If (els, e, oty) ->
       let rec mk_ites els e : (Ident.t * AST.ty) =
         ( match els with
         | [] -> expr loc env fmt e

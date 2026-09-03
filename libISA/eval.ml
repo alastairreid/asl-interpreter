@@ -327,7 +327,7 @@ and eval_slice (loc : Loc.t) (env : Env.t) (x : AST.slice) : value * value =
 (** Evaluate expression *)
 and eval_expr' (loc : Loc.t) (env : Env.t) (x : AST.expr) : value =
   match x with
-  | Expr_If (els, e) ->
+  | Expr_If (els, e, oty) ->
       let rec eval_if xs d =
         ( match xs with
         | [] -> eval_expr loc env d

@@ -73,11 +73,11 @@ class replaceTupleClass (tc : Ident.t option) =
         Visitor.ChangeTo ss
 
       (* conditional tuple assignment: (a, b) = if _ then _ else _ *)
-      | Stmt_Assign (AST.LExpr_Tuple ls as l, AST.Expr_If(els, e), loc) ->
+      | Stmt_Assign (AST.LExpr_Tuple ls as l, AST.Expr_If(els, e, oty), loc) ->
         let s = cond_assign l els e loc in
         Visitor.ChangeTo (Isa_visitor.visit_stmt (self :> Isa_visitor.isaVisitor) s)
 
-      | Stmt_VarDecl (is_constant, AST.DeclItem_Tuple dis, AST.Expr_If (els, e), loc) ->
+      | Stmt_VarDecl (is_constant, AST.DeclItem_Tuple dis, AST.Expr_If (els, e, oty), loc) ->
         let (vs, ds) = List.map (fun di ->
             ( match di with
             | AST.DeclItem_Var (v, Some vty) ->

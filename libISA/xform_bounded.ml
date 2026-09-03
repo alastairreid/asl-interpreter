@@ -563,7 +563,7 @@ class boundedClass = object (self)
             DoChildren
         )
 
-    | Expr_If (els, e) ->
+    | Expr_If (els, e, oty) ->
         (* First transform all the subexpressions *)
         let els' = List.map (fun (c, t) ->
             let c' = Isa_visitor.visit_expr (self :> Isa_visitor.isaVisitor) c in
@@ -583,9 +583,9 @@ class boundedClass = object (self)
             let n = int_of_bounds bnd in
             let els'' = List.map (fun (c, t) -> (c, mk_cvt_int_sintN n t)) els' in
             let e'' = mk_cvt_int_sintN n e' in
-            ChangeTo (mk_cvt_sintN_int n (Expr_If (els'', e'')))
+            ChangeTo (mk_cvt_sintN_int n (Expr_If (els'', e'', oty)))
         | None ->
-            ChangeTo (Expr_If (els', e'))
+            ChangeTo (Expr_If (els', e', oty))
         )
 
     | Expr_TApply (f, ps, args, can_throw) ->

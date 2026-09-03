@@ -1892,11 +1892,11 @@ and tc_slice_expr (env : Env.t) (loc : Loc.t) (x : expr)
 (** Typecheck expression *)
 and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) : AST.expr * AST.ty =
   ( match x with
-  | Expr_If (els, e) ->
+  | Expr_If (els, e, _) ->
       let (els', eltys) = List.split (List.map (tc_e_elsif env loc) els) in
       let (e', ety) = tc_expr env loc e in
       let ty = List.fold_left (least_supertype env loc) ety eltys in
-      (Expr_If (els', e'), ty)
+      (Expr_If (els', e', Some ty), ty)
   | Expr_Let (v, t, e, b) ->
       Env.nest (fun env' ->
           let t' = tc_type env' loc t in
@@ -1914,7 +1914,7 @@ and tc_expr (env : Env.t) (loc : Loc.t) (x : AST.expr) : AST.expr * AST.ty =
       let (e2', ty') = tc_expr env loc e2 in
       (Expr_Assert (e1', e2', loc), ty')
   | Expr_Binop (x, Binop_BoolImplies, y) -> (* deprecated *)
-      tc_expr env loc (Expr_If ([x, y], asl_true))
+      tc_expr env loc (Expr_If ([x, y], asl_true, Some type_bool))
   | Expr_Binop (x, op, y) ->
       let x', xty = tc_expr env loc x in
       let y', yty = tc_expr env loc y in

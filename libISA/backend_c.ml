@@ -641,7 +641,7 @@ and expr (loc : Loc.t) (fmt : PP.formatter) (x : AST.expr) : unit =
       PP.fprintf fmt "%a.%a"
         (expr loc) e
         ident f
-  | Expr_If (els, e) ->
+  | Expr_If (els, e, oty) ->
       conds loc fmt els e
   | Expr_Let (v, t, e, b) ->
       PP.fprintf fmt "({ const ";

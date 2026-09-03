@@ -597,7 +597,7 @@ expr:
 
 conditional_expression:
 | "if" c = cexpr "then" t = expr els = list(e_elsif) "else" e = expr
-    { Expr_If((c, t)::els, e) }
+    { Expr_If((c, t)::els, e, None) }
 | "__let" v = ident ":" ty = ty assign e = expr "__in" b = expr
     { Expr_Let(v, ty, e, b) }
 | "__assert" e1 = expr "__in" e2 = expr

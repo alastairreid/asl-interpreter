@@ -189,11 +189,12 @@ and visit_pattern (vis : isaVisitor) (x : pattern) : pattern =
 and visit_expr (vis : isaVisitor) (x : expr) : expr =
   let aux (vis : isaVisitor) (x : expr) : expr =
     ( match x with
-    | Expr_If (els, e) ->
+    | Expr_If (els, e, oty) ->
         let els' = mapNoCopy (visit_e_elsif vis) els in
         let e' = visit_expr vis e in
-        if els == els' && e == e' then x
-        else Expr_If (els', e')
+        let oty' = mapOptionNoCopy (visit_type vis) oty in
+        if els == els' && e == e' && oty == oty' then x
+        else Expr_If (els', e', oty')
     | Expr_Let (v, t, e, b) ->
         let v' = visit_var vis Definition v in
         let t' = visit_type vis t in

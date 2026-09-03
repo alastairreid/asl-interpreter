@@ -64,7 +64,7 @@ pattern =
  | Pat_Single of expr
 
 and expr =
-   Expr_If of (expr * expr) list * expr
+   Expr_If of (expr * expr) list * expr * ty option
  | Expr_Let of Ident.t * ty * expr * expr (* IR extension, not intended for use in specs *)
  | Expr_Assert of expr * expr * Loc.t (* IR extension, not intended for use in specs *)
  | Expr_Binop of expr * binop * expr

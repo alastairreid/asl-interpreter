@@ -75,13 +75,13 @@ class hoist_lets (ds : AST.declaration list option) = object (self)
           ) else (
             Visitor.ChangeTo (Expr_TApply (f, [], [a'; b'], NoThrow))
           )
-      | Expr_If (els, e) ->
+      | Expr_If (els, e, oty) ->
           let els' = Visitor.mapNoCopy (visit_e_elsif (self :> isaVisitor)) els in
           let e' = self#hoist_lets_to_expression_top e in
           if els == els' && e == e' then (
             Visitor.SkipChildren
           ) else (
-            Visitor.ChangeTo (Expr_If (els', e'))
+            Visitor.ChangeTo (Expr_If (els', e', oty))
           )
       | _ ->
           Visitor.DoChildren

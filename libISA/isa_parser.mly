@@ -282,7 +282,7 @@ let change :=
 let conditional_expression :=
     | "if" ; c = expr ; "then" ; t = expr ;
       els = list(e_elsif) ;
-      "else" ; e = expr ; { Expr_If((c, t)::els, e) }
+      "else" ; e = expr ; { Expr_If((c, t)::els, e, None) }
 
 let e_elsif :=
     | "elsif" ; c = expr ; "then" ; e = expr ; { (c, e) }

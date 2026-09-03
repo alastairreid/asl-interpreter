@@ -258,7 +258,7 @@ class constEvalClass (env : Env.t) =
       | Expr_Array (a, i) ->
           let i' = self#eval_expr i in
           ChangeTo (Expr_Array (a, i'))
-      | Expr_If (els, e) ->
+      | Expr_If (els, e, oty) ->
           let rec xform_if xs =
             ( match xs with
             | [] -> ([], self#eval_expr e)
@@ -277,7 +277,7 @@ class constEvalClass (env : Env.t) =
           ChangeTo
             ( match xform_if els with
             | ([], e') -> e'
-            | (els', e') -> Expr_If(els', e')
+            | (els', e') -> Expr_If(els', e', oty)
             )
       | Expr_Let (v, t, e, b) ->
           let t' = self#eval_type t in
