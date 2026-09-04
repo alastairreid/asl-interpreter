@@ -41,10 +41,8 @@ let option_blend (f : 'a -> 'b -> 'c) (o1 : 'a option) (o2 : 'b option) : 'c opt
   )
 
 let lift (f : Ident.t -> Ident.t -> Ident.t) (x : Ident.t) (oy : Ident.t option) : Ident.t option =
-  ( match oy with
-  | Some y -> Some (f x y)
-  | None -> None
-  )
+  Option.map (f x) oy
+
 
 (****************************************************************
  * Pretty printing helpers
