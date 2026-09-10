@@ -907,7 +907,7 @@ let rec expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.exp
       let field_tys = Identset.Bindings.find rtc !fieldtypes in
       let field_ty = List.assq f field_tys in
       with_fresh_typed field_ty (fun t ->
-        PP.fprintf fmt "%a = func.call @%a(%a) : (!%a) -> %a@,"
+        PP.fprintf fmt "%a = func.call @%a(%a) : (%a) -> %a@,"
           varident t
           (Fun.flip record_field_get rtc) f
           varident e'
@@ -934,7 +934,7 @@ let rec expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.exp
       let ftys = List.map (fun (f, t) -> t) fts in
       let rty = AST.Type_Constructor (rtc, []) in
       with_fresh_typed rty (fun t ->
-        PP.fprintf fmt "%a = func.call @%a(%a) : (%a) -> !%a@,"
+        PP.fprintf fmt "%a = func.call @%a(%a) : (%a) -> %a@,"
           varident t
           record_constructor rtc
           (commasep varident) fas'
