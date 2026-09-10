@@ -698,6 +698,25 @@ let memref_store_array (loc : Loc.t) (fmt : PP.formatter) (aref : Ident.t) (ix :
     (Z.to_string sz)
     (pp_type loc) ty
 
+let tuple_pack (loc : Loc.t) (fmt : PP.formatter) (es : (Ident.t * AST.ty) list) : (Ident.t * AST.ty) =
+  let ts = List.map (fun (f, t) -> t) es in
+  with_fresh_typed (Type_Tuple ts) (fun t ->
+    PP.fprintf fmt "%a = \"handshake.pack\"(%a) : (%a) -> tuple<%a>@,"
+      varident t
+      (commasep (fun fmt (v, t) -> varident fmt v)) es
+      (commasep (pp_type loc)) ts
+      (commasep (pp_type loc)) ts
+  )
+
+let tuple_unpack (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (ts : AST.ty list) : (Ident.t * AST.ty) list =
+  let xs = List.map (fun t -> (locals#fresh, t)) ts in
+  PP.fprintf fmt "%a = \"handshake.unpack\"(%a) : (tuple<%a>) -> (%a)@,"
+    (commasep (fun fmt (v, t) -> varident fmt v)) xs
+    varident x
+    (commasep (pp_type loc)) ts
+    (commasep (pp_type loc)) ts;
+  xs
+
 let rec concat (fmt : PP.formatter) (xs : (Ident.t * Ident.t * AST.expr) list) : (Ident.t * Ident.t * AST.expr) =
   ( match xs with
   | [] ->
@@ -941,7 +960,9 @@ let rec expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.exp
           (pp_type loc) rty
       )
 
-  | Expr_Tuple _
+  | Expr_Tuple es ->
+      let es' = List.map (expr loc env fmt) es in
+      tuple_pack loc fmt es'
 
   | Expr_ArrayInit _
   | Expr_Array _
@@ -1126,9 +1147,9 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       List.iter (fun v -> ScopeStack.add env v (None, false, t)) vs;
       false
 
-  | Stmt_VarDecl (is_constant, DeclItem_Var (v, Some ty), i, loc) ->
-      let (i', _) = expr loc env fmt i in
-      ScopeStack.add env v (Some i', is_constant, ty);
+  | Stmt_VarDecl (is_constant, di, i, loc) ->
+      let i' = expr loc env fmt i in
+      decl_item loc env fmt is_constant di i';
       false
 
   | Stmt_Assign (LExpr_Var v, rhs, loc) ->
@@ -1427,6 +1448,21 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       let pp fmt = FMT.stmt fmt x in
       raise (Error.Unimplemented (Loc.Unknown, "statement", pp))
   )
+
+and decl_item (loc : Loc.t) (env : environment) (fmt : PP.formatter) (is_constant : bool) (x : AST.decl_item) (i : (Ident.t * AST.ty)) : unit =
+  ( match (x, i) with
+  | (DeclItem_Wildcard _, _) ->
+      ()
+  | (DeclItem_Var (v, _), (i', t)) ->
+      ScopeStack.add env v (Some i', is_constant, t)
+  | (DeclItem_Tuple dis, (i', Type_Tuple ts)) ->
+      let is = tuple_unpack loc fmt i' ts in
+      List.iter2 (fun di i -> decl_item loc env fmt is_constant di i) dis is
+  | _ ->
+      let pp fmt = FMT.decl_item fmt x in
+      raise (Error.Unimplemented (Loc.Unknown, "decl_item", pp))
+  )
+
 
 and block (env : environment) (fmt : PP.formatter) (xs : AST.stmt list) : bool =
   ScopeStack.nest env (fun env' ->

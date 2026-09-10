@@ -1,0 +1,37 @@
+
+record R = { f1 : Integer, f2 : Bits(32) };
+
+function Make() -> R
+begin
+    return R{ f1 => 1, f2 => Zero(32) };
+end
+
+function Change(r : R) -> R
+begin
+    return r with { f1 => 1, f2 => Zero(32) };
+end
+
+function Get(r : R) -> Integer
+begin
+    return r.f1;
+end
+
+function Set(r : R) -> R
+begin
+    var s := r;
+    // s.f1 := 42;
+    return s;
+end
+
+function Tuple1(x : Integer, y : Integer) -> (Integer, Integer)
+begin
+    let t := (x, y);
+    let (a, b) := t;
+    return (a, b);
+end
+
+function Tuple2(x : Integer, y : Integer) -> (Integer, Integer)
+begin
+    let (a, b) := if x < y then (x, y) else (y, x);
+    return (a, b);
+end

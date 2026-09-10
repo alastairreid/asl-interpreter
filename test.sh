@@ -13,5 +13,6 @@ opts=""
 # opts+=" --inline"
 # opts+=" --int-range-optimizations"
 opts+=" --canonicalize"
+opts+=" --allow-unregistered-dialect"
 
 ../llvm-project/build/bin/mlir-opt ${opts} t2.mlir
