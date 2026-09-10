@@ -263,6 +263,7 @@ let labels = new Isa_utils.nameSupply "^bb"
 
 let return_types = ref []
 let return_label : Ident.t ref = ref labels#fresh
+let throw_labels : Ident.t list ref = ref []
 
 let rebind (loc : Loc.t) (env : environment) (v : Ident.t) (v' : Ident.t) : unit =
   ( match ScopeStack.get env v with
@@ -1384,8 +1385,54 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       update_environment env fini_bind;
       false
 
-  | Stmt_Throw _
-  | Stmt_Try _
+  | Stmt_Throw (e, loc) ->
+      let e' = expr loc env fmt e in
+      cf_br loc fmt (List.hd !throw_labels) [e'];
+      true
+
+  | Stmt_Try (b, _, cs, d, loc) ->
+      let old_throw_labels = !throw_labels in
+      let catch_label = labels#fresh in
+      throw_labels := catch_label :: old_throw_labels;
+
+      let end_label = labels#fresh in
+      let mutables = get_mutables env in
+
+      let b_env  = ScopeStack.clone env in
+      let b_term = block b_env fmt b in
+      ignore (if b_term then [] else make_forward_branch loc fmt b_env mutables end_label);
+
+      let catch_vars = List.map (fun (v, curr, t) -> (v, locals#fresh, t)) mutables in
+      (* let catch_env = fresh_env env catch_vars in *)
+      branch_label loc fmt catch_label (List.map (fun (v, _, t) -> (v, t)) catch_vars);
+
+      let cs_term = List.map (fun (AST.Catcher_Guarded (v, tc, b, loc)) ->
+          (* todo: if tree to select this catcher *)
+          let c_label = labels#fresh in
+          let c_vars = List.map (fun (v, curr, t) -> (v, locals#fresh, t)) mutables in
+          let c_env = fresh_env env c_vars in
+          branch_label loc fmt c_label (List.map (fun (v, _, t) -> (v, t)) c_vars);
+
+          let t = AST.Type_Constructor (tc, []) in
+          ScopeStack.add c_env v (Some v, true, t);
+
+          let c_term = block c_env fmt b in
+          ignore (if c_term then [] else make_forward_branch loc fmt c_env mutables end_label);
+          c_term
+        )
+        cs
+      in
+
+      (* todo: default rethrows exception or uses d *)
+
+      let end_vars = List.map (fun (v, curr, ty) -> (v, locals#fresh, ty)) mutables in
+      update_environment env end_vars;
+      branch_label loc fmt end_label (List.map (fun (v, _, t) -> (v, t)) end_vars);
+
+      throw_labels := old_throw_labels;
+
+      List.fold_left (fun x y -> x && y) b_term cs_term
+
   | _ ->
       let pp fmt = FMT.stmt fmt x in
       raise (Error.Unimplemented (Loc.Unknown, "statement", pp))
@@ -1517,6 +1564,9 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
             ident f
             (formal_args_decls loc) fty
             (pp_return_type loc) fty.rty;
+
+          throw_labels := if fty.throws = NoThrow then [] else [labels#fresh];
+
           return_label := labels#fresh;
           return_types :=
               ( match fty.rty with
@@ -1637,9 +1687,19 @@ let _ =
         )
       ) standard_functions;
 
-      (* declare records *)
+      (* declare records and exceptions *)
       List.iter (fun d ->
         ( match d with
+        | AST.Decl_Exception (r, fs, loc) ->
+            fieldtypes := Identset.Bindings.add r fs !fieldtypes;
+            PP.fprintf fmt "@,!%a = tuple<%a>@,"
+              ident r
+              (commasep (pp_type loc)) (List.map (fun (f, t) -> t) fs);
+            PP.fprintf fmt "func.func private @%a(%a) -> !%a@,"
+              record_constructor r
+              (commasep (varty loc)) fs
+              ident r;
+            PP.fprintf fmt "@,"
         | AST.Decl_Record (r, [], fs, loc) ->
             fieldtypes := Identset.Bindings.add r fs !fieldtypes;
             PP.fprintf fmt "@,!%a = tuple<%a>@,"

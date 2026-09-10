@@ -35,3 +35,17 @@ begin
     let (a, b) := if x < y then (x, y) else (y, x);
     return (a, b);
 end
+
+exception E = { v : Integer };
+
+// function Exception(x : Integer) -> Integer
+// begin
+//     // Test throwing and catching an exception within the same function
+//     // (Obviously, this is not the main use-case - but it is a useful test.)
+//     try
+//       throw E{v => x+1};
+//     catch
+//       when y : E => return y.v;
+//     endtry;
+//     return x+2;
+// end
