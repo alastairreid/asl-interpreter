@@ -639,6 +639,11 @@ let bv_slice (fmt : PP.formatter) (x : Ident.t) (i : Ident.t) (w : Ident.t) : Id
       varident w
   )
 
+let memref_global_scalar (loc : Loc.t) (fmt : PP.formatter) (v : Ident.t) (ty : AST.ty) : unit =
+  PP.fprintf fmt "memref.global @%a : memref<%a>@,@,"
+    ident v
+    (pp_type loc) ty
+
 let memref_get_global_scalar (loc : Loc.t) (fmt : PP.formatter) (v : Ident.t) (ty : AST.ty) : Ident.t =
   with_fresh (fun t ->
     PP.fprintf fmt "%a = memref.get_global @@%a : memref<%a>@,"
@@ -659,6 +664,12 @@ let memref_store_scalar (loc : Loc.t) (fmt : PP.formatter) (ref : Ident.t) (x : 
   PP.fprintf fmt "memref.store %a, %a[] : memref<%a>@,"
     varident x
     varident ref
+    (pp_type loc) ty
+
+let memref_global_array (loc : Loc.t) (fmt : PP.formatter) (v : Ident.t) (sz : Z.t) (ty : AST.ty) : unit =
+  PP.fprintf fmt "memref.global @%a : memref<%s x %a>@,@,"
+    ident v
+    (Z.to_string sz)
     (pp_type loc) ty
 
 let memref_get_global_array (loc : Loc.t) (fmt : PP.formatter) (v : Ident.t) (sz : Z.t) (ty : AST.ty) : Ident.t =
@@ -1502,18 +1513,11 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
           end;
           PP.fprintf fmt "}@,@,"
       | Decl_Var (v, Type_Array (Index_Int (Expr_Lit (VInt sz)), elty), loc) ->
-          PP.fprintf fmt "memref.global @%a : memref<%sx%a>@,@,"
-            ident v
-            (Z.to_string sz)
-            (pp_type loc) elty
+          memref_global_array loc fmt v sz elty
       | Decl_Var (v, ty, loc) ->
-          PP.fprintf fmt "memref.global @%a : memref<%a>@,@,"
-            ident v
-            (pp_type loc) ty
+          memref_global_scalar loc fmt v ty
       | Decl_Const (v, Some ty, e, loc) -> (* todo: don't treat this like a variable! *)
-          PP.fprintf fmt "memref.global @%a : memref<%a>@,@,"
-            ident v
-            (pp_type loc) ty
+          memref_global_scalar loc fmt v ty
       | Decl_Exception _
       | Decl_Typedef _
       | Decl_Enum _
