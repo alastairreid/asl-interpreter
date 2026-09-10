@@ -190,7 +190,7 @@ let enums : int Identset.Bindings.t ref = ref Identset.Bindings.empty
 let type_of_enum : AST.ty Identset.Bindings.t ref = ref Identset.Bindings.empty
 let enum_types : Identset.IdentSet.t ref = ref Identset.IdentSet.empty
 
-let vartypes : AST.ty Identset.Bindings.t ref = ref Identset.Bindings.empty
+let global_vartypes : AST.ty Identset.Bindings.t ref = ref Identset.Bindings.empty
 let funtypes : AST.function_type Identset.Bindings.t ref = ref Identset.Bindings.empty
 let fieldtypes : ((Ident.t * AST.ty) list) Identset.Bindings.t ref = ref Identset.Bindings.empty
 
@@ -447,10 +447,15 @@ let mk_formal_env (fty : AST.function_type) (actuals : Ident.t list) : environme
  * Expressions
  ****************************************************************)
 
+let with_fresh_typed (t : AST.ty) (f : Ident.t -> unit) : (Ident.t * AST.ty) =
+  let v = locals#fresh in
+  f v;
+  (v, t)
+
 let with_fresh (f : Ident.t -> unit) : Ident.t =
-  let t = locals#fresh in
-  f t;
-  t
+  let v = locals#fresh in
+  f v;
+  v
 
 let to_index (fmt : PP.formatter) (x : Ident.t) : Ident.t =
   with_fresh (fun t ->
@@ -499,36 +504,12 @@ let string_constant (fmt : PP.formatter) (x : string) : Ident.t =
   *)
   bool_constant fmt false (* todo: do strings properly *)
 
-let rec concat (fmt : PP.formatter) (xs : (Ident.t * Ident.t) list) : (Ident.t * Ident.t) =
-  ( match xs with
-  | [] ->
-     let zero = bigint_constant fmt Z.zero in
-     (bitvector_constant fmt Primops.empty_bits, zero)
-  | [(x, xw)] -> (x, xw)
-  | ((y, yw) :: ys) ->
-      let (ys', ysw) = concat fmt ys in
-      let w = with_fresh (fun w ->
-        PP.fprintf fmt "%a = func.call @Std$Integer$Add(%a, %a) : (!Std$Integer, !Std$Integer) -> !Std$Integer@,"
-          varident w
-          varident yw
-          varident ysw
-      ) in
-      let t = locals#fresh in
-      PP.fprintf fmt "%a = func.call @Std$Bits$Append(%a, %a, %a, %a) : (!Std$Integer, !Std$Integer, !Std$Bits, !Std$Bits) -> !Std$Bits@,"
-        varident t
-        varident yw
-        varident ysw
-        varident y
-        varident ys';
-      (t, w)
-  )
-
-let valueLit (loc : Loc.t) (fmt : PP.formatter) (x : Value.value) : Ident.t =
+let valueLit (loc : Loc.t) (fmt : PP.formatter) (x : Value.value) : (Ident.t * AST.ty) =
   ( match x with
-  | VBool v   -> bool_constant fmt v
-  | VInt v    -> bigint_constant fmt v
-  | VBits v   -> bitvector_constant fmt v
-  | VString v -> string_constant fmt v
+  | VBool v   -> (bool_constant fmt v, type_bool)
+  | VInt v    -> (bigint_constant fmt v, type_integer)
+  | VBits v   -> (bitvector_constant fmt v, type_bits (mk_litint v.n))
+  | VString v -> (string_constant fmt v, type_string)
   | _ -> raise (InternalError (loc, "valueLit", (fun fmt -> Value.pp_value fmt x), __LOC__))
   )
 
@@ -639,6 +620,88 @@ let rec or_reduce (fmt : PP.formatter) (cs : Ident.t option list) : Ident.t opti
   | c::cs' -> option_blend (bool_or fmt) c (or_reduce fmt cs')
   )
 
+let bv_append (fmt : PP.formatter) (wx : Ident.t) (wy : Ident.t) (x : Ident.t) (y : Ident.t) : Ident.t =
+  with_fresh (fun t ->
+    PP.fprintf fmt "%a = func.call @Std$Bits$Append(%a, %a, %a, %a) : (!Std$Integer, !Std$Integer, !Std$Bits, !Std$Bits) -> !Std$Bits@,"
+      varident t
+      varident wx
+      varident wy
+      varident x
+      varident y
+  )
+
+let bv_slice (fmt : PP.formatter) (x : Ident.t) (i : Ident.t) (w : Ident.t) : Ident.t =
+  with_fresh (fun t ->
+    PP.fprintf fmt "%a = func.call @Std$Bits$Slice(%a, %a, %a) : (!Std$Bits, !Std$Integer, !Std$Integer) -> !Std$Bits@,"
+      varident t
+      varident x
+      varident i
+      varident w
+  )
+
+let memref_get_global_scalar (loc : Loc.t) (fmt : PP.formatter) (v : Ident.t) (ty : AST.ty) : Ident.t =
+  with_fresh (fun t ->
+    PP.fprintf fmt "%a = memref.get_global @@%a : memref<%a>@,"
+      varident t
+      ident v
+      (pp_type loc) ty
+  )
+
+let memref_load_scalar (loc : Loc.t) (fmt : PP.formatter) (ref : Ident.t) (ty : AST.ty) : Ident.t =
+  with_fresh (fun t ->
+    PP.fprintf fmt "%a = memref.load %a[] : memref<%a>@,"
+      varident t
+      varident ref
+      (pp_type loc) ty
+  )
+
+let memref_store_scalar (loc : Loc.t) (fmt : PP.formatter) (ref : Ident.t) (x : Ident.t) (ty : AST.ty) : unit =
+  PP.fprintf fmt "memref.store %a, %a[] : memref<%a>@,"
+    varident x
+    varident ref
+    (pp_type loc) ty
+
+let memref_get_global_array (loc : Loc.t) (fmt : PP.formatter) (v : Ident.t) (sz : Z.t) (ty : AST.ty) : Ident.t =
+  with_fresh (fun t ->
+    PP.fprintf fmt "%a = memref.get_global @@%a : memref<%s x %a>@,"
+      varident t
+      ident v
+      (Z.to_string sz)
+      (pp_type loc) ty
+  )
+
+let memref_load_array (loc : Loc.t) (fmt : PP.formatter) (aref : Ident.t) (ix : Ident.t) (sz : Z.t) (ty : AST.ty) : Ident.t =
+  with_fresh (fun t ->
+    PP.fprintf fmt "%a = memref.load %a[%a] : memref<%s x %a>@,"
+      varident t
+      varident aref
+      varident ix
+      (Z.to_string sz)
+      (pp_type loc) ty
+  )
+
+let memref_store_array (loc : Loc.t) (fmt : PP.formatter) (aref : Ident.t) (ix : Ident.t) (x : Ident.t) (sz : Z.t) (ty : AST.ty) : unit =
+  PP.fprintf fmt "memref.store %a, %a[%a] : memref<%s x %a>@,"
+    varident x
+    varident aref
+    varident ix
+    (Z.to_string sz)
+    (pp_type loc) ty
+
+let rec concat (fmt : PP.formatter) (xs : (Ident.t * Ident.t * AST.expr) list) : (Ident.t * Ident.t * AST.expr) =
+  ( match xs with
+  | [] ->
+     let zero' = bigint_constant fmt Z.zero in
+     (bitvector_constant fmt Primops.empty_bits, zero', zero)
+  | [(x, xw', xw)] -> (x, xw', xw)
+  | ((y, yw', yw) :: ys) ->
+      let (ys', ysw', ysw) = concat fmt ys in
+      let w = mk_add_int yw ysw in
+      let w' = int_add fmt yw' ysw' in
+      let t = bv_append fmt yw' ysw' y ys' in
+      (t, w', w)
+  )
+
 (****************************************************************
  * Patterns
  ****************************************************************)
@@ -697,65 +760,45 @@ and patterns (loc : Loc.t) (fmt : PP.formatter) (ps : AST.pattern list) (discrim
  * Expressions
  ****************************************************************)
 
-let rec expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) : Ident.t =
+let rec expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) : (Ident.t * AST.ty) =
   ( match x with
   | Expr_Lit v -> valueLit loc fmt v
 
   | Expr_Var v ->
-      if Ident.equal v Builtins.true_ident then bool_constant fmt true
-      else if Ident.equal v Builtins.false_ident then bool_constant fmt false
+      if Ident.equal v Builtins.true_ident then (bool_constant fmt true, type_bool)
+      else if Ident.equal v Builtins.false_ident then (bool_constant fmt false, type_bool)
       else (
         (* todo: enumeration variables *)
         ( match ScopeStack.get env v with
         | None -> (* global variable *)
-            assert (Identset.Bindings.mem v !vartypes);
-            let ty = Identset.Bindings.find v !vartypes in
-            let ref = locals#fresh in
-            PP.fprintf fmt "%a = memref.get_global @@%a : memref<%a>@,"
-              varident ref
-              ident v
-              (pp_type loc) ty;
-            let t = locals#fresh in
-            PP.fprintf fmt "%a = memref.load %a[] : memref<%a>@,"
-              varident t
-              varident ref
-              (pp_type loc) ty;
-            t
-        | Some (Some v', _, _) -> v'
-        | Some (None, _, _) -> v
+            assert (Identset.Bindings.mem v !global_vartypes);
+            let ty = Identset.Bindings.find v !global_vartypes in
+            let ref = memref_get_global_scalar loc fmt v ty in
+            (memref_load_scalar loc fmt ref ty, ty)
+        | Some (Some v', _, ty) -> (v', ty)
+        | Some (None, _, ty) -> (v, ty)
         )
       )
 
-  | Expr_Array(ty, Expr_Var v, ix) ->
-      assert (Identset.Bindings.mem v !vartypes);
+  | Expr_Array(Expr_Var v, ix) ->
+      assert (Identset.Bindings.mem v !global_vartypes);
+      let ty = Identset.Bindings.find v !global_vartypes in
       let (sz, elty) = ( match ty with
                        | Type_Array (Index_Int (Expr_Lit (VInt sz)), elty) -> (sz, elty)
                        | _ -> let pp fmt = FMT.ty fmt ty in
                               raise (Error.Unimplemented (loc, "type", pp))
                        )
       in
-      let aref = locals#fresh in
-      PP.fprintf fmt "%a = memref.get_global @@%a : memref<%sx%a>@,"
-        varident aref
-        ident v
-        (Z.to_string sz)
-        (pp_type loc) elty;
-      let ix' = expr loc env fmt ix in
+      let (ix', _) = expr loc env fmt ix in
       let ix'' = to_index fmt ix' in
-      with_fresh (fun t ->
-        PP.fprintf fmt "%a = memref.load %a[%a] : memref<%sx%a>@,"
-          varident t
-          varident aref
-          varident ix''
-          (Z.to_string sz)
-          (pp_type loc) elty
-      )
+      let aref = memref_get_global_array loc fmt v sz elty in
+      (memref_load_array loc fmt aref ix'' sz elty, elty)
 
   | Expr_Slices (Type_Integer _, e, [Slice_Single i]) ->
-      let e' = expr loc env fmt e in
-      let i' = expr loc env fmt i in
+      let (e', _) = expr loc env fmt e in
+      let (i', _) = expr loc env fmt i in
       let wd' = bigint_constant fmt Z.one in
-      with_fresh (fun t ->
+      with_fresh_typed (type_bits one) (fun t ->
         PP.fprintf fmt "%a = func.call @Std$Integer$Slice(%a, %a, %a) : (!Std$Integer, !Std$Integer, !Std$Integer) -> !Std$Bits@,"
           varident t
           varident e'
@@ -764,10 +807,10 @@ let rec expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.exp
       )
 
   | Expr_Slices (Type_Integer _, e, [Slice_LoWd (lo, wd)]) ->
-      let e' = expr loc env fmt e in
-      let lo' = expr loc env fmt lo in
-      let wd' = expr loc env fmt wd in
-      with_fresh (fun t ->
+      let (e',  _) = expr loc env fmt e in
+      let (lo', _) = expr loc env fmt lo in
+      let (wd', _) = expr loc env fmt wd in
+      with_fresh_typed (type_bits wd) (fun t ->
         PP.fprintf fmt "%a = func.call @Std$Integer$Slice(%a, %a, %a) : (!Std$Integer, !Std$Integer, !Std$Integer) -> !Std$Bits@,"
           varident t
           varident e'
@@ -776,14 +819,13 @@ let rec expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.exp
       )
 
   | Expr_Slices (Type_Bits _, e, ss) ->
-      let e' = expr loc env fmt e in
+      let (e', _) = expr loc env fmt e in
       slices loc env fmt e' ss
 
   | Expr_TApply (f, tes, es, NoThrow) ->
-      (* todo: primops *)
       let fty = Identset.Bindings.find f !funtypes in
       let actuals = actual_args fty tes es in
-      let actuals' = List.map (expr loc env fmt) actuals in
+      let actuals' = List.map (Fun.compose fst (expr loc env fmt)) actuals in
       let formal_env = mk_formal_env fty actuals' in
       check_actuals loc fmt formal_env fty actuals';
       let r = with_fresh (fun t ->
@@ -799,87 +841,94 @@ let rec expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.exp
         let ensures = check_type loc formal_env fmt r fty.rty in
         Option.iter (cf_assume fmt) ensures
       end;
-      r
+      (r, fty.rty)
 
-  | Expr_If ([], e, oty) ->
+  | Expr_If ([], e) ->
       expr loc env fmt e
-  | Expr_If ((c, t) :: cts, e, Some ty) ->
+  | Expr_If ((c, t) :: cts, e) ->
       let l_true  = labels#fresh in
       let l_false = labels#fresh in
       let l_end   = labels#fresh in
 
-      let r = locals#fresh in
-
-      let c' = expr loc env fmt c in
+      let (c', _) = expr loc env fmt c in
 
       cf_cond_br loc fmt c' l_true [] l_false [];
 
       branch_label loc fmt l_true [];
       let t' = expr loc env fmt t in
-      cf_br loc fmt l_end [(t', ty)];
+      cf_br loc fmt l_end [t'];
 
       branch_label loc fmt l_false [];
-      let e' = expr loc env fmt (Expr_If (cts, e, Some ty)) in
-      cf_br loc fmt l_end [(e', ty)];
+      let e' = expr loc env fmt (Expr_If (cts, e)) in
+      cf_br loc fmt l_end [e'];
 
-      branch_label loc fmt l_end [(r, ty)];
+      let ty = snd t' in
+      let r = (locals#fresh, ty) in
+      branch_label loc fmt l_end [r];
       r
 
   | Expr_Assert (c, e, loc) ->
-      let c' = expr loc env fmt c in
+      let (c', _) = expr loc env fmt c in
       PP.fprintf fmt "cf.assert %a, \"%a\""
         varident c'
         FMT.expr x;
       expr loc env fmt e
 
   | Expr_In (e, p) ->
-      let e' = expr loc env fmt e in
-      pattern loc fmt p e'
+      let (e', _) = expr loc env fmt e in
+      (pattern loc fmt p e', type_bool)
 
   | Expr_Let (v, t, e1, e2) ->
-      let e1' = expr loc env fmt e1 in
+      let (e1', _) = expr loc env fmt e1 in
       ScopeStack.nest env (fun env' ->
         ScopeStack.add env v (Some e1', true, t);
         expr loc env fmt e2
       )
 
-  | Expr_Field (Type_Constructor(r, []), e, f) ->
-      let e' = expr loc env fmt e in
-      let fts = Identset.Bindings.find r !fieldtypes in
-      let fty = List.assq f fts in
-      with_fresh (fun t ->
+  | Expr_Field (e, f) ->
+      let (e', record_ty) = expr loc env fmt e in
+      let rtc = ( match record_ty with
+                     | Type_Constructor (rtc, []) -> rtc
+                     | _ ->
+                         raise (InternalError (Loc.Unknown, "isa_to_mlir.expr_field", (fun fmt -> FMT.ty fmt record_ty), __LOC__))
+                     )
+      in
+      let field_tys = Identset.Bindings.find rtc !fieldtypes in
+      let field_ty = List.assq f field_tys in
+      with_fresh_typed field_ty (fun t ->
         PP.fprintf fmt "%a = func.call @%a(%a) : (!%a) -> %a@,"
           varident t
-          (Fun.flip record_field_get r) f
+          (Fun.flip record_field_get rtc) f
           varident e'
-          ident r
-          (pp_type loc) fty
+          (pp_type loc) record_ty
+          (pp_type loc) field_ty
       )
 
-  | Expr_WithChanges (record_type, e, cs) ->
-      let e' = expr loc env fmt e in
+  | Expr_WithChanges (record_ty, e, cs) ->
+      let (e', _) = expr loc env fmt e in
       let acc = ref e' in
-      List.iter (fun (c, t, ce) ->
-        let ce' = expr loc env fmt ce in
-        acc := apply_change loc env fmt record_type t c ce' !acc
+      List.iter (fun (c, ce) ->
+        let (ce', t) = expr loc env fmt ce in
+        acc := apply_change loc env fmt record_ty t c ce' !acc
         )
         cs;
-      !acc
+      (!acc, record_ty)
 
-  | Expr_Record (tc, [], fas) ->
+  | Expr_Record (rtc, [], fas) ->
       (* Note: the typechecker has checked that all fields are present and in the same
        * order as the record declaration
        *)
-      let fas' = List.map (fun (f, e) -> expr loc env fmt e) fas in
-      let fts = Identset.Bindings.find tc !fieldtypes in
+      let fas' = List.map (fun (f, e) -> fst (expr loc env fmt e)) fas in
+      let fts = Identset.Bindings.find rtc !fieldtypes in
       let ftys = List.map (fun (f, t) -> t) fts in
-      with_fresh (fun t ->
+      let rty = AST.Type_Constructor (rtc, []) in
+      with_fresh_typed rty (fun t ->
         PP.fprintf fmt "%a = func.call @%a(%a) : (%a) -> !%a@,"
           varident t
-          record_constructor tc
+          record_constructor rtc
           (commasep varident) fas'
           (commasep (pp_type loc)) ftys
-          ident tc
+          (pp_type loc) rty
       )
 
   | Expr_Tuple _
@@ -903,55 +952,32 @@ let rec expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.exp
       raise (Error.Unimplemented (loc, "expression", pp))
   )
 
-and slices (loc : Loc.t) (env : environment) (fmt : PP.formatter) (b : Ident.t) (xs : AST.slice list) : Ident.t =
+and slices (loc : Loc.t) (env : environment) (fmt : PP.formatter) (b : Ident.t) (xs : AST.slice list) : (Ident.t * AST.ty) =
   let xs' = List.map (slice loc env fmt b) xs in
-  let (r, _) = concat fmt xs' in
-  r
+  let (r, wd', wd) = concat fmt xs' in
+  (r, type_bits wd)
 
-and slice (loc : Loc.t) (env : environment) (fmt : PP.formatter) (b : Ident.t) (x : AST.slice) : (Ident.t * Ident.t) =
+and slice (loc : Loc.t) (env : environment) (fmt : PP.formatter) (b : Ident.t) (x : AST.slice) : (Ident.t * Ident.t * AST.expr) =
   ( match x with
   | Slice_Single i ->
-      let i' = expr loc env fmt i in
-      let w' = bigint_constant fmt Z.one in
-      let t = locals#fresh in
-      PP.fprintf fmt "%a = func.call @Std$Bits$Slice(%a, %a, %a) : (!Std$Bits, !Std$Integer, !Std$Integer) -> !Std$Bits@,"
-        varident t
-        varident b
-        varident i'
-        varident w';
-      (t, w')
+      let wd = one in
+      let (i',  _) = expr loc env fmt i in
+      let (wd', _) = expr loc env fmt wd in
+      let t = bv_slice fmt b i' wd' in
+      (t, wd', wd)
+
   | Slice_LoWd (lo, wd) ->
-      let lo' = expr loc env fmt lo in
-      let wd' = expr loc env fmt wd in
-      let t = locals#fresh in
-      PP.fprintf fmt "%a = func.call @Std$Bits$Slice(%a, %a, %a) : (!Std$Bits, !Std$Integer, !Std$Integer) -> !Std$Bits@,"
-        varident t
-        varident b
-        varident lo'
-        varident wd';
-      (t, wd')
+      let (lo', _) = expr loc env fmt lo in
+      let (wd', _) = expr loc env fmt wd in
+      let t = bv_slice fmt b lo' wd' in
+      (t, wd', wd)
 
   | Slice_HiLo (hi, lo) ->
-      let hi' = expr loc env fmt hi in
-      let lo' = expr loc env fmt lo in
-      let t0 = locals#fresh in
-      PP.fprintf fmt "%a = func.call @Std$Integer$Subtract(%a, %a) : (!Std$Integer, !Std$Integer) -> !Std$Integer@,"
-        varident t0
-        varident hi'
-        varident lo';
-      let one = bigint_constant fmt Z.one in
-      let wd = locals#fresh in
-      PP.fprintf fmt "%a = func.call @Std$Integer$Add(%a, %a) : (!Std$Integer, !Std$Integer) -> !Std$Integer@,"
-        varident wd
-        varident t0
-        varident one;
-      let t = locals#fresh in
-      PP.fprintf fmt "%a = func.call @Std$Bits$Slice(%a, %a, %a) : (!Std$Bits, !Std$Integer, !Std$Integer) -> !Std$Bits@,"
-        varident t
-        varident b
-        varident lo'
-        varident wd;
-      (t, wd)
+      let wd = mk_add_int (mk_sub_int hi lo) one in
+      let (lo', _) = expr loc env fmt lo in
+      let (wd', _) = expr loc env fmt wd in
+      let t = bv_slice fmt b lo' wd' in
+      (t, wd', wd)
 
   (*
   | Slice_HiWd (hi, wd) ->
@@ -978,10 +1004,10 @@ and slice (loc : Loc.t) (env : environment) (fmt : PP.formatter) (b : Ident.t) (
 
 and check_set_range (loc : Loc.t) (env : environment) (fmt : PP.formatter) (v : Ident.t) (x : AST.set_range) : Ident.t option =
   ( match x with
-  | Set_Single e -> Some (int_eq fmt v (expr loc env fmt e))
+  | Set_Single e -> Some (int_eq fmt v (fst (expr loc env fmt e)))
   | Set_Range (lo, hi) ->
-      let c_lo = lift (Fun.flip (int_le fmt)) v (Option.map (expr loc env fmt) lo) in
-      let c_hi = lift (int_le fmt) v (Option.map (expr loc env fmt) hi) in
+      let c_lo = lift (Fun.flip (int_le fmt)) v (Option.map (Fun.compose fst (expr loc env fmt)) lo) in
+      let c_hi = lift (int_le fmt) v (Option.map (Fun.compose fst (expr loc env fmt)) hi) in
       option_blend (bool_and fmt) c_lo c_hi
   )
 
@@ -989,7 +1015,7 @@ and check_type (loc : Loc.t) (env : environment) (fmt : PP.formatter) (v : Ident
   ( match x with
   | Type_Bits (e, _) ->
       let t = bv_length fmt v in
-      let e' = expr loc env fmt e in
+      let (e', _) = expr loc env fmt e in
       Some (int_eq fmt t e')
   | Type_Integer None -> None
   | Type_Integer (Some srs) ->
@@ -1066,24 +1092,24 @@ and set_slice (loc : Loc.t) (env : environment) (fmt : PP.formatter) (rty : AST.
 let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
   ( match x with
   | Stmt_Assert (e, loc) ->
-      let e' = expr loc env fmt e in
+      let (e', _) = expr loc env fmt e in
       PP.fprintf fmt "cf.assert %a, \"%a\""
         varident e'
         FMT.expr e;
       false
 
   | Stmt_Return (Expr_Tuple es, loc) ->
-      let es' = List.map2 (fun e t -> (expr loc env fmt e, t)) es !return_types in
+      let es' = List.map (expr loc env fmt) es in
       cf_br loc fmt !return_label es';
       true
 
   | Stmt_Return (e, loc) ->
       let e' = expr loc env fmt e in
       if !type_checks then begin
-        let ensures = check_types loc env fmt e' !return_types in
+        let ensures = check_types loc env fmt (fst e') !return_types in
         Option.iter (cf_assert fmt) ensures
       end;
-      cf_br loc fmt !return_label (List.combine [e'] !return_types);
+      cf_br loc fmt !return_label [e'];
       true
 
   | Stmt_VarDeclsNoInit (vs, t, loc) ->
@@ -1091,23 +1117,16 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       false
 
   | Stmt_VarDecl (is_constant, DeclItem_Var (v, Some ty), i, loc) ->
-      let i' = expr loc env fmt i in
+      let (i', _) = expr loc env fmt i in
       ScopeStack.add env v (Some i', is_constant, ty);
       false
 
   | Stmt_Assign (LExpr_Var v, rhs, loc) ->
-      let rhs' = expr loc env fmt rhs in
-      if Identset.Bindings.mem v !vartypes then begin (* global *)
-        let ty = Identset.Bindings.find v !vartypes in
-        let ref = locals#fresh in
-        PP.fprintf fmt "%a = memref.get_global @@%a : memref<%a>@,"
-          varident ref
-          ident v
-          (pp_type loc) ty;
-        PP.fprintf fmt "memref.store %a, %a[] : memref<%a>@,"
-          varident rhs'
-          varident ref
-          (pp_type loc) ty
+      let (rhs', _) = expr loc env fmt rhs in
+      if Identset.Bindings.mem v !global_vartypes then begin (* global *)
+        let ty = Identset.Bindings.find v !global_vartypes in
+        let ref = memref_get_global_scalar loc fmt v ty in
+        memref_store_scalar loc fmt ref rhs' ty
       end else begin
         rebind loc env v rhs'
       end;
@@ -1132,60 +1151,52 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       rebind loc env v rhs'
   *)
 
-  | Stmt_Assign (LExpr_Array (ty, LExpr_Var v, ix), rhs, loc) ->
-      let rhs' = expr loc env fmt rhs in
+  | Stmt_Assign (LExpr_Array (LExpr_Var v, ix), rhs, loc) ->
+      assert (Identset.Bindings.mem v !global_vartypes);
+      let ty = Identset.Bindings.find v !global_vartypes in
       let (sz, elty) = ( match ty with
                        | Type_Array (Index_Int (Expr_Lit (VInt sz)), elty) -> (sz, elty)
                        | _ -> let pp fmt = FMT.ty fmt ty in
                               raise (Error.Unimplemented (loc, "type", pp))
                        )
       in
-      let aref = locals#fresh in
-      PP.fprintf fmt "%a = memref.get_global @@%a : memref<%sx%a>@,"
-        varident aref
-        ident v
-        (Z.to_string sz)
-        (pp_type loc) elty;
-      let ix' = expr loc env fmt ix in
+      let (rhs', _) = expr loc env fmt rhs in
+      let (ix', _) = expr loc env fmt ix in
       let ix'' = to_index fmt ix' in
-      PP.fprintf fmt "memref.store %a, %a[%a] : memref<%sx%a>@,"
-        varident rhs'
-        varident aref
-        varident ix''
-        (Z.to_string sz)
-        (pp_type loc) elty;
+      let aref = memref_get_global_array loc fmt v sz elty in
+      memref_store_array loc fmt aref ix'' rhs' sz elty;
       false
 
   | Stmt_Assign (LExpr_Write (f, tes, args, throws), rhs, loc) ->
       let rhs' = expr loc env fmt rhs in
-      (* todo: exceptions *)
-      (* todo: primops *)
       let fty = Identset.Bindings.find f !funtypes in
       let actuals = actual_args fty tes args in
       let actuals' = List.map (expr loc env fmt) actuals @ [rhs'] in
-      let formal_env = mk_formal_env fty actuals' in
-      check_actuals loc fmt formal_env fty actuals';
+      let actuals'' = List.map fst actuals' in
+      let formal_env = mk_formal_env fty actuals'' in
+      check_actuals loc fmt formal_env fty actuals'';
       PP.fprintf fmt "func.call @%a(%a) : (%a) -> %a@,"
         ident f
-        (commasep varident) actuals'
+        (commasep varident) actuals''
         (formal_arg_types loc) fty
         (pp_return_type loc) fty.rty;
+      (* todo: exceptions *)
       false
 
 
   | Stmt_TCall (f, tes, args, throws, loc) ->
-      (* todo: exceptions *)
-      (* todo: primops *)
       let fty = Identset.Bindings.find f !funtypes in
       let actuals = actual_args fty tes args in
       let actuals' = List.map (expr loc env fmt) actuals in
-      let formal_env = mk_formal_env fty actuals' in
-      check_actuals loc fmt formal_env fty actuals';
+      let actuals'' = List.map fst actuals' in
+      let formal_env = mk_formal_env fty actuals'' in
+      check_actuals loc fmt formal_env fty actuals'';
       PP.fprintf fmt "func.call @%a(%a) : (%a) -> %a@,"
         ident f
-        (commasep varident) actuals'
+        (commasep varident) actuals''
         (formal_arg_types loc) fty
         (pp_return_type loc) fty.rty;
+      (* todo: exceptions *)
       false
 
   | Stmt_Block (ss, loc) ->
@@ -1199,7 +1210,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       let l_false = labels#fresh in
       let l_end   = labels#fresh in
 
-      let c' = expr loc env fmt c in
+      let (c', _) = expr loc env fmt c in
 
       let mutables = get_mutables env in
       let renames = List.map (fun (v, curr, t) -> (v, curr, locals#fresh, locals#fresh, t)) mutables in
@@ -1248,7 +1259,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       let l_false = labels#fresh in
       let l_end   = labels#fresh in
 
-      let e' = expr loc env fmt e in
+      let (e', _) = expr loc env fmt e in
       let c = patterns loc fmt ps e' in
 
       let mutables = get_mutables env in
@@ -1308,7 +1319,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       cf_br loc fmt l_test init_vars;
 
       branch_label loc fmt l_test test_vars;
-      let c' = expr loc test_env fmt c in
+      let (c', _) = expr loc test_env fmt c in
       cf_cond_br loc fmt c' l_cont test_vars l_fini test_vars;
 
       branch_label loc fmt l_cont cont_vars;
@@ -1343,7 +1354,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       if term then
         true
       else (
-        let c' = expr loc body_env fmt c in
+        let (c', _) = expr loc body_env fmt c in
         let loop_vars = List.map (fun (v, _, ty) -> (get_mutbind loc body_env v, ty)) mutables in
         cf_cond_br loc fmt c' l_fini loop_vars l_body loop_vars;
 
@@ -1353,8 +1364,8 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       )
 
   | Stmt_For (ix, ty, f, direction, t, b, loc) ->
-      let f' = expr loc env fmt f in
-      let t' = expr loc env fmt t in
+      let (f', _) = expr loc env fmt f in
+      let (t', _) = expr loc env fmt t in
       let step = if direction == Direction_Up then Z.one else Z.minus_one in
       let step' = bigint_constant fmt step in
 
@@ -1549,9 +1560,9 @@ let _ =
         | AST.Decl_FunDefn (f, fty, _, _)
         -> funtypes := Identset.Bindings.add f fty !funtypes
         | AST.Decl_Var (v, ty, _)
-        -> vartypes := Identset.Bindings.add v ty !vartypes
+        -> global_vartypes := Identset.Bindings.add v ty !global_vartypes
         | Decl_Const (v, Some ty, e, _) (* todo: don't treat this like a variable! *)
-        -> vartypes := Identset.Bindings.add v ty !vartypes
+        -> global_vartypes := Identset.Bindings.add v ty !global_vartypes
         | _ -> ()
         )
       ) decls;
