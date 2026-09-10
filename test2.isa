@@ -19,7 +19,7 @@ end
 function Set(r : R) -> R
 begin
     var s := r;
-    // s.f1 := 42;
+    s.f1 := 42;
     return s;
 end
 

@@ -1152,68 +1152,10 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       decl_item loc env fmt is_constant di i';
       false
 
-  | Stmt_Assign (LExpr_Var v, rhs, loc) ->
-      let (rhs', _) = expr loc env fmt rhs in
-      if Identset.Bindings.mem v !global_vartypes then begin (* global *)
-        let ty = Identset.Bindings.find v !global_vartypes in
-        let ref = memref_get_global_scalar loc fmt v ty in
-        memref_store_scalar loc fmt ref rhs' ty
-      end else begin
-        rebind loc env v rhs'
-      end;
-      false
-
-  (*
-  | Stmt_Assign (LExpr_Field (Type_Constructor(r, []), l, f), rhs, loc) ->
+  | Stmt_Assign (lhs, rhs, loc) ->
       let rhs' = expr loc env fmt rhs in
-      let e = Option.get (lexpr_to_expr l) in
-      let e' = expr loc env fmt e in
-      let fts = Identset.Bindings.find r !fieldtypes in
-      let fty = List.assq f fts in
-      let t = locals#fresh in
-      PP.fprintf fmt "%a = func.call @%a(%a, %a) : (!%a, %a) -> !%a@,"
-        varident t
-        (Fun.flip record_field_set r) f
-        varident e'
-        varident rhs'
-        ident r
-        (pp_type loc) fty
-        ident r;
-      rebind loc env v rhs'
-  *)
-
-  | Stmt_Assign (LExpr_Array (LExpr_Var v, ix), rhs, loc) ->
-      assert (Identset.Bindings.mem v !global_vartypes);
-      let ty = Identset.Bindings.find v !global_vartypes in
-      let (sz, elty) = ( match ty with
-                       | Type_Array (Index_Int (Expr_Lit (VInt sz)), elty) -> (sz, elty)
-                       | _ -> let pp fmt = FMT.ty fmt ty in
-                              raise (Error.Unimplemented (loc, "type", pp))
-                       )
-      in
-      let (rhs', _) = expr loc env fmt rhs in
-      let (ix', _) = expr loc env fmt ix in
-      let ix'' = to_index fmt ix' in
-      let aref = memref_get_global_array loc fmt v sz elty in
-      memref_store_array loc fmt aref ix'' rhs' sz elty;
+      assign loc env fmt lhs rhs';
       false
-
-  | Stmt_Assign (LExpr_Write (f, tes, args, throws), rhs, loc) ->
-      let rhs' = expr loc env fmt rhs in
-      let fty = Identset.Bindings.find f !funtypes in
-      let actuals = actual_args fty tes args in
-      let actuals' = List.map (expr loc env fmt) actuals @ [rhs'] in
-      let actuals'' = List.map fst actuals' in
-      let formal_env = mk_formal_env fty actuals'' in
-      check_actuals loc fmt formal_env fty actuals'';
-      PP.fprintf fmt "func.call @%a(%a) : (%a) -> %a@,"
-        ident f
-        (commasep varident) actuals''
-        (formal_arg_types loc) fty
-        (pp_return_type loc) fty.rty;
-      (* todo: exceptions *)
-      false
-
 
   | Stmt_TCall (f, tes, args, throws, loc) ->
       let fty = Identset.Bindings.find f !funtypes in
@@ -1461,6 +1403,70 @@ and decl_item (loc : Loc.t) (env : environment) (fmt : PP.formatter) (is_constan
   | _ ->
       let pp fmt = FMT.decl_item fmt x in
       raise (Error.Unimplemented (Loc.Unknown, "decl_item", pp))
+  )
+
+and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lexpr) (rhs : (Ident.t * AST.ty)) : unit =
+  ( match lhs with
+  | LExpr_Var v ->
+      if Identset.Bindings.mem v !global_vartypes then begin (* global *)
+        let ty = Identset.Bindings.find v !global_vartypes in
+        let ref = memref_get_global_scalar loc fmt v ty in
+        memref_store_scalar loc fmt ref (fst rhs) ty
+      end else begin
+        rebind loc env v (fst rhs)
+      end
+
+  | LExpr_Field (l, f) ->
+      let old = Option.get (lexpr_to_expr l) in
+      let (old', rty) = expr loc env fmt old in
+      let rtc = ( match rty with
+                | Type_Constructor (rtc, []) -> rtc
+                | _ ->
+                  raise (InternalError (Loc.Unknown, "isa_to_mlir.lexpr_field", (fun fmt -> FMT.ty fmt rty), __LOC__))
+                )
+      in
+      let new' = locals#fresh in
+      PP.fprintf fmt "%a = func.call @%a(%a, %a) : (%a, %a) -> %a@,"
+        varident new'
+        (Fun.flip record_field_set rtc) f
+        varident old'
+        varident (fst rhs)
+        (pp_type loc) rty
+        (pp_type loc) (snd rhs)
+        (pp_type loc) rty;
+      assign loc env fmt l (new', rty)
+
+  | LExpr_Array (LExpr_Var v, ix) ->
+      assert (Identset.Bindings.mem v !global_vartypes);
+      let ty = Identset.Bindings.find v !global_vartypes in
+      let (sz, elty) = ( match ty with
+                       | Type_Array (Index_Int (Expr_Lit (VInt sz)), elty) -> (sz, elty)
+                       | _ -> let pp fmt = FMT.ty fmt ty in
+                              raise (Error.Unimplemented (loc, "type", pp))
+                       )
+      in
+      let (ix', _) = expr loc env fmt ix in
+      let ix'' = to_index fmt ix' in
+      let aref = memref_get_global_array loc fmt v sz elty in
+      memref_store_array loc fmt aref ix'' (fst rhs) sz elty
+
+  | LExpr_Write (f, tes, args, throws) ->
+      let fty = Identset.Bindings.find f !funtypes in
+      let actuals = actual_args fty tes args in
+      let actuals' = List.map (expr loc env fmt) actuals @ [rhs] in
+      let actuals'' = List.map fst actuals' in
+      let formal_env = mk_formal_env fty actuals'' in
+      check_actuals loc fmt formal_env fty actuals'';
+      PP.fprintf fmt "func.call @%a(%a) : (%a) -> %a@,"
+        ident f
+        (commasep varident) actuals''
+        (formal_arg_types loc) fty
+        (pp_return_type loc) fty.rty
+      (* todo: exceptions *)
+
+  | _ ->
+      let pp fmt = FMT.lexpr fmt lhs in
+      raise (Error.Unimplemented (Loc.Unknown, "assign", pp))
   )
 
 
