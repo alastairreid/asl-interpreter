@@ -263,7 +263,6 @@ let labels = new Isa_utils.nameSupply "^bb"
 
 let return_types = ref []
 let return_label : Ident.t ref = ref labels#fresh
-let return_vars : (Ident.t * AST.ty) list ref = ref []
 
 let rebind (loc : Loc.t) (env : environment) (v : Ident.t) (v' : Ident.t) : unit =
   ( match ScopeStack.get env v with
@@ -1483,12 +1482,13 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
               | Type_Tuple tys -> tys
               | t -> [t]
               );
-          return_vars :=
+          let return_vars =
               ( match fty.rty with
               | Type_Tuple([]) -> []
               | Type_Tuple(tys) -> List.map (fun ty -> (locals#fresh, ty)) tys
               | rty -> [(locals#fresh, rty)]
-              );
+              )
+          in
           indented fmt (fun _ ->
             if !type_checks then begin
                 List.iter (fun (v, t) ->
@@ -1498,18 +1498,19 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
                   (formal_args fty)
             end;
             let term = block env fmt b in
-            if not term && List.is_empty !return_vars then begin
+            if not term then begin
+              assert (List.is_empty return_vars);
               cf_br loc fmt !return_label []
             end
           );
 
-          branch_label loc fmt !return_label !return_vars;
-          if List.is_empty !return_vars then begin
+          branch_label loc fmt !return_label return_vars;
+          if List.is_empty return_vars then begin
             PP.fprintf fmt "    func.return@,"
           end else begin
             PP.fprintf fmt "    func.return %a : %a@,"
-              (commasep (fun fmt (v, t) -> varident fmt v)) !return_vars
-              (commasep (fun fmt (v, t) -> pp_type loc fmt t)) !return_vars
+              (commasep (fun fmt (v, t) -> varident fmt v)) return_vars
+              (commasep (fun fmt (v, t) -> pp_type loc fmt t)) return_vars
           end;
           PP.fprintf fmt "}@,@,"
       | Decl_Var (v, Type_Array (Index_Int (Expr_Lit (VInt sz)), elty), loc) ->
