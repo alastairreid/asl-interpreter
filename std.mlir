@@ -2,6 +2,7 @@
 !Std$RAM = i64 // note: this is an identifier for a RAM instance, not the storage itself
 !Std$Integer = i64
 !Std$String = i1
+!Internal$Exception$Tag = !Std$Integer // i8 or smaller would be more sensible
 
 // !Std$Bits = !llvm.struct<(!Std$Integer, i128)> // pair of length and a bitvector
 
