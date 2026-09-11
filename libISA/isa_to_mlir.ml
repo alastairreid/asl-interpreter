@@ -1290,6 +1290,7 @@ let generate_sum_of_products (fmt : Format.formatter)
   mk_record_get Loc.Unknown fmt tc fields' (fst tag) (snd tag);
   List.iteri (fun i (dc, dfs, loc) ->
     fieldtypes := Identset.Bindings.add dc fields' !fieldtypes;
+    Format.fprintf fmt "!%a = !%a@," ident dc ident tc;
     mk_exception_constructor loc fmt tc fields' tag (i+1) dc dfs;
     List.iter (fun (f, ft) ->
         mk_exception_get loc fmt tc fields' dc f ft;
@@ -1771,8 +1772,10 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
           );
 
           branch_label loc fmt !return_label return_vars;
-          func_return loc fmt return_vars;
-          PP.fprintf fmt "}@,@,"
+          indented fmt (fun _ ->
+            func_return loc fmt return_vars
+          );
+          PP.fprintf fmt "@,}@,"
       | Decl_Var (v, Type_Array (Index_Int (Expr_Lit (VInt sz)), elty), loc) ->
           memref_global_array loc fmt v sz elty
       | Decl_Var (v, ty, loc) ->

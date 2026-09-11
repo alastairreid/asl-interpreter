@@ -39,6 +39,11 @@ end
 exception E1 = { x : Integer, y : Boolean };
 exception E2 = { z : Bits(32) };
 
+function Get_z(e : E2) -> Bits(32)
+begin
+    return e.z;
+end
+
 // function Exception(x : Integer) -> Integer
 // begin
 //     // Test throwing and catching an exception within the same function
