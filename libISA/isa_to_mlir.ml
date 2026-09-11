@@ -1768,9 +1768,16 @@ let _ =
        * constructors. In the special case that only one constructor has fields, the tuple
        * generated will be the same.)
        *)
-      List.iter (fun d ->
-        ( match d with
-        | AST.Decl_Exception (r, fs, loc) ->
+      let exceptions = List.filter_map
+        (fun d ->
+          ( match d with
+          | AST.Decl_Exception (r, fs, loc) -> Some((r, fs, loc))
+          | _ -> None
+          )
+        )
+        decls
+      in
+      List.iter (fun (r, fs, loc) ->
             fieldtypes := Identset.Bindings.add r fs !fieldtypes;
             PP.fprintf fmt "@,!%a = tuple<%a>@,"
               ident r
@@ -1780,11 +1787,7 @@ let _ =
               (commasep (varty loc)) fs
               ident r;
             PP.fprintf fmt "@,"
-        | _ -> ()
-        )
-      ) decls;
-
-
+      ) exceptions;
 
       declarations fmt (List.rev decls)
     );
