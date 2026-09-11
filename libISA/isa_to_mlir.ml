@@ -933,23 +933,17 @@ let rec expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.exp
       )
 
   | Expr_Field (e, f) ->
-      let (e', record_ty) = expr loc env fmt e in
-      let rtc = ( match record_ty with
-                     | Type_Constructor (rtc, []) -> rtc
-                     | _ ->
-                         raise (InternalError (Loc.Unknown, "isa_to_mlir.expr_field", (fun fmt -> FMT.ty fmt record_ty), __LOC__))
-                     )
+      let e' = expr loc env fmt e in
+      let rtc = ( match snd e' with
+                | Type_Constructor (rtc, []) -> rtc
+                | _ ->
+                    raise (InternalError (Loc.Unknown, "isa_to_mlir.expr_field", (fun fmt -> FMT.ty fmt (snd e')), __LOC__))
+                )
       in
       let field_tys = Identset.Bindings.find rtc !fieldtypes in
       let field_ty = List.assq f field_tys in
-      with_fresh_typed field_ty (fun t ->
-        PP.fprintf fmt "%a = func.call @%a(%a) : (%a) -> %a@,"
-          varident t
-          ident (record_field_get rtc f)
-          varident e'
-          (pp_type loc) record_ty
-          (pp_type loc) field_ty
-      )
+      let r = func_call1 loc fmt (record_field_get rtc f) [e'] field_ty in
+      (r, field_ty)
 
   | Expr_WithChanges (record_ty, e, cs) ->
       let (e', _) = expr loc env fmt e in
@@ -965,18 +959,10 @@ let rec expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.exp
       (* Note: the typechecker has checked that all fields are present and in the same
        * order as the record declaration
        *)
-      let fas' = List.map (fun (f, e) -> fst (expr loc env fmt e)) fas in
-      let fts = Identset.Bindings.find rtc !fieldtypes in
-      let ftys = List.map (fun (f, t) -> t) fts in
+      let fas' = List.map (fun (f, e) -> expr loc env fmt e) fas in
       let rty = AST.Type_Constructor (rtc, []) in
-      with_fresh_typed rty (fun t ->
-        PP.fprintf fmt "%a = func.call @%a(%a) : (%a) -> %a@,"
-          varident t
-          ident (record_constructor rtc)
-          (commasep varident) fas'
-          (commasep (pp_type loc)) ftys
-          (pp_type loc) rty
-      )
+      let r = func_call1 loc fmt (record_constructor rtc) fas' rty in
+      (r, rty)
 
   | Expr_Tuple es ->
       let es' = List.map (expr loc env fmt) es in
@@ -1104,16 +1090,7 @@ and apply_change (loc : Loc.t) (env : environment) (fmt : PP.formatter) (rty : A
                     raise (Error.Unimplemented (loc, "apply_change", pp))
                 )
       in
-      with_fresh (fun t ->
-        PP.fprintf fmt "%a = func.call @%a(%a, %a) : (%a, %a) -> %a@,"
-          varident t
-          ident (record_field_set rtc f)
-          varident r
-          varident v
-          (pp_type loc) rty
-          (pp_type loc) vty
-          (pp_type loc) rty
-      )
+      func_call1 loc fmt (record_field_set rtc f) [(r, rty); (v, vty)] rty
   | Change_Slices ss ->
       set_slices loc env fmt rty ss v r
   )
@@ -1489,15 +1466,7 @@ and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lex
                   raise (InternalError (Loc.Unknown, "isa_to_mlir.lexpr_field", (fun fmt -> FMT.ty fmt rty), __LOC__))
                 )
       in
-      let new' = locals#fresh in
-      PP.fprintf fmt "%a = func.call @%a(%a, %a) : (%a, %a) -> %a@,"
-        varident new'
-        ident (record_field_set rtc f)
-        varident old'
-        varident (fst rhs)
-        (pp_type loc) rty
-        (pp_type loc) (snd rhs)
-        (pp_type loc) rty;
+      let new' = func_call1 loc fmt (record_field_set rtc f) [(old', rty); rhs] rty in
       assign loc env fmt l (new', rty)
 
   | LExpr_Array (LExpr_Var v, ix) ->
