@@ -36,7 +36,8 @@ begin
     return (a, b);
 end
 
-exception E = { v : Integer };
+exception E1 = { x : Integer, y : Boolean };
+exception E2 = { z : Bits(32) };
 
 // function Exception(x : Integer) -> Integer
 // begin

@@ -821,108 +821,6 @@ let mk_record_set (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs : (Iden
   PP.fprintf fmt "@,}@,"
 
 (****************************************************************
- * Exception support
- *
- * Exception support mostly consists of supporting 'sum-of-products'.
- *
- * Exceptions are hard because, in their full generality, they require
- * algebraic data types (aka sum-of-products, aka union-of-structs).
- * It is not obvious what existing MLIR dialect we can use to represent
- * that.
- *
- * However, in the actual specifications written in .isa, there are
- * just 1-3 exception constructors and only one of these has any fields.
- *
- * So we can approximately represent the exception type as a struct of structs
- * plus a tag and the result is not too terrible (i.e., doesn't create
- * a ridiculously large tuple.
- *
- * More concretely, our representation is the following
- *
- *     !Internal$Exception$Tag = i8 // distinguish the different exceptions
- *     // #Internal$Exception$Tag_None = 0 // these definitions are not actually used
- *     // #Internal$Exception$Tag_E1   = 1
- *     // #Internal$Exception$Tag_E2   = 2
- *     // #Internal$Exception$Tag_E3   = 3
- *     !Internal$Exception = tuple<!Tag, T1, ..., Tn>
- *
- *     func.func private @Internal$Make$E1() -> !Internal$Exception {
- *         %tag = arith.constant 1 : !Exception_Tag // Tag_E1
- *         %f1  = func.call @T1$UNDEFINED() : () -> !T1
- *         ...
- *         %fn  = func.call @Tn$UNDEFINED() : () -> !Tn
- *         %r = "handshake.pack"(%tag, %f1, ..., %fn) : (!Exception_Tag, !T1, ... !Tn) -> !Internal$Exception
- *         func.return %r : !Internal$Exception
- *     }
- *
- * where T1, ..., Tn are the types of the fields of the constructor that has fields.
- *
- * (More generally, the fields of the tuple are all the fields of all of the exception
- * constructors. In the special case that only one constructor has fields, the tuple
- * generated will be the same.)
- ****************************************************************)
-
-let rec mk_uninitialized (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : Ident.t =
-  ( match x with
-  (* | Type_Bits (e, sz) -> bv_zero fmt (expr loc fmt ScopeStack.empty sz) *)
-  | Type_Constructor (tc, []) when tc = Builtin_idents.boolean_ident -> bool_constant fmt false
-  | Type_Constructor (tc, []) when tc = Builtin_idents.string_ident -> string_constant fmt ""
-  | Type_Constructor (tc, []) when Identset.IdentSet.mem tc !enum_types -> arith_constant fmt Z.zero enum_size
-  | Type_Integer ocrs -> bigint_constant fmt Z.zero
-  | _ ->
-      let pp fmt = FMT.ty fmt x in
-      raise (Error.Unimplemented (loc, "mk_uninitialized", pp))
-  )
-
-let mk_exception_constructor (loc : Loc.t) (fmt : PP.formatter)
-    (tc : Ident.t) (tfs : (Ident.t * AST.ty) list)
-    (tag_field : (Ident.t * AST.ty)) (tag : int)
-    (dc : Ident.t) (dfs : (Ident.t * AST.ty) list)
-  : unit
-  =
-  locals#reset;
-  PP.fprintf fmt "func.func private @%a(%a) -> !%a {@,"
-    ident (record_constructor dc)
-    (commasep (varty loc)) dfs
-    ident tc;
-  indented fmt (fun _ ->
-    let tfs' = List.map (fun (f, t) ->
-        if f = fst tag_field then
-          (bigint_constant fmt (Z.of_int tag), snd tag_field)
-        else if List.mem_assoc f dfs then
-          (f, t)
-        else
-          (mk_uninitialized loc fmt t, t)
-      )
-      tfs
-    in
-    let t = tuple_pack loc fmt tfs' in
-    func_return loc fmt [t]
-  );
-  PP.fprintf fmt "@,}@,@,"
-
-let generate_sum_of_products (fmt : Format.formatter)
-      (tc : Ident.t)
-      (entries : (Ident.t * (Ident.t * AST.ty) list * Loc.t) list)
-  : unit
-  =
-  (* todo: the following assumes that field names are unique between exception constructors
-   * but this is not guaranteed by the frontend
-   *)
-  let fields = List.flatten (List.map (fun (dc, fs, loc) -> fs) entries) in
-  let tag_type = AST.Type_Constructor (Ident.mk_ident "Internal$Exception$Tag", []) in
-  let tag = (Ident.mk_ident "tag", tag_type) in
-  let fields' = tag :: fields in
-  mk_record_type Loc.Unknown fmt tc fields';
-  mk_record_constructor Loc.Unknown fmt tc fields';
-  mk_record_get Loc.Unknown fmt tc fields' (fst tag) (snd tag);
-  List.iteri (fun i (dc, dfs, loc) ->
-    fieldtypes := Identset.Bindings.add dc dfs !fieldtypes;
-    mk_exception_constructor loc fmt tc fields' tag (i+1) dc dfs;
-    PP.fprintf fmt "@,"
-  ) entries
-
-(****************************************************************
  * Patterns
  ****************************************************************)
 
@@ -1272,6 +1170,133 @@ and set_slice (loc : Loc.t) (env : environment) (fmt : PP.formatter) (rty : AST.
       let pp fmt = FMT.slice fmt s in
       raise (Error.Unimplemented (loc, "set_slice", pp))
   )
+
+(****************************************************************
+ * Exception support
+ *
+ * Exception support mostly consists of supporting 'sum-of-products'.
+ *
+ * Exceptions are hard because, in their full generality, they require
+ * algebraic data types (aka sum-of-products, aka union-of-structs).
+ * It is not obvious what existing MLIR dialect we can use to represent
+ * that.
+ *
+ * However, in the actual specifications written in .isa, there are
+ * just 1-3 exception constructors and only one of these has any fields.
+ *
+ * So we can approximately represent the exception type as a struct of structs
+ * plus a tag and the result is not too terrible (i.e., doesn't create
+ * a ridiculously large tuple.
+ *
+ * More concretely, our representation is the following
+ *
+ *     !Internal$Exception$Tag = i8 // distinguish the different exceptions
+ *     // #Internal$Exception$Tag_None = 0 // these definitions are not actually used
+ *     // #Internal$Exception$Tag_E1   = 1
+ *     // #Internal$Exception$Tag_E2   = 2
+ *     // #Internal$Exception$Tag_E3   = 3
+ *     !Internal$Exception = tuple<!Tag, T1, ..., Tn>
+ *
+ *     func.func private @Internal$Make$E1() -> !Internal$Exception {
+ *         %tag = arith.constant 1 : !Exception_Tag // Tag_E1
+ *         %f1  = func.call @T1$UNDEFINED() : () -> !T1
+ *         ...
+ *         %fn  = func.call @Tn$UNDEFINED() : () -> !Tn
+ *         %r = "handshake.pack"(%tag, %f1, ..., %fn) : (!Exception_Tag, !T1, ... !Tn) -> !Internal$Exception
+ *         func.return %r : !Internal$Exception
+ *     }
+ *
+ * where T1, ..., Tn are the types of the fields of the constructor that has fields.
+ *
+ * (More generally, the fields of the tuple are all the fields of all of the exception
+ * constructors. In the special case that only one constructor has fields, the tuple
+ * generated will be the same.)
+ ****************************************************************)
+
+let rec mk_uninitialized (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : Ident.t =
+  ( match x with
+  | Type_Bits (e, _) -> bv_zero fmt (fst (expr loc (ScopeStack.empty ()) fmt e))
+  | Type_Constructor (tc, []) when tc = Builtin_idents.boolean_ident -> bool_constant fmt false
+  | Type_Constructor (tc, []) when tc = Builtin_idents.string_ident -> string_constant fmt ""
+  | Type_Constructor (tc, []) when Identset.IdentSet.mem tc !enum_types -> arith_constant fmt Z.zero enum_size
+  | Type_Integer ocrs -> bigint_constant fmt Z.zero
+  | _ ->
+      let pp fmt = FMT.ty fmt x in
+      raise (Error.Unimplemented (loc, "mk_uninitialized", pp))
+  )
+
+let mk_exception_constructor (loc : Loc.t) (fmt : PP.formatter)
+    (tc : Ident.t) (tfs : (Ident.t * AST.ty) list)
+    (tag_field : (Ident.t * AST.ty)) (tag : int)
+    (dc : Ident.t) (dfs : (Ident.t * AST.ty) list)
+  : unit
+  =
+  locals#reset;
+  PP.fprintf fmt "func.func private @%a(%a) -> !%a {@,"
+    ident (record_constructor dc)
+    (commasep (varty loc)) dfs
+    ident tc;
+  indented fmt (fun _ ->
+    let tfs' = List.map (fun (f, t) ->
+        if f = fst tag_field then
+          (bigint_constant fmt (Z.of_int tag), snd tag_field)
+        else if List.mem_assoc f dfs then
+          (f, t)
+        else
+          (mk_uninitialized loc fmt t, t)
+      )
+      tfs
+    in
+    let t = tuple_pack loc fmt tfs' in
+    func_return loc fmt [t]
+  );
+  PP.fprintf fmt "@,}@,@,"
+
+let mk_exception_get (loc : Loc.t) (fmt : PP.formatter)
+    (tc : Ident.t) (tfs : (Ident.t * AST.ty) list)
+    (dc : Ident.t)
+    (f : Ident.t) (ft : AST.ty)
+  : unit
+  =
+  locals#reset;
+  let ety = AST.Type_Constructor (tc, []) in
+  let e = locals#fresh in
+  func_header loc fmt (record_field_get dc f) [(e, ety)] [ft];
+  PP.fprintf fmt " {@,";
+  indented fmt (fun _ ->
+    let rs = tuple_unpack loc fmt e (List.map snd tfs) in
+    let env =
+        List.map2 (fun (x, _) (y, t) -> (x, (y, t))) tfs rs
+        |> Identset.mk_bindings
+    in
+    func_return loc fmt [Identset.Bindings.find f env]
+  );
+  PP.fprintf fmt "@,}@,"
+
+let generate_sum_of_products (fmt : Format.formatter)
+      (tc : Ident.t)
+      (entries : (Ident.t * (Ident.t * AST.ty) list * Loc.t) list)
+  : unit
+  =
+  (* todo: the following assumes that field names are unique between exception constructors
+   * but this is not guaranteed by the frontend
+   *)
+  let fields = List.flatten (List.map (fun (dc, fs, loc) -> fs) entries) in
+  let tag_type = AST.Type_Constructor (Ident.mk_ident "Internal$Exception$Tag", []) in
+  let tag = (Ident.mk_ident "tag", tag_type) in
+  let fields' = tag :: fields in
+  mk_record_type Loc.Unknown fmt tc fields';
+  mk_record_constructor Loc.Unknown fmt tc fields';
+  mk_record_get Loc.Unknown fmt tc fields' (fst tag) (snd tag);
+  List.iteri (fun i (dc, dfs, loc) ->
+    fieldtypes := Identset.Bindings.add dc fields' !fieldtypes;
+    mk_exception_constructor loc fmt tc fields' tag (i+1) dc dfs;
+    List.iter (fun (f, ft) ->
+        mk_exception_get loc fmt tc fields' dc f ft;
+      )
+      dfs;
+    PP.fprintf fmt "@,"
+  ) entries
 
 (****************************************************************
  * Statements
