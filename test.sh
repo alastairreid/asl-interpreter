@@ -4,7 +4,7 @@ set -e
 
 make
 
-_build/install/default/bin/iii --batchmode --exec=':xform_constprop' --exec=':to_mlir --no-typecheck --output-file t1.mlir' riscv/riscv.isa test2.isa
+_build/install/default/bin/iii --batchmode --exec=':xform_constprop' --exec=':to_mlir --typecheck --output-file t1.mlir' riscv/riscv.isa test2.isa
 
 cat std.mlir t1.mlir > t2.mlir
 

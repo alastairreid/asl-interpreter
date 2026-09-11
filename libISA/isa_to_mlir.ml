@@ -465,6 +465,50 @@ let to_index (fmt : PP.formatter) (x : Ident.t) : Ident.t =
   )
 
 (****************************************************************
+ * Functions
+ ****************************************************************)
+
+(* Note: unlike most MLIR-generating functions, this one does not add
+ * a newline at the end. This allows it to be used both for function headers
+ * and for function definitions
+ *)
+let func_header (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (args : (Ident.t * AST.ty) list) (rtys : AST.ty list) : unit =
+  PP.fprintf fmt "@,func.func @%a(%a) -> %a"
+    ident f
+    (commasep (varty loc)) args
+    (commasep (pp_type loc)) rtys
+
+(* Special case of func_call that has only one return value *)
+let func_call1 (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (args : (Ident.t * AST.ty) list) (rty : AST.ty) : Ident.t =
+  with_fresh (fun r ->
+    PP.fprintf fmt "%a = func.call @%a(%a) : (%a) -> %a@,"
+      varident r
+      ident f
+      (commasep (fun fmt (v, t) -> varident fmt v)) args
+      (commasep (fun fmt (v, t) -> pp_type loc fmt t)) args
+      (pp_type loc) rty
+  )
+
+let func_call (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (args : (Ident.t * AST.ty) list) (rtys : AST.ty list) : (Ident.t * AST.ty) list =
+  let rs = List.map (fun t -> (locals#fresh, t)) rtys in
+  PP.fprintf fmt "%a = func.call @%a(%a) : (%a) -> %a@,"
+    (commasep (fun fmt (v, t) -> varident fmt v)) rs
+    ident f
+    (commasep (fun fmt (v, t) -> varident fmt v)) args
+    (commasep (fun fmt (v, t) -> pp_type loc fmt t)) args
+    (commasep (pp_type loc)) rtys;
+  rs
+
+let func_return (loc : Loc.t) (fmt : PP.formatter) (rs : (Ident.t * AST.ty) list) : unit =
+  if List.is_empty rs then begin
+    PP.fprintf fmt "    func.return@,"
+  end else begin
+    PP.fprintf fmt "    func.return %a : %a@,"
+      (commasep (fun fmt (v, t) -> varident fmt v)) rs
+      (commasep (fun fmt (v, t) -> pp_type loc fmt t)) rs
+  end
+
+(****************************************************************
  * Constants
  ****************************************************************)
 
@@ -533,44 +577,19 @@ let cf_assert (fmt : PP.formatter) (x : Ident.t) : unit =
   end
 
 let int_add (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
-  with_fresh (fun r ->
-    PP.fprintf fmt "%a = func.call @Std$Integer$Add(%a, %a) : (!Std$Integer, !Std$Integer) -> !Std$Integer@,"
-      varident r
-      varident x
-      varident y
-  )
+  func_call1 Loc.Unknown fmt Builtins.add_int [(x, type_integer); (y, type_integer)] type_integer
 
 let int_sub (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
-  with_fresh (fun r ->
-    PP.fprintf fmt "%a = func.call @Std$Integer$Subtract(%a, %a) : (!Std$Integer, !Std$Integer) -> !Std$Integer@,"
-      varident r
-      varident x
-      varident y
-  )
+  func_call1 Loc.Unknown fmt Builtins.sub_int [(x, type_integer); (y, type_integer)] type_integer
 
 let int_eq (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
-  with_fresh (fun r ->
-    PP.fprintf fmt "%a = func.call @Std$Integer$Eq(%a, %a) : (!Std$Integer, !Std$Integer) -> i1@,"
-      varident r
-      varident x
-      varident y
-  )
+  func_call1 Loc.Unknown fmt Builtins.eq_int [(x, type_integer); (y, type_integer)] type_bool
 
 let int_le (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
-  with_fresh (fun r ->
-    PP.fprintf fmt "%a = func.call @Std$Integer$Le(%a, %a) : (!Std$Integer, !Std$Integer) -> i1@,"
-      varident r
-      varident x
-      varident y
-  )
+  func_call1 Loc.Unknown fmt Builtins.le_int [(x, type_integer); (y, type_integer)] type_bool
 
 let int_lt (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
-  with_fresh (fun r ->
-    PP.fprintf fmt "%a = func.call @Std$Integer$Lt(%a, %a) : (!Std$Integer, !Std$Integer) -> i1@,"
-      varident r
-      varident x
-      varident y
-  )
+  func_call1 Loc.Unknown fmt Builtins.lt_int [(x, type_integer); (y, type_integer)] type_bool
 
 let bv_eq (fmt : PP.formatter) (sz : Ident.t) (x : Ident.t) (y : Ident.t) : Ident.t =
   with_fresh (fun r ->
@@ -595,6 +614,14 @@ let bv_length (fmt : PP.formatter) (x : Ident.t) : Ident.t =
     PP.fprintf fmt "%a = func.call @Std$Bits$MyLength(%a) : (!Std$Bits) -> !Std$Integer@,"
       varident r
       varident x
+  )
+
+let bool_eq (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
+  with_fresh (fun t ->
+    PP.fprintf fmt "%a = arith.cmpi eq, %a, %a : i1@,"
+      varident t
+      varident x
+      varident y
   )
 
 let bool_or (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
@@ -744,12 +771,7 @@ let rec pattern (loc : Loc.t) (fmt : PP.formatter) (p : AST.pattern) (discrimina
       bv_eq fmt sz v' discriminant
   | Pat_Lit (VBool v) ->
       let v' = bool_constant fmt v in
-      with_fresh (fun t ->
-        PP.fprintf fmt "%a = func.call @Std$Bool$Eq(%a, %a) : (i1, i1) -> i1@,"
-          varident t
-          varident v'
-          varident discriminant
-      )
+      bool_eq fmt v' discriminant
   | Pat_Lit (VMask mask) ->
       let (v, m) = Primops.prim_mask_to_bits mask in
       let v' = bitvector_constant fmt v in
@@ -855,18 +877,10 @@ let rec expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.exp
   | Expr_TApply (f, tes, es, NoThrow) ->
       let fty = Identset.Bindings.find f !funtypes in
       let actuals = actual_args fty tes es in
-      let actuals' = List.map (Fun.compose fst (expr loc env fmt)) actuals in
-      let formal_env = mk_formal_env fty actuals' in
-      check_actuals loc fmt formal_env fty actuals';
-      let r = with_fresh (fun t ->
-        PP.fprintf fmt "%a = func.call @%a(%a) : (%a) -> %a@,"
-          varident t
-          ident f
-          (commasep varident) actuals'
-          (formal_arg_types loc) fty
-          (pp_return_type loc) fty.rty
-        )
-      in
+      let actuals' = List.map (expr loc env fmt) actuals in
+      let formal_env = mk_formal_env fty (List.map fst actuals') in
+      check_actuals loc fmt formal_env fty (List.map fst actuals');
+      let r = func_call1 loc fmt f actuals' fty.rty in
       if !type_checks then begin
         let ensures = check_type loc formal_env fmt r fty.rty in
         Option.iter (cf_assume fmt) ensures
@@ -1597,13 +1611,7 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
           );
 
           branch_label loc fmt !return_label return_vars;
-          if List.is_empty return_vars then begin
-            PP.fprintf fmt "    func.return@,"
-          end else begin
-            PP.fprintf fmt "    func.return %a : %a@,"
-              (commasep (fun fmt (v, t) -> varident fmt v)) return_vars
-              (commasep (fun fmt (v, t) -> pp_type loc fmt t)) return_vars
-          end;
+          func_return loc fmt return_vars;
           PP.fprintf fmt "}@,@,"
       | Decl_Var (v, Type_Array (Index_Int (Expr_Lit (VInt sz)), elty), loc) ->
           memref_global_array loc fmt v sz elty
@@ -1687,28 +1695,23 @@ let _ =
         )
       ) standard_functions;
 
-      (* declare records and exceptions *)
+      (* declare records *)
       List.iter (fun d ->
         ( match d with
-        | AST.Decl_Exception (r, fs, loc) ->
-            fieldtypes := Identset.Bindings.add r fs !fieldtypes;
-            PP.fprintf fmt "@,!%a = tuple<%a>@,"
-              ident r
-              (commasep (pp_type loc)) (List.map (fun (f, t) -> t) fs);
-            PP.fprintf fmt "func.func private @%a(%a) -> !%a@,"
-              record_constructor r
-              (commasep (varty loc)) fs
-              ident r;
-            PP.fprintf fmt "@,"
         | AST.Decl_Record (r, [], fs, loc) ->
             fieldtypes := Identset.Bindings.add r fs !fieldtypes;
             PP.fprintf fmt "@,!%a = tuple<%a>@,"
               ident r
               (commasep (pp_type loc)) (List.map (fun (f, t) -> t) fs);
-            PP.fprintf fmt "func.func private @%a(%a) -> !%a@,"
+            PP.fprintf fmt "func.func private @%a(%a) -> !%a {@,"
               record_constructor r
               (commasep (varty loc)) fs
               ident r;
+            indented fmt (fun _ ->
+              let t = tuple_pack loc fmt fs in
+              func_return loc fmt [t]
+            );
+            PP.fprintf fmt "}@,";
             List.iter (fun (v, t) ->
                 PP.fprintf fmt "func.func private @%a(%%x : !%a) -> %a@,"
                   (fun fmt -> record_field_get fmt r) v
@@ -1725,6 +1728,57 @@ let _ =
         | _ -> ()
         )
       ) decls;
+
+      (* Declare exceptions
+       *
+       * Exceptions are hard because, in their full generality, they require
+       * algebraic data types (aka sum-of-products, aka union-of-structs).
+       * It is not obvious what existing MLIR dialect we can use to represent
+       * that.
+       *
+       * However, in the actual specifications written in .isa, there are
+       * just 1-3 exception constructors and only one of these has any fields.
+       * So we can represent exceptions by
+       *
+       *     !Internal$Exception$Tag = i8 // distinguish the different exceptions
+       *     // #Internal$Exception$Tag_None = 0 // these definitions are not actually used
+       *     // #Internal$Exception$Tag_E1   = 1
+       *     // #Internal$Exception$Tag_E2   = 2
+       *     // #Internal$Exception$Tag_E3   = 3
+       *     !Internal$Exception = tuple<!Tag, T1, ..., Tn>
+       *
+       *     func.func private @Internal$Make$E1() -> !Internal$Exception {
+       *         %tag = arith.constant 1 : !Exception_Tag // Tag_E1
+       *         %f1  = func.call @T1$UNDEFINED() : () -> !T1
+       *         ...
+       *         %fn  = func.call @Tn$UNDEFINED() : () -> !Tn
+       *         %r = "handshake.pack"(%tag, %f1, ..., %fn) : (!Exception_Tag, !T1, ... !Tn) -> !Internal$Exception
+       *         func.return %r : !Internal$Exception
+       *     }
+       *
+       * where T1, ..., Tn are the types of the fields of the constructor that has fields.
+       *
+       * (More generally, the fields of the tuple are all the fields of all of the exception
+       * constructors. In the special case that only one constructor has fields, the tuple
+       * generated will be the same.)
+       *)
+      List.iter (fun d ->
+        ( match d with
+        | AST.Decl_Exception (r, fs, loc) ->
+            fieldtypes := Identset.Bindings.add r fs !fieldtypes;
+            PP.fprintf fmt "@,!%a = tuple<%a>@,"
+              ident r
+              (commasep (pp_type loc)) (List.map (fun (f, t) -> t) fs);
+            PP.fprintf fmt "func.func private @%a(%a) -> !%a@,"
+              record_constructor r
+              (commasep (varty loc)) fs
+              ident r;
+            PP.fprintf fmt "@,"
+        | _ -> ()
+        )
+      ) decls;
+
+
 
       declarations fmt (List.rev decls)
     );
