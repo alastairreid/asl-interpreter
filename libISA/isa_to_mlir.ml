@@ -1273,6 +1273,11 @@ let mk_exception_get (loc : Loc.t) (fmt : PP.formatter)
   );
   PP.fprintf fmt "@,}@,"
 
+let exception_tc = Ident.mk_ident "Internal$Exception"
+let exception_ty = AST.Type_Constructor (exception_tc, [])
+let tag_type = AST.Type_Constructor (Ident.mk_ident "Internal$Exception$Tag", [])
+let tag_ident = Ident.mk_ident "tag"
+
 let generate_sum_of_products (fmt : Format.formatter)
       (tc : Ident.t)
       (entries : (Ident.t * (Ident.t * AST.ty) list * Loc.t) list)
@@ -1282,8 +1287,7 @@ let generate_sum_of_products (fmt : Format.formatter)
    * but this is not guaranteed by the frontend
    *)
   let fields = List.flatten (List.map (fun (dc, fs, loc) -> fs) entries) in
-  let tag_type = AST.Type_Constructor (Ident.mk_ident "Internal$Exception$Tag", []) in
-  let tag = (Ident.mk_ident "tag", tag_type) in
+  let tag = (tag_ident, tag_type) in
   let fields' = tag :: fields in
   mk_record_type Loc.Unknown fmt tc fields';
   mk_record_constructor Loc.Unknown fmt tc fields';
@@ -1573,7 +1577,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       cf_br loc fmt (List.hd !throw_labels) [e'];
       true
 
-  | Stmt_Try (b, _, cs, d, loc) ->
+  | Stmt_Try (b, _, cs, od, loc) ->
       let old_throw_labels = !throw_labels in
       let catch_label = labels#fresh in
       throw_labels := catch_label :: old_throw_labels;
@@ -1585,36 +1589,61 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       let b_term = block b_env fmt b in
       ignore (if b_term then [] else make_forward_branch loc fmt b_env mutables end_label);
 
+      throw_labels := old_throw_labels;
+
       let catch_vars = List.map (fun (v, curr, t) -> (v, locals#fresh, t)) mutables in
-      (* let catch_env = fresh_env env catch_vars in *)
-      branch_label loc fmt catch_label (List.map (fun (v, _, t) -> (v, t)) catch_vars);
+      let exc = (locals#fresh, exception_ty) in
+      let catch_env = fresh_env env catch_vars in
+      branch_label loc fmt catch_label (exc :: List.map (fun (v, _, t) -> (v, t)) catch_vars);
 
-      let cs_term = List.map (fun (AST.Catcher_Guarded (v, tc, b, loc)) ->
-          (* todo: if tree to select this catcher *)
-          let c_label = labels#fresh in
-          let c_vars = List.map (fun (v, curr, t) -> (v, locals#fresh, t)) mutables in
-          let c_env = fresh_env env c_vars in
-          branch_label loc fmt c_label (List.map (fun (v, _, t) -> (v, t)) c_vars);
+      let tag = func_call1 loc fmt (record_field_get exception_tc tag_ident) [exc] tag_type in
+      ignore(tag);
 
-          let t = AST.Type_Constructor (tc, []) in
-          ScopeStack.add c_env v (Some v, true, t);
+      let rec catch_tree (cs : AST.catcher list) : bool =
+        ( match cs with
+        | [] ->
+            ( match od with
+            | Some (b, loc) ->
+                let c_env = ScopeStack.clone catch_env in
+                block c_env fmt b
+            | None ->
+                cf_br loc fmt (List.hd !throw_labels) [exc];
+                true
+            )
+        | (AST.Catcher_Guarded (v, tc, b, loc) :: cs') ->
+            let t = AST.Type_Constructor (tc, []) in
+            let l_true  = labels#fresh in
+            let l_false = labels#fresh in
+            let c_vars = List.map (fun (v, curr, t) -> (v, locals#fresh, t)) catch_vars in
+            let c_vars2 = List.map (fun (v, _, t) -> (v, t)) c_vars in
+            let c_vars3 = List.map (fun (v, curr, t) -> (v, locals#fresh, t)) catch_vars in
 
-          let c_term = block c_env fmt b in
-          ignore (if c_term then [] else make_forward_branch loc fmt c_env mutables end_label);
-          c_term
-        )
-        cs
+            let tag_constant = 42 in (* todo *)
+            let tc_tag = bigint_constant fmt (Z.of_int tag_constant) in
+            let tag_match = int_eq fmt tag tc_tag in
+            cf_cond_br loc fmt tag_match l_true c_vars2 l_false c_vars2;
+
+            branch_label loc fmt l_true c_vars2;
+            let c_env = ScopeStack.clone catch_env in
+            ScopeStack.add c_env v (Some (fst exc), true, t);
+            let c_term = block c_env fmt b in
+            ignore (if c_term then [] else make_forward_branch loc fmt c_env c_vars end_label);
+
+            branch_label loc fmt l_false (List.map (fun (v, _, t) -> (v, t)) c_vars3);
+            let c_term2 = catch_tree cs' in
+            ignore (if c_term2 then [] else make_forward_branch loc fmt c_env c_vars3 end_label);
+
+            c_term && c_term2
+         )
       in
-
-      (* todo: default rethrows exception or uses d *)
+      let catch_term = catch_tree cs in
 
       let end_vars = List.map (fun (v, curr, ty) -> (v, locals#fresh, ty)) mutables in
       update_environment env end_vars;
-      branch_label loc fmt end_label (List.map (fun (v, _, t) -> (v, t)) end_vars);
 
-      throw_labels := old_throw_labels;
-
-      List.fold_left (fun x y -> x && y) b_term cs_term
+      let term = b_term && catch_term in
+      if not term then branch_label loc fmt end_label (List.map (fun (v, _, t) -> (v, t)) end_vars);
+      term
 
   | _ ->
       let pp fmt = FMT.stmt fmt x in
@@ -1883,7 +1912,6 @@ let _ =
         )
         decls
       in
-      let exception_tc = Ident.mk_ident "Internal$Exception" in
       generate_sum_of_products fmt exception_tc exceptions;
 
       declarations fmt (List.rev decls)

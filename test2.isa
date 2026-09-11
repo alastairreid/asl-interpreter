@@ -37,21 +37,22 @@ begin
 end
 
 exception E1 = { x : Integer, y : Boolean };
-exception E2 = { z : Bits(32) };
+exception E2 = { z : Integer };
 
-function Get_z(e : E2) -> Bits(32)
+function Get_z(e : E2) -> Integer
 begin
     return e.z;
 end
 
-// function Exception(x : Integer) -> Integer
-// begin
-//     // Test throwing and catching an exception within the same function
-//     // (Obviously, this is not the main use-case - but it is a useful test.)
-//     try
-//       throw E{v => x+1};
-//     catch
-//       when y : E => return y.v;
-//     endtry;
-//     return x+2;
-// end
+function Exception(x : Integer) -> Integer
+begin
+    // Test throwing and catching an exception within the same function
+    // (Obviously, this is not the main use-case - but it is a useful test.)
+    try
+      throw E2{z => x+1};
+    catch
+      when e : E2 => return e.z;
+      otherwise => return 0;
+    endtry;
+    return x+2;
+end
