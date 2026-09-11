@@ -394,26 +394,6 @@ let pp_yield (loc : Loc.t) (env : environment) (fmt : PP.formatter) (keyword : s
   end
 
 (****************************************************************
- * Record support
- *
- * This code centralizes the magic names made up for
- * manipulating records
- ****************************************************************)
-
-let record_constructor (r : Ident.t) : Ident.t =
-  let prefix = "Internal$Make$" in
-  Ident.mk_ident (prefix ^ Ident.name r)
-
-let record_field_get (r : Ident.t) (f : Ident.t) : Ident.t =
-  let prefix = "Internal$GetField$" in
-  Ident.mk_ident (prefix ^ Ident.name r ^ "$" ^ Ident.name f)
-
-let record_field_set (r : Ident.t) (f : Ident.t) : Ident.t =
-  let prefix = "Internal$SetField$" in
-  Ident.mk_ident (prefix ^ Ident.name r ^ "$" ^ Ident.name f)
-
-
-(****************************************************************
  * Functions
  ****************************************************************)
 
@@ -476,7 +456,7 @@ let to_index (fmt : PP.formatter) (x : Ident.t) : Ident.t =
  * and for function definitions
  *)
 let func_header (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (args : (Ident.t * AST.ty) list) (rtys : AST.ty list) : unit =
-  PP.fprintf fmt "@,func.func @%a(%a) -> %a"
+  PP.fprintf fmt "@,func.func private @%a(%a) -> %a"
     ident f
     (commasep (varty loc)) args
     (commasep (pp_type loc)) rtys
@@ -504,9 +484,9 @@ let func_call (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (args : (Ident.t 
 
 let func_return (loc : Loc.t) (fmt : PP.formatter) (rs : (Ident.t * AST.ty) list) : unit =
   if List.is_empty rs then begin
-    PP.fprintf fmt "    func.return@,"
+    PP.fprintf fmt "func.return@,"
   end else begin
-    PP.fprintf fmt "    func.return %a : %a@,"
+    PP.fprintf fmt "func.return %a : %a@,"
       (commasep (fun fmt (v, t) -> varident fmt v)) rs
       (commasep (fun fmt (v, t) -> pp_type loc fmt t)) rs
   end
@@ -761,6 +741,72 @@ let rec concat (fmt : PP.formatter) (xs : (Ident.t * Ident.t * AST.expr) list) :
       let t = bv_append fmt yw' ysw' y ys' in
       (t, w', w)
   )
+
+(****************************************************************
+ * Record support
+ *
+ * This code centralizes the magic names made up for
+ * manipulating records
+ ****************************************************************)
+
+let record_constructor (r : Ident.t) : Ident.t =
+  let prefix = "Internal$Make$" in
+  Ident.mk_ident (prefix ^ Ident.name r)
+
+let record_field_get (r : Ident.t) (f : Ident.t) : Ident.t =
+  let prefix = "Internal$GetField$" in
+  Ident.mk_ident (prefix ^ Ident.name r ^ "$" ^ Ident.name f)
+
+let record_field_set (r : Ident.t) (f : Ident.t) : Ident.t =
+  let prefix = "Internal$SetField$" in
+  Ident.mk_ident (prefix ^ Ident.name r ^ "$" ^ Ident.name f)
+
+let mk_record_constructor (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs : (Ident.t * AST.ty) list) : unit =
+  locals#reset;
+  PP.fprintf fmt "func.func private @%a(%a) -> !%a {@,"
+    ident (record_constructor rtc)
+    (commasep (varty loc)) fs
+    ident rtc;
+  indented fmt (fun _ ->
+    let t = tuple_pack loc fmt fs in
+    func_return loc fmt [t]
+  );
+  PP.fprintf fmt "@,}@,@,"
+
+let mk_record_get (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs : (Ident.t * AST.ty) list) (f : Ident.t) (ft : AST.ty) : unit =
+  let rty = AST.Type_Constructor (rtc, []) in
+  locals#reset;
+  let r = locals#fresh in
+  func_header loc fmt (record_field_get rtc f) [(r, rty)] [ft];
+  PP.fprintf fmt " {@,";
+  indented fmt (fun _ ->
+    let rs = tuple_unpack loc fmt r (List.map snd fs) in
+    let env =
+        List.map2 (fun (x, _) (y, t) -> (x, (y, t))) fs rs
+        |> Identset.mk_bindings
+    in
+    func_return loc fmt [Identset.Bindings.find f env]
+  );
+  PP.fprintf fmt "@,}@,"
+
+let mk_record_set (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs : (Ident.t * AST.ty) list) (f : Ident.t) (ft : AST.ty) : unit =
+  let rty = AST.Type_Constructor (rtc, []) in
+  locals#reset;
+  let r = locals#fresh in
+  func_header loc fmt (record_field_set rtc f) [(r, rty); (f, ft)] [rty];
+  PP.fprintf fmt " {@,";
+  indented fmt (fun _ ->
+    let rs = tuple_unpack loc fmt r (List.map snd fs) in
+    let rs' = List.map2 (fun (r, tr) (f', tf) ->
+        ((if Ident.equal f f' then f else r), tr)
+      )
+      rs
+      fs
+    in
+    let result = tuple_pack loc fmt rs' in
+    func_return loc fmt [result]
+  );
+  PP.fprintf fmt "@,}@,"
 
 (****************************************************************
  * Patterns
@@ -1090,6 +1136,9 @@ and apply_change (loc : Loc.t) (env : environment) (fmt : PP.formatter) (rty : A
                     raise (Error.Unimplemented (loc, "apply_change", pp))
                 )
       in
+      (* todo: this is a very indirect way of changing multiple fields
+       * it would be better to do a single unpack and replace
+       *)
       func_call1 loc fmt (record_field_set rtc f) [(r, rty); (v, vty)] rty
   | Change_Slices ss ->
       set_slices loc env fmt rty ss v r
@@ -1675,25 +1724,10 @@ let _ =
             PP.fprintf fmt "@,!%a = tuple<%a>@,"
               ident rtc
               (commasep (pp_type loc)) (List.map (fun (f, t) -> t) fs);
-            PP.fprintf fmt "func.func private @%a(%a) -> !%a {@,"
-              ident (record_constructor rtc)
-              (commasep (varty loc)) fs
-              ident rtc;
-            indented fmt (fun _ ->
-              let t = tuple_pack loc fmt fs in
-              func_return loc fmt [t]
-            );
-            PP.fprintf fmt "}@,";
+            mk_record_constructor loc fmt rtc fs;
             List.iter (fun (v, t) ->
-                PP.fprintf fmt "func.func private @%a(%%x : !%a) -> %a@,"
-                  ident (record_field_get rtc v)
-                  ident rtc
-                  (pp_type loc) t;
-                PP.fprintf fmt "func.func private @%a(%%x : !%a, %%y : %a) -> !%a@,"
-                  ident (record_field_set rtc v)
-                  ident rtc
-                  (pp_type loc) t
-                  ident rtc
+              mk_record_get loc fmt rtc fs v t;
+              mk_record_set loc fmt rtc fs v t
               )
               fs;
             PP.fprintf fmt "@,"
