@@ -400,14 +400,17 @@ let pp_yield (loc : Loc.t) (env : environment) (fmt : PP.formatter) (keyword : s
  * manipulating records
  ****************************************************************)
 
-let record_constructor (fmt : PP.formatter) (r : Ident.t) : unit =
-  PP.fprintf fmt "Internal$Make$%a" ident r
+let record_constructor (r : Ident.t) : Ident.t =
+  let prefix = "Internal$Make$" in
+  Ident.mk_ident (prefix ^ Ident.name r)
 
-let record_field_get (fmt : PP.formatter) (r : Ident.t) (f : Ident.t) : unit =
-  PP.fprintf fmt "Internal$GetField$%a$%a" ident r ident f
+let record_field_get (r : Ident.t) (f : Ident.t) : Ident.t =
+  let prefix = "Internal$GetField$" in
+  Ident.mk_ident (prefix ^ Ident.name r ^ "$" ^ Ident.name f)
 
-let record_field_set (fmt : PP.formatter) (r : Ident.t) (f : Ident.t) : unit =
-  PP.fprintf fmt "Internal$SetField$%a$%a" ident r ident f
+let record_field_set (r : Ident.t) (f : Ident.t) : Ident.t =
+  let prefix = "Internal$SetField$" in
+  Ident.mk_ident (prefix ^ Ident.name r ^ "$" ^ Ident.name f)
 
 
 (****************************************************************
@@ -942,7 +945,7 @@ let rec expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.exp
       with_fresh_typed field_ty (fun t ->
         PP.fprintf fmt "%a = func.call @%a(%a) : (%a) -> %a@,"
           varident t
-          (Fun.flip record_field_get rtc) f
+          ident (record_field_get rtc f)
           varident e'
           (pp_type loc) record_ty
           (pp_type loc) field_ty
@@ -969,7 +972,7 @@ let rec expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.exp
       with_fresh_typed rty (fun t ->
         PP.fprintf fmt "%a = func.call @%a(%a) : (%a) -> %a@,"
           varident t
-          record_constructor rtc
+          ident (record_constructor rtc)
           (commasep varident) fas'
           (commasep (pp_type loc)) ftys
           (pp_type loc) rty
@@ -1104,7 +1107,7 @@ and apply_change (loc : Loc.t) (env : environment) (fmt : PP.formatter) (rty : A
       with_fresh (fun t ->
         PP.fprintf fmt "%a = func.call @%a(%a, %a) : (%a, %a) -> %a@,"
           varident t
-          (Fun.flip record_field_set rtc) f
+          ident (record_field_set rtc f)
           varident r
           varident v
           (pp_type loc) rty
@@ -1489,7 +1492,7 @@ and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lex
       let new' = locals#fresh in
       PP.fprintf fmt "%a = func.call @%a(%a, %a) : (%a, %a) -> %a@,"
         varident new'
-        (Fun.flip record_field_set rtc) f
+        ident (record_field_set rtc f)
         varident old'
         varident (fst rhs)
         (pp_type loc) rty
@@ -1698,15 +1701,15 @@ let _ =
       (* declare records *)
       List.iter (fun d ->
         ( match d with
-        | AST.Decl_Record (r, [], fs, loc) ->
-            fieldtypes := Identset.Bindings.add r fs !fieldtypes;
+        | AST.Decl_Record (rtc, [], fs, loc) ->
+            fieldtypes := Identset.Bindings.add rtc fs !fieldtypes;
             PP.fprintf fmt "@,!%a = tuple<%a>@,"
-              ident r
+              ident rtc
               (commasep (pp_type loc)) (List.map (fun (f, t) -> t) fs);
             PP.fprintf fmt "func.func private @%a(%a) -> !%a {@,"
-              record_constructor r
+              ident (record_constructor rtc)
               (commasep (varty loc)) fs
-              ident r;
+              ident rtc;
             indented fmt (fun _ ->
               let t = tuple_pack loc fmt fs in
               func_return loc fmt [t]
@@ -1714,14 +1717,14 @@ let _ =
             PP.fprintf fmt "}@,";
             List.iter (fun (v, t) ->
                 PP.fprintf fmt "func.func private @%a(%%x : !%a) -> %a@,"
-                  (fun fmt -> record_field_get fmt r) v
-                  ident r
+                  ident (record_field_get rtc v)
+                  ident rtc
                   (pp_type loc) t;
                 PP.fprintf fmt "func.func private @%a(%%x : !%a, %%y : %a) -> !%a@,"
-                  (fun fmt -> record_field_set fmt r) v
-                  ident r
+                  ident (record_field_set rtc v)
+                  ident rtc
                   (pp_type loc) t
-                  ident r
+                  ident rtc
               )
               fs;
             PP.fprintf fmt "@,"
@@ -1770,7 +1773,7 @@ let _ =
               ident r
               (commasep (pp_type loc)) (List.map (fun (f, t) -> t) fs);
             PP.fprintf fmt "func.func private @%a(%a) -> !%a@,"
-              record_constructor r
+              ident (record_constructor r)
               (commasep (varty loc)) fs
               ident r;
             PP.fprintf fmt "@,"
