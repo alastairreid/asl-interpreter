@@ -231,14 +231,10 @@ let rec pp_type (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : unit =
       raise (Error.Unimplemented (loc, "type", pp))
   )
 
-let pp_return_type (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : unit =
-  ( match x with
-  | Type_Tuple [] ->
-      PP.fprintf fmt "()"
-  | Type_Tuple tys ->
-      PP.fprintf fmt "(%a)" (commasep (pp_type loc)) tys
-  | _ ->
-      pp_type loc fmt x
+let pp_return_type (loc : Loc.t) (fmt : PP.formatter) (ts : AST.ty list) : unit =
+  ( match ts with
+  | [t] -> pp_type loc fmt t
+  | _ -> PP.fprintf fmt "(%a)" (commasep (pp_type loc)) ts
   )
 
 (****************************************************************
@@ -481,13 +477,17 @@ let func_call1 (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (args : (Ident.t
 
 let func_call (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (args : (Ident.t * AST.ty) list) (rtys : AST.ty list) : (Ident.t * AST.ty) list =
   let rs = List.map (fun t -> (locals#fresh, t)) rtys in
-  PP.fprintf fmt "%a = func.call @%a(%a) : (%a) -> %a@,"
-    (commasep (fun fmt (v, t) -> varident fmt v)) rs
+  if not (List.is_empty rs) then begin
+    PP.fprintf fmt "%a = "
+      (commasep (fun fmt (v, t) -> varident fmt v)) rs
+  end;
+  PP.fprintf fmt "func.call @%a(%a) : (%a) -> %a@,"
     ident f
     (commasep (fun fmt (v, t) -> varident fmt v)) args
     (commasep (fun fmt (v, t) -> pp_type loc fmt t)) args
-    (commasep (pp_type loc)) rtys;
+    (pp_return_type loc) rtys;
   rs
+
 
 let func_return (loc : Loc.t) (fmt : PP.formatter) (rs : (Ident.t * AST.ty) list) : unit =
   if List.is_empty rs then begin
@@ -1456,12 +1456,8 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       let actuals'' = List.map fst actuals' in
       let formal_env = mk_formal_env fty actuals'' in
       check_actuals loc fmt formal_env fty actuals'';
-      PP.fprintf fmt "func.call @%a(%a) : (%a) -> %a@,"
-        ident f
-        (commasep varident) actuals''
-        (formal_arg_types loc) fty
-        (pp_return_type loc) fty.rty;
-      (* todo: exceptions *)
+      let rets = func_call loc fmt f actuals' (Isa_utils.tupleTypes fty.rty) in
+      ignore rets;
       false
 
   | Stmt_Block (ss, loc) ->
@@ -1818,7 +1814,7 @@ and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lex
         ident f
         (commasep varident) actuals''
         (formal_arg_types loc) fty
-        (pp_return_type loc) fty.rty
+        (pp_return_type loc) (Isa_utils.tupleTypes fty.rty)
       (* todo: exceptions *)
 
   | _ ->
@@ -1873,7 +1869,7 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
           PP.fprintf fmt "@,func.func @%a(%a) -> %a {@,"
             ident f
             (formal_args_decls loc) fty
-            (pp_return_type loc) fty.rty;
+            (pp_return_type loc) (Isa_utils.tupleTypes fty.rty);
 
           throw_labels := if fty.throws = NoThrow then [] else [labels#fresh];
 
@@ -1978,7 +1974,7 @@ let _ =
             PP.fprintf fmt "func.func private @%a(%a) -> %a@,"
               ident f
               (formal_args_decls loc) fty
-              (pp_return_type loc) fty.rty;
+              (pp_return_type loc) (Isa_utils.tupleTypes fty.rty)
         )
       ) standard_functions;
 
