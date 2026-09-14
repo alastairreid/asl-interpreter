@@ -231,6 +231,9 @@ let rec pp_type (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : unit =
       raise (Error.Unimplemented (loc, "type", pp))
   )
 
+let mk_return_type (fty : AST.function_type) : AST.ty list =
+  Isa_utils.tupleTypes fty.rty
+
 let pp_return_type (loc : Loc.t) (fmt : PP.formatter) (ts : AST.ty list) : unit =
   ( match ts with
   | [t] -> pp_type loc fmt t
@@ -1456,8 +1459,13 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       let actuals'' = List.map fst actuals' in
       let formal_env = mk_formal_env fty actuals'' in
       check_actuals loc fmt formal_env fty actuals'';
-      let rets = func_call loc fmt f actuals' (Isa_utils.tupleTypes fty.rty) in
+      let rets = func_call loc fmt f actuals' (mk_return_type fty) in
       ignore rets;
+      (*
+      if fty.throws != NoThrow then begin
+        (* todo: exceptions *)
+      end;
+      *)
       false
 
   | Stmt_Block (ss, loc) ->
@@ -1810,11 +1818,8 @@ and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lex
       let actuals'' = List.map fst actuals' in
       let formal_env = mk_formal_env fty actuals'' in
       check_actuals loc fmt formal_env fty actuals'';
-      PP.fprintf fmt "func.call @%a(%a) : (%a) -> %a@,"
-        ident f
-        (commasep varident) actuals''
-        (formal_arg_types loc) fty
-        (pp_return_type loc) (Isa_utils.tupleTypes fty.rty)
+      let rets = func_call loc fmt f actuals' (mk_return_type fty) in
+      ignore rets;
       (* todo: exceptions *)
 
   | _ ->
@@ -1869,7 +1874,7 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
           PP.fprintf fmt "@,func.func @%a(%a) -> %a {@,"
             ident f
             (formal_args_decls loc) fty
-            (pp_return_type loc) (Isa_utils.tupleTypes fty.rty);
+            (pp_return_type loc) (mk_return_type fty);
 
           throw_labels := if fty.throws = NoThrow then [] else [labels#fresh];
 
@@ -1974,7 +1979,7 @@ let _ =
             PP.fprintf fmt "func.func private @%a(%a) -> %a@,"
               ident f
               (formal_args_decls loc) fty
-              (pp_return_type loc) (Isa_utils.tupleTypes fty.rty)
+              (pp_return_type loc) (mk_return_type fty)
         )
       ) standard_functions;
 
