@@ -202,6 +202,12 @@ let mk_enum_type (loc : Loc.t) (fmt : PP.formatter) (tc : Ident.t) (es : Ident.t
 
 let exception_tag_width : int ref = ref 0
 let exceptions : int Identset.Bindings.t ref = ref Identset.Bindings.empty
+let exception_fields : AST.ty list ref = ref []
+
+let exception_tc = Ident.mk_ident "Internal$Exception"
+let exception_ty = AST.Type_Constructor (exception_tc, [])
+let tag_type = AST.Type_Constructor (Ident.mk_ident "Internal$Exception$Tag", [])
+let tag_ident = Ident.mk_ident "tag"
 
 (****************************************************************
  * Types
@@ -230,9 +236,6 @@ let rec pp_type (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : unit =
       let pp fmt = FMT.ty fmt x in
       raise (Error.Unimplemented (loc, "type", pp))
   )
-
-let mk_return_type (fty : AST.function_type) : AST.ty list =
-  Isa_utils.tupleTypes fty.rty
 
 let pp_return_type (loc : Loc.t) (fmt : PP.formatter) (ts : AST.ty list) : unit =
   ( match ts with
@@ -270,6 +273,7 @@ let labels = new Isa_utils.nameSupply "^bb"
 let return_types = ref []
 let return_label : Ident.t ref = ref labels#fresh
 let throw_labels : Ident.t list ref = ref []
+let can_throw : bool ref = ref false
 
 let rebind (loc : Loc.t) (env : environment) (v : Ident.t) (v' : Ident.t) : unit =
   ( match ScopeStack.get env v with
@@ -490,6 +494,10 @@ let func_call (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (args : (Ident.t 
     (commasep (fun fmt (v, t) -> pp_type loc fmt t)) args
     (pp_return_type loc) rtys;
   rs
+
+let mk_return_type (fty : AST.function_type) : AST.ty list =
+  let rtys = Isa_utils.tupleTypes fty.rty in
+  if fty.throws = NoThrow then rtys else (exception_ty :: rtys)
 
 
 let func_return (loc : Loc.t) (fmt : PP.formatter) (rs : (Ident.t * AST.ty) list) : unit =
@@ -1017,12 +1025,13 @@ let rec expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.exp
       let actuals' = List.map (expr loc env fmt) actuals in
       let formal_env = mk_formal_env fty (List.map fst actuals') in
       check_actuals loc fmt formal_env fty (List.map fst actuals');
-      let r = func_call1 loc fmt f actuals' fty.rty in
+      let rets = func_call loc fmt f actuals' (mk_return_type fty) in
+      assert (List.length rets = 1);
       if !type_checks then begin
-        let ensures = check_type loc formal_env fmt r fty.rty in
+        let ensures = check_type loc formal_env fmt (fst (List.hd rets)) fty.rty in
         Option.iter (type_assume fmt) ensures
       end;
-      (r, fty.rty)
+      List.hd rets
 
   | Expr_If ([], e) ->
       expr loc env fmt e
@@ -1168,7 +1177,7 @@ and slice (loc : Loc.t) (env : environment) (fmt : PP.formatter) (b : Ident.t) (
  * Generate runtime checks that a value satisfies the constraints
  * implied by its dependent type.
  *
- * For example, if 'x : Bits(e)', check that 'Length(x) == e'.
+ * For example, if 'x : Bits(e)', check that 'Length(x) = e'.
  ****************************************************************)
 
 and check_set_range (loc : Loc.t) (env : environment) (fmt : PP.formatter) (v : Ident.t) (x : AST.set_range) : Ident.t option =
@@ -1297,6 +1306,7 @@ let rec mk_uninitialized (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : Ident
   | Type_Constructor (tc, []) when Identset.Bindings.mem tc !enum_types ->
       let (es, width) = Identset.Bindings.find tc !enum_types in
       arith_constant fmt Z.zero width
+  | Type_Constructor (tc, []) when tc = exception_tc -> arith_constant fmt Z.zero !exception_tag_width
   | Type_Integer ocrs -> bigint_constant fmt Z.zero
   | _ ->
       let pp fmt = FMT.ty fmt x in
@@ -1331,6 +1341,10 @@ let mk_exception_constructor (loc : Loc.t) (fmt : PP.formatter)
   );
   PP.fprintf fmt "@,}@,@,"
 
+let mk_uninitialized_exception (loc : Loc.t) (fmt : Format.formatter) (ts : AST.ty list) : (Ident.t * AST.ty) =
+  let tfs' = List.map (fun t -> (mk_uninitialized loc fmt t, t)) (exception_ty :: ts) in
+  tuple_pack loc fmt tfs'
+
 let mk_exception_get (loc : Loc.t) (fmt : PP.formatter)
     (tc : Ident.t) (tfs : (Ident.t * AST.ty) list)
     (dc : Ident.t)
@@ -1351,11 +1365,6 @@ let mk_exception_get (loc : Loc.t) (fmt : PP.formatter)
     func_return loc fmt [Identset.Bindings.find f env]
   );
   PP.fprintf fmt "@,}@,"
-
-let exception_tc = Ident.mk_ident "Internal$Exception"
-let exception_ty = AST.Type_Constructor (exception_tc, [])
-let tag_type = AST.Type_Constructor (Ident.mk_ident "Internal$Exception$Tag", [])
-let tag_ident = Ident.mk_ident "tag"
 
 let generate_sum_of_products (fmt : Format.formatter)
       (tc : Ident.t)
@@ -1407,7 +1416,6 @@ let exception_propagate (loc : Loc.t) (fmt : PP.formatter) (exc : Ident.t) : uni
     label l_exception
     varident exc;
   PP.fprintf fmt "%a:@," label l_no_exception
-
 
 
 (****************************************************************
@@ -1462,7 +1470,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       let rets = func_call loc fmt f actuals' (mk_return_type fty) in
       ignore rets;
       (*
-      if fty.throws != NoThrow then begin
+      if fty.throws <> NoThrow then begin
         (* todo: exceptions *)
       end;
       *)
@@ -1636,7 +1644,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
   | Stmt_For (ix, ty, f, direction, t, b, loc) ->
       let (f', _) = expr loc env fmt f in
       let (t', _) = expr loc env fmt t in
-      let step = if direction == Direction_Up then Z.one else Z.minus_one in
+      let step = if direction = Direction_Up then Z.one else Z.minus_one in
       let step' = bigint_constant fmt step in
 
       let l_test = labels#fresh in
@@ -1867,6 +1875,7 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
       | Decl_FunDefn (f, fty, b, loc) ->
           locals#reset;
           labels#reset;
+          can_throw := fty.throws <> NoThrow;
           let env : environment = ScopeStack.empty () in
           List.iter (fun (v, oty) -> ScopeStack.add env v (None, false, Option.get oty)) fty.parameters;
           List.iter (fun (v, ty, _) -> ScopeStack.add env v (None, false, ty)) fty.args;
@@ -1876,22 +1885,10 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
             (formal_args_decls loc) fty
             (pp_return_type loc) (mk_return_type fty);
 
-          throw_labels := if fty.throws = NoThrow then [] else [labels#fresh];
-
+          throw_labels := if !can_throw then [labels#fresh] else [];
           return_label := labels#fresh;
-          return_types :=
-              ( match fty.rty with
-              | Type_Tuple [] -> []
-              | Type_Tuple tys -> tys
-              | t -> [t]
-              );
-          let return_vars =
-              ( match fty.rty with
-              | Type_Tuple([]) -> []
-              | Type_Tuple(tys) -> List.map (fun ty -> (locals#fresh, ty)) tys
-              | rty -> [(locals#fresh, rty)]
-              )
-          in
+          return_types := Isa_utils.tupleTypes fty.rty;
+          let return_vars = List.map (fun ty -> (locals#fresh, ty)) !return_types in
           indented fmt (fun _ ->
             if !type_checks then begin
                 List.iter (fun (v, t) ->
@@ -1909,7 +1906,8 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
 
           branch_label loc fmt !return_label return_vars;
           indented fmt (fun _ ->
-            func_return loc fmt return_vars
+            let rets = if !can_throw then mk_uninitialized_exception loc fmt !exception_fields :: return_vars else return_vars in
+            func_return loc fmt rets
           );
           PP.fprintf fmt "@,}@,"
       | Decl_Var (v, Type_Array (Index_Int (Expr_Lit (VInt sz)), elty), loc) ->
