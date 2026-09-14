@@ -206,7 +206,8 @@ let exception_fields : AST.ty list ref = ref []
 
 let exception_tc = Ident.mk_ident "Internal$Exception"
 let exception_ty = AST.Type_Constructor (exception_tc, [])
-let tag_type = AST.Type_Constructor (Ident.mk_ident "Internal$Exception$Tag", [])
+let tag_tc = Ident.mk_ident "Internal$Exception$Tag"
+let tag_type = AST.Type_Constructor (tag_tc, [])
 let tag_ident = Ident.mk_ident "tag"
 
 (****************************************************************
@@ -1301,12 +1302,12 @@ and set_slice (loc : Loc.t) (env : environment) (fmt : PP.formatter) (rty : AST.
 let rec mk_uninitialized (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : Ident.t =
   ( match x with
   | Type_Bits (e, _) -> bv_zero fmt (fst (expr loc (ScopeStack.empty ()) fmt e))
-  | Type_Constructor (tc, []) when tc = Builtin_idents.boolean_ident -> bool_constant fmt false
-  | Type_Constructor (tc, []) when tc = Builtin_idents.string_ident -> string_constant fmt ""
+  | Type_Constructor (tc, []) when Ident.equal tc Builtin_idents.boolean_ident -> bool_constant fmt false
+  | Type_Constructor (tc, []) when Ident.equal tc Builtin_idents.string_ident -> string_constant fmt ""
   | Type_Constructor (tc, []) when Identset.Bindings.mem tc !enum_types ->
       let (es, width) = Identset.Bindings.find tc !enum_types in
       arith_constant fmt Z.zero width
-  | Type_Constructor (tc, []) when tc = exception_tc -> arith_constant fmt Z.zero !exception_tag_width
+  | Type_Constructor (tc, []) when Ident.equal tc tag_tc -> arith_constant fmt Z.zero !exception_tag_width
   | Type_Integer ocrs -> bigint_constant fmt Z.zero
   | _ ->
       let pp fmt = FMT.ty fmt x in
@@ -1342,7 +1343,7 @@ let mk_exception_constructor (loc : Loc.t) (fmt : PP.formatter)
   PP.fprintf fmt "@,}@,@,"
 
 let mk_uninitialized_exception (loc : Loc.t) (fmt : Format.formatter) (ts : AST.ty list) : (Ident.t * AST.ty) =
-  let tfs' = List.map (fun t -> (mk_uninitialized loc fmt t, t)) (exception_ty :: ts) in
+  let tfs' = List.map (fun t -> (mk_uninitialized loc fmt t, t)) ts in
   tuple_pack loc fmt tfs'
 
 let mk_exception_get (loc : Loc.t) (fmt : PP.formatter)
@@ -1379,6 +1380,7 @@ let generate_sum_of_products (fmt : Format.formatter)
   exception_tag_width := tag_width;
   let tag_field = (tag_ident, tag_type) in
   let fields' = tag_field :: fields in
+  exception_fields := List.map snd fields';
   Format.fprintf fmt "%a = i%d@,"
     (pp_type Loc.Unknown) tag_type
     tag_width;
