@@ -57,14 +57,14 @@ begin
     endcase;
 end
 
-// function Color4(x : {1..3}) -> Color
-// begin
-//     case x of
-//         when 1 => return Blue;
-//         when 2 => return Red;
-//         when 3 => return Green;
-//     endcase;
-// end
+function Color4(x : {1..3}) -> Color
+begin
+    case x of
+        when 1 => return Blue;
+        when 2 => return Red;
+        when 3 => return Green;
+    endcase;
+end
 
 exception E1 = { x : Integer, y : Boolean };
 exception E2 = { z : Integer };
