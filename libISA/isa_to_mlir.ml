@@ -200,6 +200,9 @@ let mk_enum_type (loc : Loc.t) (fmt : PP.formatter) (tc : Ident.t) (es : Ident.t
     enum_constants := Identset.Bindings.add e (tc, i, width) !enum_constants
   ) es
 
+let exception_tag_width : int ref = ref 0
+let exceptions : int Identset.Bindings.t ref = ref Identset.Bindings.empty
+
 (****************************************************************
  * Types
  ****************************************************************)
@@ -1299,7 +1302,8 @@ let rec mk_uninitialized (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : Ident
 
 let mk_exception_constructor (loc : Loc.t) (fmt : PP.formatter)
     (tc : Ident.t) (tfs : (Ident.t * AST.ty) list)
-    (tag_field : (Ident.t * AST.ty)) (tag : int)
+    (tag_field : (Ident.t * AST.ty))
+    (tag : int) (tag_width : int)
     (dc : Ident.t) (dfs : (Ident.t * AST.ty) list)
   : unit
   =
@@ -1311,7 +1315,7 @@ let mk_exception_constructor (loc : Loc.t) (fmt : PP.formatter)
   indented fmt (fun _ ->
     let tfs' = List.map (fun (f, t) ->
         if f = fst tag_field then
-          (bigint_constant fmt (Z.of_int tag), snd tag_field)
+          (arith_constant fmt (Z.of_int tag) tag_width, snd tag_field)
         else if List.mem_assoc f dfs then
           (f, t)
         else
@@ -1359,21 +1363,49 @@ let generate_sum_of_products (fmt : Format.formatter)
    * but this is not guaranteed by the frontend
    *)
   let fields = List.flatten (List.map (fun (dc, fs, loc) -> fs) entries) in
-  let tag = (tag_ident, tag_type) in
-  let fields' = tag :: fields in
+  let tag_width = Utils.ceil_log2 (1 + List.length entries) in
+  exception_tag_width := tag_width;
+  let tag_field = (tag_ident, tag_type) in
+  let fields' = tag_field :: fields in
+  Format.fprintf fmt "%a = i%d@,"
+    (pp_type Loc.Unknown) tag_type
+    tag_width;
   mk_record_type Loc.Unknown fmt tc fields';
   mk_record_constructor Loc.Unknown fmt tc fields';
-  mk_record_get Loc.Unknown fmt tc fields' (fst tag) (snd tag);
+  mk_record_get Loc.Unknown fmt tc fields' (fst tag_field) (snd tag_field);
   List.iteri (fun i (dc, dfs, loc) ->
     fieldtypes := Identset.Bindings.add dc fields' !fieldtypes;
     Format.fprintf fmt "!%a = !%a@," ident dc ident tc;
-    mk_exception_constructor loc fmt tc fields' tag (i+1) dc dfs;
+    let tag_value = i+1 in
+    exceptions := Identset.Bindings.add dc tag_value !exceptions;
+    mk_exception_constructor loc fmt tc fields' tag_field tag_value tag_width dc dfs;
     List.iter (fun (f, ft) ->
         mk_exception_get loc fmt tc fields' dc f ft;
       )
       dfs;
     PP.fprintf fmt "@,"
   ) entries
+
+let exception_throw (loc : Loc.t) (fmt : PP.formatter) (e : (Ident.t * AST.ty)) : unit =
+  cf_br loc fmt (List.hd !throw_labels) [e]
+
+let exception_propagate (loc : Loc.t) (fmt : PP.formatter) (exc : Ident.t) : unit =
+  let l_no_exception = labels#fresh in
+  let l_exception = List.hd !throw_labels in
+
+  let tag = func_call1 loc fmt (record_field_get exception_tc tag_ident) [(exc, exception_ty)] tag_type in
+  let tag_width = !exception_tag_width in
+  let zero_tag = arith_constant fmt Z.zero tag_width in
+  let tag_match = arith_int_cmp fmt "eq" tag_width tag zero_tag in
+
+  PP.fprintf fmt "cf.cond_br %a, %a, %a(%a)@,"
+    varident tag_match
+    label l_no_exception
+    label l_exception
+    varident exc;
+  PP.fprintf fmt "%a:@," label l_no_exception
+
+
 
 (****************************************************************
  * Statements
@@ -1647,7 +1679,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
 
   | Stmt_Throw (e, loc) ->
       let e' = expr loc env fmt e in
-      cf_br loc fmt (List.hd !throw_labels) [e'];
+      exception_throw loc fmt e';
       true
 
   | Stmt_Try (b, _, cs, od, loc) ->
@@ -1670,7 +1702,6 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       branch_label loc fmt catch_label (exc :: List.map (fun (v, _, t) -> (v, t)) catch_vars);
 
       let tag = func_call1 loc fmt (record_field_get exception_tc tag_ident) [exc] tag_type in
-      ignore(tag);
 
       let rec catch_tree (cs : AST.catcher list) : bool =
         ( match cs with
@@ -1692,9 +1723,10 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
             let c_vars2 = List.map (fun (v, _, t) -> (v, t)) c_vars in
             let c_vars3 = List.map (fun (v, curr, t) -> (v, locals#fresh, t)) catch_vars in
 
-            let tag_constant = 42 in (* todo *)
-            let tc_tag = bigint_constant fmt (Z.of_int tag_constant) in
-            let tag_match = int_eq fmt tag tc_tag in
+            let tag_constant = Identset.Bindings.find tc !exceptions in
+            let tag_width = !exception_tag_width in
+            let tc_tag = arith_constant fmt (Z.of_int tag_constant) tag_width in
+            let tag_match = arith_int_cmp fmt "eq" tag_width tag tc_tag in
             cf_cond_br loc fmt tag_match l_true c_vars2 l_false c_vars2;
 
             branch_label loc fmt l_true c_vars2;
