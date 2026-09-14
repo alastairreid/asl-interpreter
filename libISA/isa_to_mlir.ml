@@ -1342,7 +1342,8 @@ let mk_exception_constructor (loc : Loc.t) (fmt : PP.formatter)
   );
   PP.fprintf fmt "@,}@,@,"
 
-let mk_uninitialized_exception (loc : Loc.t) (fmt : Format.formatter) (ts : AST.ty list) : (Ident.t * AST.ty) =
+(* Note: this depends on the tag being zero which is the default uninitialized value *)
+let mk_null_exception (loc : Loc.t) (fmt : Format.formatter) (ts : AST.ty list) : (Ident.t * AST.ty) =
   let tfs' = List.map (fun t -> (mk_uninitialized loc fmt t, t)) ts in
   tuple_pack loc fmt tfs'
 
@@ -1908,7 +1909,7 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
 
           branch_label loc fmt !return_label return_vars;
           indented fmt (fun _ ->
-            let rets = if !can_throw then mk_uninitialized_exception loc fmt !exception_fields :: return_vars else return_vars in
+            let rets = if !can_throw then mk_null_exception loc fmt !exception_fields :: return_vars else return_vars in
             func_return loc fmt rets
           );
           PP.fprintf fmt "@,}@,"
