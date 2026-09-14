@@ -185,14 +185,20 @@ let standard_functions = Identset.IdentSet.of_list [
  * Global environment
  ****************************************************************)
 
-let enum_size = 8 (* assume this is big enough for all enumerated types *)
-let enums : int Identset.Bindings.t ref = ref Identset.Bindings.empty
-let type_of_enum : AST.ty Identset.Bindings.t ref = ref Identset.Bindings.empty
-let enum_types : Identset.IdentSet.t ref = ref Identset.IdentSet.empty
-
 let global_vartypes : AST.ty Identset.Bindings.t ref = ref Identset.Bindings.empty
 let funtypes : AST.function_type Identset.Bindings.t ref = ref Identset.Bindings.empty
 let fieldtypes : ((Ident.t * AST.ty) list) Identset.Bindings.t ref = ref Identset.Bindings.empty
+
+let enum_types : (Ident.t list * int) Identset.Bindings.t ref = ref Identset.Bindings.empty
+let enum_constants : (Ident.t * int * int) Identset.Bindings.t ref = ref Identset.Bindings.empty
+
+let mk_enum_type (loc : Loc.t) (fmt : PP.formatter) (tc : Ident.t) (es : Ident.t list) : unit =
+  let width = Utils.ceil_log2 (List.length es) in
+  enum_types := Identset.Bindings.add tc (es, width) !enum_types;
+  PP.fprintf fmt "@,!%a = i%d@," ident tc width;
+  List.iteri (fun i e ->
+    enum_constants := Identset.Bindings.add e (tc, i, width) !enum_constants
+  ) es
 
 (****************************************************************
  * Types
@@ -209,8 +215,6 @@ let rec pp_type (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : unit =
       PP.fprintf fmt "!Std$RAM"
   | Type_Constructor (tc, []) when Ident.name(tc) = "Bit" -> (* todo: why is this alias not expanded? *)
       PP.fprintf fmt "!Std$Bits"
-  | Type_Constructor (tc, []) when Identset.IdentSet.mem tc !enum_types ->
-      PP.fprintf fmt "i%d" enum_size
   | Type_Constructor (tc, ps) ->
       PP.fprintf fmt "!%a" ident tc
   | Type_Integer ocrs ->
@@ -536,6 +540,10 @@ let valueLit (loc : Loc.t) (fmt : PP.formatter) (x : Value.value) : (Ident.t * A
   | VBool v   -> (bool_constant fmt v, type_bool)
   | VInt v    -> (bigint_constant fmt v, type_integer)
   | VBits v   -> (bitvector_constant fmt v, type_bits (mk_litint v.n))
+  | VEnum (e, _) ->
+      let (tc, tag, width) = Identset.Bindings.find e !enum_constants in
+      let ty = AST.Type_Constructor (tc, []) in
+      (arith_constant fmt (Z.of_int tag) width, ty)
   | VString v -> (string_constant fmt v, type_string)
   | _ -> raise (InternalError (loc, "valueLit", (fun fmt -> Value.pp_value fmt x), __LOC__))
   )
@@ -546,18 +554,48 @@ let valueLit (loc : Loc.t) (fmt : PP.formatter) (x : Value.value) : (Ident.t * A
 
 let type_checks = ref false
 
-let cf_assume (fmt : PP.formatter) (x : Ident.t) : unit =
+let cf_assume (fmt : PP.formatter) (x : Ident.t) (msg : string) : unit =
+  (* todo: should be cf.assume *)
+  PP.fprintf fmt "cf.assert %a, \"%s\"@,"
+    varident x
+    msg
+
+let cf_assert (fmt : PP.formatter) (x : Ident.t) (msg : string) : unit =
+  PP.fprintf fmt "cf.assert %a, \"%s\"@,"
+    varident x
+    msg
+
+(* todo: we need a way to model termination of the system.
+ * 'cf.assert false' comes close but it is not a terminator
+ * so we add an infinite loop as a stopgap for now
+ *)
+let cf_halt (fmt : PP.formatter) (msg : string) : unit =
+  let ff = bool_constant fmt false in
+  cf_assert fmt ff msg;
+  let l_loop = labels#fresh in
+  PP.fprintf fmt "cf.br %a@," label l_loop;
+  PP.fprintf fmt "%a: // deliberate infinite loop@," label l_loop;
+  PP.fprintf fmt "cf.br %a@," label l_loop
+
+let type_assume (fmt : PP.formatter) (x : Ident.t) : unit =
   if !type_checks then begin
-    (* todo: should be cf.assume *)
-    PP.fprintf fmt "cf.assert %a, \"type assumption\"@,"
-      varident x
+    cf_assume fmt x "type assumption"
   end
 
-let cf_assert (fmt : PP.formatter) (x : Ident.t) : unit =
+let type_assert (fmt : PP.formatter) (x : Ident.t) : unit =
   if !type_checks then begin
-    PP.fprintf fmt "cf.assert %a, \"type assertion\"@,"
-      varident x
+    cf_assert fmt x "type assertion"
   end
+
+let arith_int_cmp (fmt : PP.formatter) (cmp : string) (sz : int) (x : Ident.t) (y : Ident.t) : Ident.t =
+  with_fresh (fun r ->
+    PP.fprintf fmt "%a = arith.cmpi %s, %a, %a : i%d@,"
+      varident r
+      cmp
+      varident x
+      varident y
+      sz
+  )
 
 let int_add (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
   func_call1 Loc.Unknown fmt Builtins.add_int [(x, type_integer); (y, type_integer)] type_integer
@@ -840,17 +878,22 @@ let rec pattern (loc : Loc.t) (fmt : PP.formatter) (p : AST.pattern) (discrimina
       let sz = bigint_constant fmt (Z.of_int v.n) in
       let masked' = bv_and fmt sz discriminant m' in
       bv_eq fmt sz masked' v'
-  | Pat_Set ps ->
-      patterns loc fmt ps discriminant
   | Pat_Lit (VInt v) ->
       let v' = bigint_constant fmt v in
       int_eq fmt v' discriminant
+  | Pat_Const e
+  | Pat_Lit (VEnum (e, _)) ->
+      let (tc, tag, width) = Identset.Bindings.find e !enum_constants in
+      let v' = arith_constant fmt (Z.of_int tag) width in
+      arith_int_cmp fmt "eq" width v' discriminant
   | Pat_Range (Expr_Lit (VInt lo), Expr_Lit (VInt hi)) ->
       let lo' = bigint_constant fmt lo in
       let hi' = bigint_constant fmt hi in
       let c1 = int_le fmt lo' discriminant in
       let c2 = int_le fmt discriminant hi' in
       bool_or fmt c1 c2
+  | Pat_Set ps ->
+      patterns loc fmt ps discriminant
   | _ -> raise (InternalError (loc, "pattern", (fun fmt -> FMT.pattern fmt p), __LOC__))
   )
 
@@ -880,8 +923,11 @@ let rec expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.exp
   | Expr_Var v ->
       if Ident.equal v Builtins.true_ident then (bool_constant fmt true, type_bool)
       else if Ident.equal v Builtins.false_ident then (bool_constant fmt false, type_bool)
-      else (
-        (* todo: enumeration variables *)
+      else if Identset.Bindings.mem v !enum_constants then (
+        let (tc, tag, width) = Identset.Bindings.find v !enum_constants in
+        let ty = AST.Type_Constructor (tc, []) in
+        (arith_constant fmt (Z.of_int tag) width, ty)
+      ) else (
         ( match ScopeStack.get env v with
         | None -> (* global variable *)
             assert (Identset.Bindings.mem v !global_vartypes);
@@ -935,6 +981,30 @@ let rec expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.exp
       let (e', _) = expr loc env fmt e in
       slices loc env fmt e' ss
 
+  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtins.eq_enum || Ident.root_equal f ~root:Builtins.eq_enum ->
+      let (x', xty) = expr loc env fmt x in
+      let (y', yty) = expr loc env fmt y in
+      let tc = ( match xty with
+               | Type_Constructor (tc, []) -> tc
+               | _ -> let pp fmt = FMT.ty fmt xty in
+                      raise (Error.Unimplemented (loc, "type", pp))
+               )
+      in
+      let (_, width) = Identset.Bindings.find tc !enum_types in
+      (arith_int_cmp fmt "eq" width x' y', type_bool)
+
+  | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtins.ne_enum || Ident.root_equal f ~root:Builtins.ne_enum ->
+      let (x', xty) = expr loc env fmt x in
+      let (y', yty) = expr loc env fmt y in
+      let tc = ( match xty with
+               | Type_Constructor (tc, []) -> tc
+               | _ -> let pp fmt = FMT.ty fmt xty in
+                      raise (Error.Unimplemented (loc, "type", pp))
+               )
+      in
+      let (_, width) = Identset.Bindings.find tc !enum_types in
+      (arith_int_cmp fmt "ne" width x' y', type_bool)
+
   | Expr_TApply (f, tes, es, NoThrow) ->
       let fty = Identset.Bindings.find f !funtypes in
       let actuals = actual_args fty tes es in
@@ -944,7 +1014,7 @@ let rec expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.exp
       let r = func_call1 loc fmt f actuals' fty.rty in
       if !type_checks then begin
         let ensures = check_type loc formal_env fmt r fty.rty in
-        Option.iter (cf_assume fmt) ensures
+        Option.iter (type_assume fmt) ensures
       end;
       (r, fty.rty)
 
@@ -1126,7 +1196,7 @@ and check_actuals (loc : Loc.t) (fmt : Format.formatter) (env : environment) (ft
   if !type_checks then begin
     List.iter2 (fun (formal, t) actual ->
       let requires = check_type loc env fmt actual t in
-      Option.iter (cf_assert fmt) requires
+      Option.iter (type_assert fmt) requires
       )
       (formal_args fty)
       actuals
@@ -1218,7 +1288,9 @@ let rec mk_uninitialized (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : Ident
   | Type_Bits (e, _) -> bv_zero fmt (fst (expr loc (ScopeStack.empty ()) fmt e))
   | Type_Constructor (tc, []) when tc = Builtin_idents.boolean_ident -> bool_constant fmt false
   | Type_Constructor (tc, []) when tc = Builtin_idents.string_ident -> string_constant fmt ""
-  | Type_Constructor (tc, []) when Identset.IdentSet.mem tc !enum_types -> arith_constant fmt Z.zero enum_size
+  | Type_Constructor (tc, []) when Identset.Bindings.mem tc !enum_types ->
+      let (es, width) = Identset.Bindings.find tc !enum_types in
+      arith_constant fmt Z.zero width
   | Type_Integer ocrs -> bigint_constant fmt Z.zero
   | _ ->
       let pp fmt = FMT.ty fmt x in
@@ -1326,7 +1398,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       let e' = expr loc env fmt e in
       if !type_checks then begin
         let ensures = check_types loc env fmt (fst e') !return_types in
-        Option.iter (cf_assert fmt) ensures
+        Option.iter (type_assert fmt) ensures
       end;
       cf_br loc fmt !return_label [e'];
       true
@@ -1412,7 +1484,8 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       )
 
   | Stmt_Case (e, oty, [], None, loc) ->
-      false
+      cf_halt fmt "unmatched case";
+      true
   | Stmt_Case (e, oty, [], Some (d, dloc), loc) ->
       block env fmt d
   | Stmt_Case (e, oty, Alt_Alt (ps, None, b, loc)::alts, deflt, case_loc) ->
@@ -1614,6 +1687,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
             let t = AST.Type_Constructor (tc, []) in
             let l_true  = labels#fresh in
             let l_false = labels#fresh in
+            (* todo: unbork the next three names *)
             let c_vars = List.map (fun (v, curr, t) -> (v, locals#fresh, t)) catch_vars in
             let c_vars2 = List.map (fun (v, _, t) -> (v, t)) c_vars in
             let c_vars3 = List.map (fun (v, curr, t) -> (v, locals#fresh, t)) catch_vars in
@@ -1789,7 +1863,7 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
             if !type_checks then begin
                 List.iter (fun (v, t) ->
                   let requires = check_type loc env fmt v t in
-                  Option.iter (cf_assume fmt) requires
+                  Option.iter (type_assume fmt) requires
                   )
                   (formal_args fty)
             end;
@@ -1864,17 +1938,6 @@ let _ =
         )
       ) decls;
 
-      (* record enumeration constants *)
-      List.iter (fun d ->
-        ( match d with
-        | AST.Decl_Enum (tc, es, loc)
-        ->
-           enum_types := Identset.IdentSet.add tc !enum_types;
-           List.iteri (fun i e -> enums := Identset.Bindings.add e i !enums) es
-        | _ -> ()
-        )
-      ) decls;
-
       Identset.IdentSet.iter (fun f -> 
         ( match Identset.Bindings.find_opt f !funtypes with
         | None -> ()
@@ -1887,7 +1950,7 @@ let _ =
         )
       ) standard_functions;
 
-      (* declare records *)
+      (* declare records and enumerations *)
       List.iter (fun d ->
         ( match d with
         | AST.Decl_Record (rtc, [], fs, loc) ->
@@ -1900,6 +1963,8 @@ let _ =
               )
               fs;
             PP.fprintf fmt "@,"
+        | AST.Decl_Enum (tc, es, loc) ->
+            mk_enum_type loc fmt tc es
         | _ -> ()
         )
       ) decls;

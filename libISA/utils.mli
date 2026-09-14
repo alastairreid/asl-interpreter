@@ -148,6 +148,9 @@ val read_file : string -> bytes
 (** 2^i *)
 val pow2 : int -> int
 
+(** Logarithm base 2 rounded up *)
+val ceil_log2 : int -> int
+
 (** Round up to the next power of 2 for positive numbers *)
 val round_up_to_pow2 : int -> int
 

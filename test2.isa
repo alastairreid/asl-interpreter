@@ -36,6 +36,36 @@ begin
     return (a, b);
 end
 
+enumeration Color = { Red, Green, Blue };
+
+function Color1(x : Color) -> Color
+begin
+    return x;
+end
+
+function Color2(x : Color) -> Boolean
+begin
+    return x == Red;
+end
+
+function Color3(x : Color) -> {1..3}
+begin
+    case x of
+        when Red => return 1;
+        when Blue => return 2;
+        when Green => return 3;
+    endcase;
+end
+
+// function Color4(x : {1..3}) -> Color
+// begin
+//     case x of
+//         when 1 => return Blue;
+//         when 2 => return Red;
+//         when 3 => return Green;
+//     endcase;
+// end
+
 exception E1 = { x : Integer, y : Boolean };
 exception E2 = { z : Integer };
 

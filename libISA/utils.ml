@@ -285,11 +285,13 @@ let pow2 (i : int) : int =
   assert (i < 63);
   Z.to_int (Z.shift_left Z.one i)
 
-(** Round up to the next power of 2 for positive numbers *)
-let round_up_to_pow2 (i : int) : int =
+(** Logarithm base 2 rounded up *)
+let ceil_log2 (i : int) : int =
   assert (i > 0);
-  let base2log = Z.log2up (Z.of_int i) in
-  Z.to_int (Z.shift_left Z.one base2log)
+  Z.log2up (Z.of_int i)
+
+(** Round up to the next power of 2 for positive numbers *)
+let round_up_to_pow2 (i : int) : int = pow2 (ceil_log2 i)
 
 (****************************************************************
  * Format string parsing
