@@ -241,7 +241,7 @@ let rec pp_type (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : unit =
       PP.fprintf fmt "!%a" ident tc
   | Type_Integer ocrs ->
       PP.fprintf fmt "!Std$Integer"
-  | Type_Array (Index_Int ixty, elty) ->
+  | Type_Array (Index_Int ix, elty) ->
       PP.fprintf fmt "array<%a>" (pp_type loc) elty
   | Type_Tuple tys ->
       PP.fprintf fmt "tuple<%a>" (commasep (pp_type loc)) tys
@@ -298,6 +298,12 @@ let get_mutbind (loc : Loc.t) (env : environment) (v : Ident.t) : Ident.t =
   ( match ScopeStack.get env v with
   | Some (Some v', _, _) -> v'
   | _ -> raise (InternalError (loc, "get_mutbind", (fun fmt -> Ident.pp fmt v), __LOC__))
+  )
+
+let get_var (loc : Loc.t) (env : environment) (v : Ident.t) : (Ident.t * AST.ty) =
+  ( match ScopeStack.get env v with
+  | Some (Some v', _, t) -> (v', t)
+  | _ -> raise (InternalError (loc, "get_var", (fun fmt -> Ident.pp fmt v), __LOC__))
   )
 
 (* Since ISA code tends to have few mutable vars, we use all mutable vars as
@@ -758,6 +764,14 @@ let memref_store_scalar (loc : Loc.t) (fmt : PP.formatter) (ref : Ident.t) (x : 
     varident ref
     (pp_type loc) ty
 
+let memref_alloc_array (loc : Loc.t) (fmt : PP.formatter) (sz : Ident.t) (ty : AST.ty) : Ident.t =
+  with_fresh (fun v ->
+    PP.fprintf fmt "%a = memref.alloc(%a) : memref<? x %a>@,"
+      varident v
+      varident sz
+      (pp_type loc) ty
+  )
+
 let memref_global_array (loc : Loc.t) (fmt : PP.formatter) (v : Ident.t) (sz : Z.t) (ty : AST.ty) : unit =
   PP.fprintf fmt "memref.global @%a : memref<%s x %a>@,@,"
     ident v
@@ -1007,12 +1021,24 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       let (sz, elty) = ( match ty with
                        | Type_Array (Index_Int (Expr_Lit (VInt sz)), elty) -> (sz, elty)
                        | _ -> let pp fmt = FMT.ty fmt ty in
-                              raise (Error.Unimplemented (loc, "type", pp))
+                              raise (Error.Unimplemented (loc, "Expr_Array global", pp))
                        )
       in
       let (ix', _) = expr loc env fmt ix in
       let ix'' = to_index fmt ix' in
       let aref = memref_get_global_array loc fmt v sz elty in
+      (memref_load_array loc fmt aref ix'' sz elty, elty)
+
+  | Expr_Array(Expr_Var v, ix) when ScopeStack.mem env v ->
+      let (aref, ty) = get_var loc env v in
+      let (sz, elty) = ( match ty with
+                       | Type_Array (Index_Int (Expr_Lit (VInt sz)), elty) -> (sz, elty)
+                       | _ -> let pp fmt = FMT.ty fmt ty in
+                              raise (Error.Unimplemented (loc, "Expr_Array local", pp))
+                       )
+      in
+      let (ix', _) = expr loc env fmt ix in
+      let ix'' = to_index fmt ix' in
       (memref_load_array loc fmt aref ix'' sz elty, elty)
 
   | Expr_Slices (Type_Integer _, e, [s]) ->
@@ -1522,6 +1548,15 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       cf_br loc fmt !return_label [e'];
       true
 
+  | Stmt_VarDeclsNoInit (vs, (Type_Array (Index_Int sz, elty) as t), loc) ->
+      let sz' = expr loc env fmt sz in
+      List.iter (fun v ->
+          let i' = memref_alloc_array loc fmt (fst sz') elty in
+          ScopeStack.add env v (Some i', false, t)
+        )
+        vs;
+      false
+
   | Stmt_VarDeclsNoInit (vs, t, loc) ->
       List.iter (fun v -> ScopeStack.add env v (None, false, t)) vs;
       false
@@ -1889,17 +1924,31 @@ and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lex
       let new' = set_slices loc env fmt lty ss old' (fst rhs) in
       assign loc env fmt l (new', lty)
 
+  (* todo: handle 2D arrays *)
+
   | LExpr_Array (LExpr_Var v, ix) when Identset.Bindings.mem v !global_vartypes ->
       let ty = Identset.Bindings.find v !global_vartypes in
       let (sz, elty) = ( match ty with
                        | Type_Array (Index_Int (Expr_Lit (VInt sz)), elty) -> (sz, elty)
                        | _ -> let pp fmt = FMT.ty fmt ty in
-                              raise (Error.Unimplemented (loc, "type", pp))
+                              raise (Error.Unimplemented (loc, "LExpr_Array global", pp))
                        )
       in
       let (ix', _) = expr loc env fmt ix in
       let ix'' = to_index fmt ix' in
       let aref = memref_get_global_array loc fmt v sz elty in
+      memref_store_array loc fmt aref ix'' (fst rhs) sz elty
+
+  | LExpr_Array (LExpr_Var v, ix) when ScopeStack.mem env v ->
+      let (aref, ty) = get_var loc env v in
+      let (sz, elty) = ( match ty with
+                       | Type_Array (Index_Int (Expr_Lit (VInt sz)), elty) -> (sz, elty)
+                       | _ -> let pp fmt = FMT.ty fmt ty in
+                              raise (Error.Unimplemented (loc, "LExpr_Array local", pp))
+                       )
+      in
+      let (ix', _) = expr loc env fmt ix in
+      let ix'' = to_index fmt ix' in
       memref_store_array loc fmt aref ix'' (fst rhs) sz elty
 
   | LExpr_Write (f, tes, args, throws) ->
@@ -1978,9 +2027,9 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
           labels#reset;
           can_throw := fty.throws <> NoThrow;
           let env : environment = ScopeStack.empty () in
-          List.iter (fun (v, oty) -> ScopeStack.add env v (None, false, Option.get oty)) fty.parameters;
-          List.iter (fun (v, ty, _) -> ScopeStack.add env v (None, false, ty)) fty.args;
-          Option.iter (fun (v, ty) -> ScopeStack.add env v (None, false, ty)) fty.setter_arg;
+          List.iter (fun (v, oty) -> ScopeStack.add env v (Some v, false, Option.get oty)) fty.parameters;
+          List.iter (fun (v, ty, _) -> ScopeStack.add env v (Some v, false, ty)) fty.args;
+          Option.iter (fun (v, ty) -> ScopeStack.add env v (Some v, false, ty)) fty.setter_arg;
           PP.fprintf fmt "@,func.func @%a(%a) -> %a {@,"
             ident f
             (formal_args_decls loc) fty
