@@ -990,7 +990,6 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       let ty = AST.Type_Constructor (tc, []) in
       (arith_constant fmt (Z.of_int tag) width, ty)
   | Expr_Var v when Identset.Bindings.mem v !global_vartypes ->
-      assert (Identset.Bindings.mem v !global_vartypes);
       let ty = Identset.Bindings.find v !global_vartypes in
       let ref = memref_get_global_scalar loc fmt v ty in
       (memref_load_scalar loc fmt ref ty, ty)
@@ -1003,8 +1002,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
           raise (Error.Unimplemented (loc, "Expr_Var", pp))
       )
 
-  | Expr_Array(Expr_Var v, ix) ->
-      assert (Identset.Bindings.mem v !global_vartypes);
+  | Expr_Array(Expr_Var v, ix) when Identset.Bindings.mem v !global_vartypes ->
       let ty = Identset.Bindings.find v !global_vartypes in
       let (sz, elty) = ( match ty with
                        | Type_Array (Index_Int (Expr_Lit (VInt sz)), elty) -> (sz, elty)
@@ -1332,9 +1330,9 @@ and mk_unspecified_expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (
  * generated will be the same.)
  ****************************************************************)
 
-and mk_uninitialized (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : Ident.t =
+and mk_uninitialized (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.ty) : Ident.t =
   ( match x with
-  | Type_Bits (e, _) -> bv_zero fmt (fst (expr loc (ScopeStack.empty ()) fmt e))
+  | Type_Bits (e, _) -> bv_zero fmt (fst (expr loc env fmt e))
   | Type_Constructor (tc, []) when Ident.equal tc Builtin_idents.boolean_ident -> bool_constant fmt false
   | Type_Constructor (tc, []) when Ident.equal tc Builtin_idents.string_ident -> string_constant fmt ""
   | Type_Constructor (tc, []) when Identset.Bindings.mem tc !enum_types ->
@@ -1410,7 +1408,7 @@ and mk_exception_constructor (loc : Loc.t) (fmt : PP.formatter)
         else if List.mem_assoc f dfs then
           (f, t)
         else
-          (mk_uninitialized loc fmt t, t)
+          (mk_uninitialized loc (ScopeStack.empty ()) fmt t, t)
       )
       tfs
     in
@@ -1420,8 +1418,8 @@ and mk_exception_constructor (loc : Loc.t) (fmt : PP.formatter)
   PP.fprintf fmt "@,}@,@,"
 
 (* Note: this depends on the tag being zero which is the default uninitialized value *)
-and mk_null_exception (loc : Loc.t) (fmt : Format.formatter) (ts : AST.ty list) : (Ident.t * AST.ty) =
-  let tfs' = List.map (fun t -> (mk_uninitialized loc fmt t, t)) ts in
+and mk_null_exception (loc : Loc.t) (env : environment) (fmt : Format.formatter) (ts : AST.ty list) : (Ident.t * AST.ty) =
+  let tfs' = List.map (fun t -> (mk_uninitialized loc env fmt t, t)) ts in
   tuple_pack loc fmt tfs'
 
 let mk_exception_get (loc : Loc.t) (fmt : PP.formatter)
@@ -1484,7 +1482,8 @@ let mk_uninitialized_function (loc : Loc.t) (fmt : PP.formatter) (tc : Ident.t) 
   func_header loc fmt (mk_uninit tc) [] [rty];
   PP.fprintf fmt " {@,";
   indented fmt (fun _ ->
-    let r = (mk_uninitialized loc fmt t, t) in
+    let env = ScopeStack.empty () in
+    let r = (mk_uninitialized loc env fmt t, t) in
     func_return loc fmt [r]
   );
   PP.fprintf fmt "@,}@,"
@@ -1887,8 +1886,7 @@ and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lex
       let new' = set_slices loc env fmt lty ss old' (fst rhs) in
       assign loc env fmt l (new', lty)
 
-  | LExpr_Array (LExpr_Var v, ix) ->
-      assert (Identset.Bindings.mem v !global_vartypes);
+  | LExpr_Array (LExpr_Var v, ix) when Identset.Bindings.mem v !global_vartypes ->
       let ty = Identset.Bindings.find v !global_vartypes in
       let (sz, elty) = ( match ty with
                        | Type_Array (Index_Int (Expr_Lit (VInt sz)), elty) -> (sz, elty)
@@ -1990,14 +1988,15 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
           return_label := labels#fresh;
           return_types := Isa_utils.tupleTypes fty.rty;
           indented fmt (fun _ ->
+            let body_env = ScopeStack.clone env in
             if !type_checks then begin
                 List.iter (fun (v, t) ->
-                  let requires = check_type loc env fmt v t in
+                  let requires = check_type loc body_env fmt v t in
                   Option.iter (type_assume fmt) requires
                   )
                   (formal_args fty)
             end;
-            let term = block env fmt b in
+            let term = block body_env fmt b in
             if not term then begin
               if List.is_empty !return_types then begin
                 cf_br loc fmt !return_label []
@@ -2016,13 +2015,13 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
             let exc = (locals#fresh, exception_ty) in
             branch_label loc fmt throw_label [exc];
             indented fmt (fun _ ->
-              let null_returns = List.map (fun t -> (mk_uninitialized loc fmt t, t)) !return_types in
+              let null_returns = List.map (fun t -> (mk_uninitialized loc env fmt t, t)) !return_types in
               cf_br loc fmt final_return_label (exc :: null_returns)
             );
 
             branch_label loc fmt !return_label return_vars;
             indented fmt (fun _ ->
-              let null_exc = mk_null_exception loc fmt !exception_fields in
+              let null_exc = mk_null_exception loc env fmt !exception_fields in
               cf_br loc fmt final_return_label (null_exc :: return_vars);
             );
 
