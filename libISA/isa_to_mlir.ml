@@ -981,23 +981,26 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
   ( match x with
   | Expr_Lit v -> valueLit loc fmt v
 
+  | Expr_Var v when Ident.equal v Builtins.true_ident ->
+      (bool_constant fmt true, type_bool)
+  | Expr_Var v when Ident.equal v Builtins.false_ident ->
+      (bool_constant fmt false, type_bool)
+  | Expr_Var v when Identset.Bindings.mem v !enum_constants ->
+      let (tc, tag, width) = Identset.Bindings.find v !enum_constants in
+      let ty = AST.Type_Constructor (tc, []) in
+      (arith_constant fmt (Z.of_int tag) width, ty)
+  | Expr_Var v when Identset.Bindings.mem v !global_vartypes ->
+      assert (Identset.Bindings.mem v !global_vartypes);
+      let ty = Identset.Bindings.find v !global_vartypes in
+      let ref = memref_get_global_scalar loc fmt v ty in
+      (memref_load_scalar loc fmt ref ty, ty)
   | Expr_Var v ->
-      if Ident.equal v Builtins.true_ident then (bool_constant fmt true, type_bool)
-      else if Ident.equal v Builtins.false_ident then (bool_constant fmt false, type_bool)
-      else if Identset.Bindings.mem v !enum_constants then (
-        let (tc, tag, width) = Identset.Bindings.find v !enum_constants in
-        let ty = AST.Type_Constructor (tc, []) in
-        (arith_constant fmt (Z.of_int tag) width, ty)
-      ) else (
-        ( match ScopeStack.get env v with
-        | None -> (* global variable *)
-            assert (Identset.Bindings.mem v !global_vartypes);
-            let ty = Identset.Bindings.find v !global_vartypes in
-            let ref = memref_get_global_scalar loc fmt v ty in
-            (memref_load_scalar loc fmt ref ty, ty)
-        | Some (Some v', _, ty) -> (v', ty)
-        | Some (None, _, ty) -> (v, ty)
-        )
+      ( match ScopeStack.get env v with
+      | Some (Some v', _, ty) -> (v', ty)
+      | Some (None, _, ty) -> (v, ty)
+      | None ->
+          let pp fmt = FMT.expr fmt x in
+          raise (Error.Unimplemented (loc, "Expr_Var", pp))
       )
 
   | Expr_Array(Expr_Var v, ix) ->
@@ -2093,6 +2096,8 @@ let _ =
         | AST.Decl_Var (v, ty, _)
         -> global_vartypes := Identset.Bindings.add v ty !global_vartypes
         | Decl_Const (v, Some ty, e, _) (* todo: don't treat this like a variable! *)
+        -> global_vartypes := Identset.Bindings.add v ty !global_vartypes
+        | AST.Decl_Config (v, ty, e, loc) (* todo: don't treat this like a variable! *)
         -> global_vartypes := Identset.Bindings.add v ty !global_vartypes
         | _ -> ()
         )
