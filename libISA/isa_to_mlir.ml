@@ -210,6 +210,18 @@ let tag_tc = Ident.mk_ident "Internal$Exception$Tag"
 let tag_type = AST.Type_Constructor (tag_tc, [])
 let tag_ident = Ident.mk_ident "tag"
 
+let mk_uninit (tc : Ident.t) : Ident.t =
+  let prefix = "Internal$Uninitialized$" in
+  Ident.mk_ident (prefix ^ Ident.name tc)
+
+
+let mk_unspecified (tc : Ident.t) : Ident.t =
+  let prefix = "Internal$Unspecified$" in
+  Ident.mk_ident (prefix ^ Ident.name tc)
+
+let unspecified_int = Ident.mk_ident "Internal$Unspecified$Integer"
+let unspecified_bits = Ident.mk_ident "Internal$Unspecified$Bits"
+
 (****************************************************************
  * Types
  ****************************************************************)
@@ -1117,10 +1129,11 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       let es' = List.map (expr loc env fmt) es in
       tuple_pack loc fmt es'
 
+  | Expr_Unknown t ->
+      (mk_unspecified_expr loc env fmt t, t)
+
   | Expr_ArrayInit _
   | Expr_Array _
-
-  | Expr_Unknown _
 
   | Expr_Slice _
 
@@ -1240,6 +1253,16 @@ and set_slice (loc : Loc.t) (env : environment) (fmt : PP.formatter) (rty : AST.
   let wd' = expr loc env fmt wd in
   bv_setslice fmt v (fst lo') (fst wd') r
 
+and mk_unspecified_expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.ty) : Ident.t =
+  ( match x with
+  | Type_Bits (e, _) -> func_call1 loc fmt unspecified_bits [expr loc env fmt e] x
+  | Type_Constructor (tc, []) -> func_call1 loc fmt (mk_uninit tc) [] x
+  | Type_Integer ocrs -> func_call1 loc fmt unspecified_int [] x (* todo: ocrs should be used *)
+  | _ ->
+      let pp fmt = FMT.ty fmt x in
+      raise (Error.Unimplemented (loc, "mk_unspecified", pp))
+  )
+
 (****************************************************************
  * Exception support
  *
@@ -1291,6 +1314,7 @@ and mk_uninitialized (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : Ident.t =
       let (es, width) = Identset.Bindings.find tc !enum_types in
       arith_constant fmt Z.zero width
   | Type_Constructor (tc, []) when Ident.equal tc tag_tc -> arith_constant fmt Z.zero !exception_tag_width
+  | Type_Constructor (tc, []) -> func_call1 loc fmt (mk_uninit tc) [] x
   | Type_Integer ocrs -> bigint_constant fmt Z.zero
   | _ ->
       let pp fmt = FMT.ty fmt x in
@@ -1426,6 +1450,22 @@ let generate_sum_of_products (fmt : Format.formatter)
       dfs;
     PP.fprintf fmt "@,"
   ) entries
+
+let mk_uninitialized_function (loc : Loc.t) (fmt : PP.formatter) (tc : Ident.t) (t : AST.ty) : unit =
+  let rty = AST.Type_Constructor (tc, []) in
+  locals#reset;
+  func_header loc fmt (mk_uninit tc) [] [rty];
+  PP.fprintf fmt " {@,";
+  indented fmt (fun _ ->
+    let r = (mk_uninitialized loc fmt t, t) in
+    func_return loc fmt [r]
+  );
+  PP.fprintf fmt "@,}@,"
+
+let mk_unspecified_function (loc : Loc.t) (fmt : PP.formatter) (tc : Ident.t) (t : AST.ty) : unit =
+  let rty = AST.Type_Constructor (tc, []) in
+  func_header loc fmt (mk_unspecified tc) [] [rty];
+  PP.fprintf fmt "@,"
 
 (****************************************************************
  * Statements
@@ -1847,21 +1887,10 @@ and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lex
       assert (List.is_empty rets')
 
   | LExpr_ReadWrite (rd, wr, tes, args, throws) ->
-      let rd_ty = Identset.Bindings.find rd !funtypes in
-      assert (rd_ty.throws = NoThrow);
-      let rd_actuals = actual_args rd_ty tes args in
-      let rd_actuals' = List.map (expr loc env fmt) rd_actuals in
-      let rd_actuals'' = List.map fst rd_actuals' in
-      let rd_formal_env = mk_formal_env rd_ty rd_actuals'' in
-      check_actuals loc fmt rd_formal_env rd_ty rd_actuals'';
-      let rd_rets = func_call loc fmt rd rd_actuals' (mk_return_type rd_ty) in
-      assert (List.length rd_rets = 1);
-
-      (* todo: shouldn't we be using rd_rets??? *)
-
       let wr_ty = Identset.Bindings.find wr !funtypes in
       assert (wr_ty.throws = NoThrow);
-      let wr_actuals' = rd_actuals' @ [rhs] in
+      let wr_actuals = actual_args wr_ty tes args in
+      let wr_actuals' = List.map (expr loc env fmt) wr_actuals @ [rhs] in
       let wr_actuals'' = List.map fst wr_actuals' in
       let wr_formal_env = mk_formal_env wr_ty wr_actuals'' in
       check_actuals loc fmt wr_formal_env wr_ty wr_actuals'';
@@ -2031,7 +2060,7 @@ let _ =
     Utils.to_file !opt_filename (fun fmt ->
       let decls = !Commands.declarations in
 
-      (* record function types *)
+      (* record function types, variable types *)
       List.iter (fun d ->
         ( match d with
         | AST.Decl_FunType (f, fty, _)
@@ -2072,6 +2101,13 @@ let _ =
             PP.fprintf fmt "@,"
         | AST.Decl_Enum (tc, es, loc) ->
             mk_enum_type loc fmt tc es
+        | AST.Decl_Typedef (tc, [], t, loc) ->
+            PP.fprintf fmt "@,!%a = %a@,"
+              ident tc
+              (pp_type loc) t;
+            mk_uninitialized_function loc fmt tc t;
+            mk_unspecified_function loc fmt tc t
+
         | _ -> ()
         )
       ) decls;
