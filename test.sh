@@ -10,7 +10,7 @@ iii_opts+=" --check-exception-markers"
 iii_opts+=" --check-call-markers"
 
 echo Generating MLIR
-_build/install/default/bin/iii ${iii_opts} --exec=':xform_constprop' --exec=':to_mlir --typecheck --output-file t1.mlir' riscv/riscv.isa test2.isa
+_build/install/default/bin/iii ${iii_opts} --exec=':to_mlir --typecheck --output-file t1.mlir' riscv/riscv.isa test2.isa
 
 cat std.mlir t1.mlir > t2.mlir
 

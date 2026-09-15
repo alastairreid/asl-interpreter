@@ -709,6 +709,16 @@ let bv_slice (fmt : PP.formatter) (x : Ident.t) (i : Ident.t) (w : Ident.t) : Id
       varident w
   )
 
+let bv_setslice (fmt : PP.formatter) (x : Ident.t) (i : Ident.t) (w : Ident.t) (r : Ident.t) : Ident.t =
+  with_fresh (fun t ->
+    PP.fprintf fmt "%a = func.call @Std$Bits$SetSlice(%a, %a, %a, %a) : (!Std$Bits, !Std$Integer, !Std$Integer, !Std$Bits) -> !Std$Bits@,"
+      varident t
+      varident x
+      varident i
+      varident w
+      varident r
+  )
+
 let memref_global_scalar (loc : Loc.t) (fmt : PP.formatter) (v : Ident.t) (ty : AST.ty) : unit =
   PP.fprintf fmt "memref.global @%a : memref<%a>@,@,"
     ident v
@@ -877,7 +887,7 @@ let mk_record_set (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs : (Iden
  * Patterns
  ****************************************************************)
 
-let rec pattern (loc : Loc.t) (fmt : PP.formatter) (p : AST.pattern) (discriminant : Ident.t) : Ident.t =
+let rec pattern (loc : Loc.t) (env : environment) (fmt : PP.formatter) (p : AST.pattern) (discriminant : Ident.t) : Ident.t =
   ( match p with
   | Pat_Lit (VBits v) ->
       let v' = bitvector_constant fmt v in
@@ -901,24 +911,24 @@ let rec pattern (loc : Loc.t) (fmt : PP.formatter) (p : AST.pattern) (discrimina
       let (tc, tag, width) = Identset.Bindings.find e !enum_constants in
       let v' = arith_constant fmt (Z.of_int tag) width in
       arith_int_cmp fmt "eq" width v' discriminant
-  | Pat_Range (Expr_Lit (VInt lo), Expr_Lit (VInt hi)) ->
-      let lo' = bigint_constant fmt lo in
-      let hi' = bigint_constant fmt hi in
-      let c1 = int_le fmt lo' discriminant in
-      let c2 = int_le fmt discriminant hi' in
+  | Pat_Range (lo, hi) ->
+      let lo' = expr loc env fmt lo in
+      let hi' = expr loc env fmt hi in
+      let c1 = int_le fmt (fst lo') discriminant in
+      let c2 = int_le fmt discriminant (fst hi') in
       bool_or fmt c1 c2
   | Pat_Set ps ->
-      patterns loc fmt ps discriminant
+      patterns loc env fmt ps discriminant
   | _ -> raise (InternalError (loc, "pattern", (fun fmt -> FMT.pattern fmt p), __LOC__))
   )
 
-and patterns (loc : Loc.t) (fmt : PP.formatter) (ps : AST.pattern list) (discriminant : Ident.t) : Ident.t =
+and patterns (loc : Loc.t) (env : environment) (fmt : PP.formatter) (ps : AST.pattern list) (discriminant : Ident.t) : Ident.t =
   ( match ps with
   | [] -> bool_constant fmt false
-  | [p] -> pattern loc fmt p discriminant
+  | [p] -> pattern loc env fmt p discriminant
   | (q :: qs) ->
-      let q' = pattern loc fmt q discriminant in
-      let qs' = patterns loc fmt qs discriminant in
+      let q' = pattern loc env fmt q discriminant in
+      let qs' = patterns loc env fmt qs discriminant in
       with_fresh (fun t ->
         PP.fprintf fmt "%a = arith.ori %a, %a : i1@,"
           varident t
@@ -931,7 +941,7 @@ and patterns (loc : Loc.t) (fmt : PP.formatter) (ps : AST.pattern list) (discrim
  * Expressions
  ****************************************************************)
 
-let rec expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) : (Ident.t * AST.ty) =
+and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) : (Ident.t * AST.ty) =
   ( match x with
   | Expr_Lit v -> valueLit loc fmt v
 
@@ -1068,7 +1078,7 @@ let rec expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.exp
 
   | Expr_In (e, p) ->
       let (e', _) = expr loc env fmt e in
-      (pattern loc fmt p e', type_bool)
+      (pattern loc env fmt p e', type_bool)
 
   | Expr_Let (v, t, e1, e2) ->
       let (e1', _) = expr loc env fmt e1 in
@@ -1133,44 +1143,23 @@ let rec expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.exp
   )
 
 and slices (loc : Loc.t) (env : environment) (fmt : PP.formatter) (b : Ident.t) (xs : AST.slice list) : (Ident.t * AST.ty) =
-  let xs' = List.map (slice loc env fmt b) xs in
+  let xs' = List.map (fun s ->
+              let (lo, wd) = slice s in
+              let lo' = expr loc env fmt lo in
+              let wd' = expr loc env fmt wd in
+              (bv_slice fmt b (fst lo') (fst wd'), fst wd', wd)
+            ) xs
+  in
   let (r, wd', wd) = concat fmt xs' in
   (r, type_bits wd)
 
-and slice (loc : Loc.t) (env : environment) (fmt : PP.formatter) (b : Ident.t) (x : AST.slice) : (Ident.t * Ident.t * AST.expr) =
+and slice (x : AST.slice) : (AST.expr * AST.expr) =
   ( match x with
-  | Slice_Single i ->
-      let wd = one in
-      let (i',  _) = expr loc env fmt i in
-      let (wd', _) = expr loc env fmt wd in
-      let t = bv_slice fmt b i' wd' in
-      (t, wd', wd)
-
-  | Slice_LoWd (lo, wd) ->
-      let (lo', _) = expr loc env fmt lo in
-      let (wd', _) = expr loc env fmt wd in
-      let t = bv_slice fmt b lo' wd' in
-      (t, wd', wd)
-
-  | Slice_HiLo (hi, lo) ->
-      let wd = mk_add_int (mk_sub_int hi lo) one in
-      let (lo', _) = expr loc env fmt lo in
-      let (wd', _) = expr loc env fmt wd in
-      let t = bv_slice fmt b lo' wd' in
-      (t, wd', wd)
-
-  (*
-  | Slice_HiWd (hi, wd) ->
-      let hi' = eval_expr loc env hi in
-      let wd' = eval_expr loc env wd in
-      let lo' = eval_add_int loc (eval_sub_int loc hi' wd') (VInt Z.one) in
-      (lo', wd')
-  | Slice_Element (lo, wd) ->
-      let wd' = eval_expr loc env wd in
-      let lo' = eval_mul_int loc (eval_expr loc env lo) wd' in
-      (lo', wd')
-  *)
-  | _ -> raise (InternalError (loc, "slice", (fun fmt -> FMT.slice fmt x), __LOC__))
+  | Slice_Single i -> (i, one)
+  | Slice_LoWd (lo, wd) -> (lo, wd)
+  | Slice_HiLo (hi, lo) -> (lo, mk_add_int (mk_sub_int hi lo) one)
+  | Slice_HiWd (hi, wd) -> (mk_add_int (mk_sub_int hi wd) one, wd)
+  | Slice_Element (i, wd) -> (mk_mul_int i wd, wd)
   )
 
 (****************************************************************
@@ -1252,11 +1241,10 @@ and set_slices (loc : Loc.t) (env : environment) (fmt : PP.formatter) (rty : AST
   !acc
 
 and set_slice (loc : Loc.t) (env : environment) (fmt : PP.formatter) (rty : AST.ty) (s : AST.slice) (v : Ident.t) (r : Ident.t) : Ident.t =
-  ( match s with
-  | _ ->
-      let pp fmt = FMT.slice fmt s in
-      raise (Error.Unimplemented (loc, "set_slice", pp))
-  )
+  let (lo, wd) = slice s in
+  let lo' = expr loc env fmt lo in
+  let wd' = expr loc env fmt wd in
+  bv_setslice fmt v (fst lo') (fst wd') r
 
 (****************************************************************
  * Exception support
@@ -1561,7 +1549,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       let l_end   = labels#fresh in
 
       let (e', _) = expr loc env fmt e in
-      let c = patterns loc fmt ps e' in
+      let c = patterns loc env fmt ps e' in
 
       let mutables = get_mutables env in
       let renames = List.map (fun (v, init, t) -> (v, init, locals#fresh, locals#fresh, t)) mutables in
@@ -1805,8 +1793,12 @@ and decl_item (loc : Loc.t) (env : environment) (fmt : PP.formatter) (is_constan
       raise (Error.Unimplemented (Loc.Unknown, "decl_item", pp))
   )
 
+
 and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lexpr) (rhs : (Ident.t * AST.ty)) : unit =
   ( match lhs with
+  | LExpr_Wildcard ->
+      ()
+
   | LExpr_Var v ->
       if Identset.Bindings.mem v !global_vartypes then begin (* global *)
         let ty = Identset.Bindings.find v !global_vartypes in
@@ -1827,6 +1819,12 @@ and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lex
       in
       let new' = func_call1 loc fmt (record_field_set rtc f) [(old', rty); rhs] rty in
       assign loc env fmt l (new', rty)
+
+  | LExpr_Slices (t, l, ss) ->
+      let old = Option.get (lexpr_to_expr l) in
+      let (old', lty) = expr loc env fmt old in
+      let new' = set_slices loc env fmt lty ss old' (fst rhs) in
+      assign loc env fmt l (new', lty)
 
   | LExpr_Array (LExpr_Var v, ix) ->
       assert (Identset.Bindings.mem v !global_vartypes);
@@ -1853,6 +1851,12 @@ and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lex
       let (term, rets') = exception_propagate loc fmt fty.throws rets in
       assert (not term);
       assert (List.is_empty rets')
+
+  | LExpr_Tuple ls ->
+      let rtys = Isa_utils.tupleTypes (snd rhs) in
+      assert (List.length ls = List.length rtys);
+      let rhss = tuple_unpack loc fmt (fst rhs) rtys in
+      List.iter2 (assign loc env fmt) ls rhss
 
   | _ ->
       let pp fmt = FMT.lexpr fmt lhs in
