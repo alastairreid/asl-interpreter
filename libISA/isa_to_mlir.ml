@@ -1020,7 +1020,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       let (_, width) = Identset.Bindings.find tc !enum_types in
       (arith_int_cmp fmt "ne" width x' y', type_bool)
 
-  | Expr_TApply (f, tes, es, NoThrow) ->
+  | Expr_TApply (f, tes, es, _) ->
       let fty = Identset.Bindings.find f !funtypes in
       let actuals = actual_args fty tes es in
       let actuals' = List.map (expr loc env fmt) actuals in
@@ -1028,12 +1028,16 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       check_actuals loc fmt formal_env fty (List.map fst actuals');
       let rets = func_call loc fmt f actuals' (mk_return_type fty) in
       let (_, rets') = exception_propagate loc fmt fty.throws rets in
-      assert (List.length rets' = 1);
       if !type_checks then begin
-        let ensures = check_type loc formal_env fmt (fst (List.hd rets')) fty.rty in
-        Option.iter (type_assume fmt) ensures
+        List.iter (fun (r, t) ->
+          let oc = check_type loc formal_env fmt r t in
+          Option.iter (type_assume fmt) oc
+        ) rets'
       end;
-      List.hd rets'
+      ( match rets' with
+      | [ret] -> ret
+      | _ -> tuple_pack loc fmt rets'
+      )
 
   | Expr_If ([], e) ->
       expr loc env fmt e
@@ -1841,6 +1845,28 @@ and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lex
       let (term, rets') = exception_propagate loc fmt fty.throws rets in
       assert (not term);
       assert (List.is_empty rets')
+
+  | LExpr_ReadWrite (rd, wr, tes, args, throws) ->
+      let rd_ty = Identset.Bindings.find rd !funtypes in
+      assert (rd_ty.throws = NoThrow);
+      let rd_actuals = actual_args rd_ty tes args in
+      let rd_actuals' = List.map (expr loc env fmt) rd_actuals in
+      let rd_actuals'' = List.map fst rd_actuals' in
+      let rd_formal_env = mk_formal_env rd_ty rd_actuals'' in
+      check_actuals loc fmt rd_formal_env rd_ty rd_actuals'';
+      let rd_rets = func_call loc fmt rd rd_actuals' (mk_return_type rd_ty) in
+      assert (List.length rd_rets = 1);
+
+      (* todo: shouldn't we be using rd_rets??? *)
+
+      let wr_ty = Identset.Bindings.find wr !funtypes in
+      assert (wr_ty.throws = NoThrow);
+      let wr_actuals' = rd_actuals' @ [rhs] in
+      let wr_actuals'' = List.map fst wr_actuals' in
+      let wr_formal_env = mk_formal_env wr_ty wr_actuals'' in
+      check_actuals loc fmt wr_formal_env wr_ty wr_actuals'';
+      let wr_rets = func_call loc fmt wr wr_actuals' (mk_return_type wr_ty) in
+      assert (List.is_empty wr_rets)
 
   | LExpr_Tuple ls ->
       let rtys = Isa_utils.tupleTypes (snd rhs) in
