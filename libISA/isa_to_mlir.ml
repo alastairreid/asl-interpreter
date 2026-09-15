@@ -978,20 +978,9 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       let aref = memref_get_global_array loc fmt v sz elty in
       (memref_load_array loc fmt aref ix'' sz elty, elty)
 
-  | Expr_Slices (Type_Integer _, e, [Slice_Single i]) ->
+  | Expr_Slices (Type_Integer _, e, [s]) ->
+      let (lo, wd) = slice s in
       let (e', _) = expr loc env fmt e in
-      let (i', _) = expr loc env fmt i in
-      let wd' = bigint_constant fmt Z.one in
-      with_fresh_typed (type_bits one) (fun t ->
-        PP.fprintf fmt "%a = func.call @Std$Integer$Slice(%a, %a, %a) : (!Std$Integer, !Std$Integer, !Std$Integer) -> !Std$Bits@,"
-          varident t
-          varident e'
-          varident i'
-          varident wd'
-      )
-
-  | Expr_Slices (Type_Integer _, e, [Slice_LoWd (lo, wd)]) ->
-      let (e',  _) = expr loc env fmt e in
       let (lo', _) = expr loc env fmt lo in
       let (wd', _) = expr loc env fmt wd in
       with_fresh_typed (type_bits wd) (fun t ->
@@ -1002,6 +991,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
           varident wd'
       )
 
+  | Expr_Slices (Type_Constructor _, e, ss)
   | Expr_Slices (Type_Bits _, e, ss) ->
       let (e', _) = expr loc env fmt e in
       slices loc env fmt e' ss
