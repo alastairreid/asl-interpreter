@@ -1027,12 +1027,13 @@ let rec expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.exp
       let formal_env = mk_formal_env fty (List.map fst actuals') in
       check_actuals loc fmt formal_env fty (List.map fst actuals');
       let rets = func_call loc fmt f actuals' (mk_return_type fty) in
-      assert (List.length rets = 1);
+      let (_, rets') = exception_propagate loc fmt fty.throws rets in
+      assert (List.length rets' = 1);
       if !type_checks then begin
-        let ensures = check_type loc formal_env fmt (fst (List.hd rets)) fty.rty in
+        let ensures = check_type loc formal_env fmt (fst (List.hd rets')) fty.rty in
         Option.iter (type_assume fmt) ensures
       end;
-      List.hd rets
+      List.hd rets'
 
   | Expr_If ([], e) ->
       expr loc env fmt e
@@ -1299,7 +1300,7 @@ and set_slice (loc : Loc.t) (env : environment) (fmt : PP.formatter) (rty : AST.
  * generated will be the same.)
  ****************************************************************)
 
-let rec mk_uninitialized (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : Ident.t =
+and mk_uninitialized (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : Ident.t =
   ( match x with
   | Type_Bits (e, _) -> bv_zero fmt (fst (expr loc (ScopeStack.empty ()) fmt e))
   | Type_Constructor (tc, []) when Ident.equal tc Builtin_idents.boolean_ident -> bool_constant fmt false
@@ -1314,7 +1315,50 @@ let rec mk_uninitialized (loc : Loc.t) (fmt : PP.formatter) (x : AST.ty) : Ident
       raise (Error.Unimplemented (loc, "mk_uninitialized", pp))
   )
 
-let mk_exception_constructor (loc : Loc.t) (fmt : PP.formatter)
+and exception_throw (loc : Loc.t) (fmt : PP.formatter) (e : (Ident.t * AST.ty)) : unit =
+  cf_br loc fmt (List.hd !throw_labels) [e]
+
+and raw_exception_propagate (loc : Loc.t) (fmt : PP.formatter) (exc : (Ident.t * AST.ty)) : unit =
+  let l_no_exception = labels#fresh in
+  let l_exception = List.hd !throw_labels in
+
+  let tag = func_call1 loc fmt (record_field_get exception_tc tag_ident) [exc] tag_type in
+  let tag_width = !exception_tag_width in
+  let zero_tag = arith_constant fmt Z.zero tag_width in
+  let tag_match = arith_int_cmp fmt "eq" tag_width tag zero_tag in
+
+  PP.fprintf fmt "cf.cond_br %a, %a, %a(%a)@,"
+    varident tag_match
+    label l_no_exception
+    label l_exception
+    (varty loc) exc;
+  PP.fprintf fmt "%a:@," label l_no_exception
+
+and exception_propagate (loc : Loc.t) (fmt : PP.formatter) (throws : AST.can_throw) (rets : (Ident.t * AST.ty) list) : (bool * (Ident.t * AST.ty) list) =
+  ( match throws with
+  | NoThrow ->
+      (false, rets)
+  | MayThrow ->
+      ( match rets with
+      | (exc :: rets') ->
+          raw_exception_propagate loc fmt exc;
+          (false, rets')
+      | _ ->
+          let pp fmt = commasep (varty loc) fmt rets in
+          raise (Error.Unimplemented (loc, "exception_propagate1", pp))
+      )
+  | AlwaysThrow ->
+      ( match rets with
+      | [exc] ->
+          exception_throw loc fmt exc;
+          (true, [])
+      | _ ->
+          let pp fmt = commasep (varty loc) fmt rets in
+          raise (Error.Unimplemented (loc, "exception_propagate2", pp))
+      )
+  )
+
+and mk_exception_constructor (loc : Loc.t) (fmt : PP.formatter)
     (tc : Ident.t) (tfs : (Ident.t * AST.ty) list)
     (tag_field : (Ident.t * AST.ty))
     (tag : int) (tag_width : int)
@@ -1343,7 +1387,7 @@ let mk_exception_constructor (loc : Loc.t) (fmt : PP.formatter)
   PP.fprintf fmt "@,}@,@,"
 
 (* Note: this depends on the tag being zero which is the default uninitialized value *)
-let mk_null_exception (loc : Loc.t) (fmt : Format.formatter) (ts : AST.ty list) : (Ident.t * AST.ty) =
+and mk_null_exception (loc : Loc.t) (fmt : Format.formatter) (ts : AST.ty list) : (Ident.t * AST.ty) =
   let tfs' = List.map (fun t -> (mk_uninitialized loc fmt t, t)) ts in
   tuple_pack loc fmt tfs'
 
@@ -1401,26 +1445,6 @@ let generate_sum_of_products (fmt : Format.formatter)
     PP.fprintf fmt "@,"
   ) entries
 
-let exception_throw (loc : Loc.t) (fmt : PP.formatter) (e : (Ident.t * AST.ty)) : unit =
-  cf_br loc fmt (List.hd !throw_labels) [e]
-
-let exception_propagate (loc : Loc.t) (fmt : PP.formatter) (exc : Ident.t) : unit =
-  let l_no_exception = labels#fresh in
-  let l_exception = List.hd !throw_labels in
-
-  let tag = func_call1 loc fmt (record_field_get exception_tc tag_ident) [(exc, exception_ty)] tag_type in
-  let tag_width = !exception_tag_width in
-  let zero_tag = arith_constant fmt Z.zero tag_width in
-  let tag_match = arith_int_cmp fmt "eq" tag_width tag zero_tag in
-
-  PP.fprintf fmt "cf.cond_br %a, %a, %a(%a)@,"
-    varident tag_match
-    label l_no_exception
-    label l_exception
-    varident exc;
-  PP.fprintf fmt "%a:@," label l_no_exception
-
-
 (****************************************************************
  * Statements
  ****************************************************************)
@@ -1471,13 +1495,9 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       let formal_env = mk_formal_env fty actuals'' in
       check_actuals loc fmt formal_env fty actuals'';
       let rets = func_call loc fmt f actuals' (mk_return_type fty) in
-      ignore rets;
-      (*
-      if fty.throws <> NoThrow then begin
-        (* todo: exceptions *)
-      end;
-      *)
-      false
+      let (term, rets') = exception_propagate loc fmt fty.throws rets in
+      assert (List.is_empty rets');
+      term
 
   | Stmt_Block (ss, loc) ->
       block env fmt ss
@@ -1830,8 +1850,9 @@ and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lex
       let formal_env = mk_formal_env fty actuals'' in
       check_actuals loc fmt formal_env fty actuals'';
       let rets = func_call loc fmt f actuals' (mk_return_type fty) in
-      ignore rets;
-      (* todo: exceptions *)
+      let (term, rets') = exception_propagate loc fmt fty.throws rets in
+      assert (not term);
+      assert (List.is_empty rets')
 
   | _ ->
       let pp fmt = FMT.lexpr fmt lhs in

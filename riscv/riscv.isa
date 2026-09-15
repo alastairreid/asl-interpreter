@@ -596,31 +596,31 @@ end
 function Report_Undefined!()
 begin
     Unimplemented_Feature("Report_Undefined");
-    // throw ExceptionTaken;
+    throw ExceptionTaken;
 end
 
 function Memory_Fence_TSO!()
 begin
     Unimplemented_Feature("Memory_Fence_TSO");
-    // throw ExceptionTaken;
+    throw ExceptionTaken;
 end
 
 function Pause_Execution!()
 begin
     Unimplemented_Feature("Pause_Execution");
-    // throw ExceptionTaken;
+    throw ExceptionTaken;
 end
 
 function Environment_Call!()
 begin
     Unimplemented_Feature("Environment_Call");
-    // throw ExceptionTaken;
+    throw ExceptionTaken;
 end
 
 function Environment_Break!()
 begin
     Unimplemented_Feature("Environment_Break");
-    // throw ExceptionTaken;
+    throw ExceptionTaken;
 end
 
 /////////////////////////////////////////////////////////////////
