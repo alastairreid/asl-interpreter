@@ -2033,9 +2033,9 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
           labels#reset;
           can_throw := fty.throws <> NoThrow;
           let env : environment = ScopeStack.empty () in
-          List.iter (fun (v, oty) -> ScopeStack.add env v (Some v, false, Option.get oty)) fty.parameters;
-          List.iter (fun (v, ty, _) -> ScopeStack.add env v (Some v, false, ty)) fty.args;
-          Option.iter (fun (v, ty) -> ScopeStack.add env v (Some v, false, ty)) fty.setter_arg;
+          List.iter (fun (v, oty) -> ScopeStack.add env v (Some v, true, Option.get oty)) fty.parameters;
+          List.iter (fun (v, ty, _) -> ScopeStack.add env v (Some v, true, ty)) fty.args;
+          Option.iter (fun (v, ty) -> ScopeStack.add env v (Some v, true, ty)) fty.setter_arg;
           PP.fprintf fmt "@,func.func @%a(%a) -> %a {@,"
             ident f
             (formal_args_decls loc) fty
