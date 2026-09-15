@@ -2047,13 +2047,28 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
           memref_global_scalar loc fmt v ty
       | Decl_Const (v, Some ty, e, loc) -> (* todo: don't treat this like a variable! *)
           memref_global_scalar loc fmt v ty
-      | Decl_Exception _
+      | Decl_Typedef (tc, [], t, loc) ->
+          mk_uninitialized_function loc fmt tc t;
+          mk_unspecified_function loc fmt tc t
+      | Decl_Record (rtc, [], fs, loc) ->
+          mk_record_constructor loc fmt rtc fs;
+          List.iter (fun (v, t) ->
+            mk_record_get loc fmt rtc fs v t;
+            mk_record_set loc fmt rtc fs v t
+            )
+            fs;
+          PP.fprintf fmt "@,"
+
+      | Decl_Record _
       | Decl_Typedef _
       | Decl_Enum _
+      | Decl_Exception _
       | Decl_FunInstance _
       | Decl_FunFFI _
       | Decl_VarFFI _
       | Decl_TypeFFI _
+      -> ()
+
       | _ ->
           ( match Isa_utils.decl_name x with
           | Some nm -> PP.fprintf fmt "// skipping %a@," ident nm
@@ -2084,9 +2099,9 @@ let _ =
   let opt_filename = ref "" in
   let cmd (tcenv : Tcheck.Env.t) (cpu : Cpu.cpu) : bool =
     Utils.to_file !opt_filename (fun fmt ->
-      let decls = !Commands.declarations in
+      let decls = List.rev !Commands.declarations in
 
-      (* record function types, variable types *)
+      (* declare types *)
       List.iter (fun d ->
         ( match d with
         | AST.Decl_FunType (f, fty, _)
@@ -2098,10 +2113,21 @@ let _ =
         -> global_vartypes := Identset.Bindings.add v ty !global_vartypes
         | AST.Decl_Config (v, ty, e, loc) (* todo: don't treat this like a variable! *)
         -> global_vartypes := Identset.Bindings.add v ty !global_vartypes
+        | AST.Decl_Record (rtc, [], fs, loc) ->
+            fieldtypes := Identset.Bindings.add rtc fs !fieldtypes;
+            mk_record_type loc fmt rtc fs;
+        | AST.Decl_Enum (tc, es, loc) ->
+            mk_enum_type loc fmt tc es
+        | AST.Decl_Typedef (tc, [], t, loc) ->
+            PP.fprintf fmt "@,!%a = %a@,"
+              ident tc
+              (pp_type loc) t
+
         | _ -> ()
         )
       ) decls;
 
+      (* declare standard library functions *)
       Identset.IdentSet.iter (fun f -> 
         ( match Identset.Bindings.find_opt f !funtypes with
         | None -> ()
@@ -2114,32 +2140,6 @@ let _ =
         )
       ) standard_functions;
 
-      (* declare records and enumerations *)
-      List.iter (fun d ->
-        ( match d with
-        | AST.Decl_Record (rtc, [], fs, loc) ->
-            fieldtypes := Identset.Bindings.add rtc fs !fieldtypes;
-            mk_record_type loc fmt rtc fs;
-            mk_record_constructor loc fmt rtc fs;
-            List.iter (fun (v, t) ->
-              mk_record_get loc fmt rtc fs v t;
-              mk_record_set loc fmt rtc fs v t
-              )
-              fs;
-            PP.fprintf fmt "@,"
-        | AST.Decl_Enum (tc, es, loc) ->
-            mk_enum_type loc fmt tc es
-        | AST.Decl_Typedef (tc, [], t, loc) ->
-            PP.fprintf fmt "@,!%a = %a@,"
-              ident tc
-              (pp_type loc) t;
-            mk_uninitialized_function loc fmt tc t;
-            mk_unspecified_function loc fmt tc t
-
-        | _ -> ()
-        )
-      ) decls;
-
       let exceptions = List.filter_map (fun d ->
           ( match d with
           | AST.Decl_Exception (tc, fs, loc) -> Some((tc, fs, loc))
@@ -2150,7 +2150,7 @@ let _ =
       in
       generate_sum_of_products fmt exception_tc exceptions;
 
-      declarations fmt (List.rev decls)
+      declarations fmt decls
     );
     true
   in
