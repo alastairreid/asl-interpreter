@@ -899,42 +899,53 @@ let mk_record_set (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs : (Iden
  * Patterns
  ****************************************************************)
 
-let rec pattern (loc : Loc.t) (env : environment) (fmt : PP.formatter) (p : AST.pattern) (discriminant : Ident.t) : Ident.t =
+let rec pattern (loc : Loc.t) (env : environment) (fmt : PP.formatter) (p : AST.pattern) (discriminant : (Ident.t * AST.ty)) : Ident.t =
   ( match p with
+  | Pat_Wildcard ->
+      bool_constant fmt true
   | Pat_Lit (VBits v) ->
       let v' = bitvector_constant fmt v in
       let sz = bigint_constant fmt (Z.of_int v.n) in
-      bv_eq fmt sz v' discriminant
+      bv_eq fmt sz v' (fst discriminant)
   | Pat_Lit (VBool v) ->
       let v' = bool_constant fmt v in
-      bool_eq fmt v' discriminant
+      bool_eq fmt v' (fst discriminant)
   | Pat_Lit (VMask mask) ->
       let (v, m) = Primops.prim_mask_to_bits mask in
       let v' = bitvector_constant fmt v in
       let m' = bitvector_constant fmt m in
       let sz = bigint_constant fmt (Z.of_int v.n) in
-      let masked' = bv_and fmt sz discriminant m' in
+      let masked' = bv_and fmt sz (fst discriminant) m' in
       bv_eq fmt sz masked' v'
   | Pat_Lit (VInt v) ->
       let v' = bigint_constant fmt v in
-      int_eq fmt v' discriminant
+      int_eq fmt v' (fst discriminant)
   | Pat_Const e
   | Pat_Lit (VEnum (e, _)) ->
       let (tc, tag, width) = Identset.Bindings.find e !enum_constants in
       let v' = arith_constant fmt (Z.of_int tag) width in
-      arith_int_cmp fmt "eq" width v' discriminant
+      arith_int_cmp fmt "eq" width v' (fst discriminant)
   | Pat_Range (lo, hi) ->
       let lo' = expr loc env fmt lo in
       let hi' = expr loc env fmt hi in
-      let c1 = int_le fmt (fst lo') discriminant in
-      let c2 = int_le fmt discriminant (fst hi') in
+      let c1 = int_le fmt (fst lo') (fst discriminant) in
+      let c2 = int_le fmt (fst discriminant) (fst hi') in
       bool_or fmt c1 c2
+  | Pat_Single e ->
+      let e' = expr loc env fmt e in
+      mk_eq loc env fmt e' discriminant
   | Pat_Set ps ->
       patterns loc env fmt ps discriminant
-  | _ -> raise (InternalError (loc, "pattern", (fun fmt -> FMT.pattern fmt p), __LOC__))
+  | Pat_Tuple ps ->
+      let ts = Isa_utils.tupleTypes (snd discriminant) in
+      assert (List.length ps = List.length ts);
+      let discriminants = tuple_unpack loc fmt (fst discriminant) ts in
+      let cs = List.map2 (pattern loc env fmt) ps discriminants in
+      List.fold_left (bool_and fmt) (bool_constant fmt true) cs
+  | Pat_Lit _ -> raise (InternalError (loc, "pattern", (fun fmt -> FMT.pattern fmt p), __LOC__))
   )
 
-and patterns (loc : Loc.t) (env : environment) (fmt : PP.formatter) (ps : AST.pattern list) (discriminant : Ident.t) : Ident.t =
+and patterns (loc : Loc.t) (env : environment) (fmt : PP.formatter) (ps : AST.pattern list) (discriminant : (Ident.t * AST.ty)) : Ident.t =
   ( match ps with
   | [] -> bool_constant fmt false
   | [p] -> pattern loc env fmt p discriminant
@@ -948,6 +959,19 @@ and patterns (loc : Loc.t) (env : environment) (fmt : PP.formatter) (ps : AST.pa
           varident qs'
       )
   )
+
+and mk_eq (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : (Ident.t * AST.ty)) (y : (Ident.t * AST.ty)) : Ident.t =
+  ( match snd x with
+  | Type_Bits (sz, _) -> bv_eq fmt (fst (expr loc env fmt sz)) (fst x) (fst y)
+  | Type_Integer _ -> int_eq fmt (fst x) (fst y)
+  | Type_Constructor (tc, []) when Identset.Bindings.mem tc !enum_types ->
+      let (_, width) = Identset.Bindings.find tc !enum_types in
+      arith_int_cmp fmt "eq" width (fst x) (fst y)
+  | _ ->
+      let pp fmt = FMT.ty fmt (snd x) in
+      raise (Error.Unimplemented (loc, "mk_eq", pp))
+  )
+
 
 (****************************************************************
  * Expressions
@@ -1083,7 +1107,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       expr loc env fmt e
 
   | Expr_In (e, p) ->
-      let (e', _) = expr loc env fmt e in
+      let e' = expr loc env fmt e in
       (pattern loc env fmt p e', type_bool)
 
   | Expr_Let (v, t, e1, e2) ->
@@ -1582,7 +1606,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       let l_false = labels#fresh in
       let l_end   = labels#fresh in
 
-      let (e', _) = expr loc env fmt e in
+      let e' = expr loc env fmt e in
       let c = patterns loc env fmt ps e' in
 
       let mutables = get_mutables env in
