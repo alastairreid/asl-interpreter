@@ -1121,7 +1121,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
   | Expr_Field (e, f) ->
       let e' = expr loc env fmt e in
       let rtc = ( match snd e' with
-                | Type_Constructor (rtc, []) -> rtc
+                | Type_Constructor (rtc, _) -> rtc
                 | _ ->
                     raise (InternalError (Loc.Unknown, "isa_to_mlir.expr_field", (fun fmt -> FMT.ty fmt (snd e')), __LOC__))
                 )
@@ -1141,13 +1141,14 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
         cs;
       (!acc, record_ty)
 
-  | Expr_Record (rtc, [], fas) ->
+  | Expr_Record (rtc, ps, fas) ->
       (* Note: the typechecker has checked that all fields are present and in the same
        * order as the record declaration
        *)
+      let ps' = List.map (fun (_, e) -> expr loc env fmt e) ps in
       let fas' = List.map (fun (f, e) -> expr loc env fmt e) fas in
-      let rty = AST.Type_Constructor (rtc, []) in
-      let r = func_call1 loc fmt (record_constructor rtc) fas' rty in
+      let rty = AST.Type_Constructor (rtc, List.map snd ps) in
+      let r = func_call1 loc fmt (record_constructor rtc) (ps' @ fas') rty in
       (r, rty)
 
   | Expr_Tuple es ->
@@ -1603,13 +1604,15 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       true
   | Stmt_Case (e, oty, [], Some (d, dloc), loc) ->
       block env fmt d
-  | Stmt_Case (e, oty, Alt_Alt (ps, None, b, loc)::alts, deflt, case_loc) ->
+  | Stmt_Case (e, oty, Alt_Alt (ps, oguard, b, loc)::alts, deflt, case_loc) ->
       let l_true  = labels#fresh in
       let l_false = labels#fresh in
       let l_end   = labels#fresh in
 
       let e' = expr loc env fmt e in
       let c = patterns loc env fmt ps e' in
+      let guard = Option.fold ~none:(bool_constant fmt true, type_bool) ~some:(expr loc env fmt) oguard in
+      let c' = bool_and fmt c (fst guard) in
 
       let mutables = get_mutables env in
       let renames = List.map (fun (v, init, t) -> (v, init, locals#fresh, locals#fresh, t)) mutables in
@@ -1621,7 +1624,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       let true_tgt_vars = List.map (fun (v, curr, t, f, ty) -> (t, ty)) renames in
       let false_tgt_vars = List.map (fun (v, curr, t, f, ty) -> (f, ty)) renames in
 
-      cf_cond_br loc fmt c l_true src_vars l_false src_vars;
+      cf_cond_br loc fmt c' l_true src_vars l_false src_vars;
 
       branch_label loc fmt l_true true_tgt_vars;
       let term_t = block env_true fmt b in
@@ -1872,7 +1875,7 @@ and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lex
       let old = Option.get (lexpr_to_expr l) in
       let (old', rty) = expr loc env fmt old in
       let rtc = ( match rty with
-                | Type_Constructor (rtc, []) -> rtc
+                | Type_Constructor (rtc, _) -> rtc
                 | _ ->
                   raise (InternalError (Loc.Unknown, "isa_to_mlir.lexpr_field", (fun fmt -> FMT.ty fmt rty), __LOC__))
                 )
@@ -2050,16 +2053,17 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
       | Decl_Typedef (tc, [], t, loc) ->
           mk_uninitialized_function loc fmt tc t;
           mk_unspecified_function loc fmt tc t
-      | Decl_Record (rtc, [], fs, loc) ->
-          mk_record_constructor loc fmt rtc fs;
+      | Decl_Record (rtc, ps, fs, loc) ->
+          let ps' = List.map (fun p -> (p, type_integer)) ps in
+          let fs' = ps' @ fs in
+          mk_record_constructor loc fmt rtc fs';
           List.iter (fun (v, t) ->
-            mk_record_get loc fmt rtc fs v t;
-            mk_record_set loc fmt rtc fs v t
+            mk_record_get loc fmt rtc fs' v t;
+            mk_record_set loc fmt rtc fs' v t
             )
-            fs;
+            fs';
           PP.fprintf fmt "@,"
 
-      | Decl_Record _
       | Decl_Typedef _
       | Decl_Enum _
       | Decl_Exception _
@@ -2113,8 +2117,9 @@ let _ =
         -> global_vartypes := Identset.Bindings.add v ty !global_vartypes
         | AST.Decl_Config (v, ty, e, loc) (* todo: don't treat this like a variable! *)
         -> global_vartypes := Identset.Bindings.add v ty !global_vartypes
-        | AST.Decl_Record (rtc, [], fs, loc) ->
-            fieldtypes := Identset.Bindings.add rtc fs !fieldtypes;
+        | AST.Decl_Record (rtc, ps, fs, loc) ->
+            let ps' = List.map (fun p -> (p, type_integer)) ps in
+            fieldtypes := Identset.Bindings.add rtc (ps' @ fs) !fieldtypes;
             mk_record_type loc fmt rtc fs;
         | AST.Decl_Enum (tc, es, loc) ->
             mk_enum_type loc fmt tc es
