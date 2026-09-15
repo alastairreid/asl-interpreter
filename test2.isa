@@ -74,7 +74,7 @@ begin
     return e.z;
 end
 
-function Exception(x : Integer) -> Integer
+function Exception1(x : Integer) -> Integer
 begin
     // Test throwing and catching an exception within the same function
     // (Obviously, this is not the main use-case - but it is a useful test.)
@@ -85,4 +85,18 @@ begin
       otherwise => return 0;
     endtry;
     return x+2;
+end
+
+function Exception2!(x : Integer)
+begin
+    throw E2{z => x+1};
+end
+
+function Exception3?(x : Integer) -> Integer
+begin
+    if x > 0 then
+        return 0;
+    else
+        Exception2!(x);
+    endif;
 end

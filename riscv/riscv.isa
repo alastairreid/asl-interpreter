@@ -738,7 +738,7 @@ begin
         when {256 .. 256+31} => return Zero_Extend(X[index - 256], 64);
         otherwise => Unimplemented_Feature("ISA_Tool::Read_Register_64"); return Zero(64);
     endcase;
-    return Zero_Extend(PC, 64);
+    // return Zero_Extend(PC, 64);
 end
 
 // Write a register identified by an index.

@@ -1888,10 +1888,10 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
             (formal_args_decls loc) fty
             (pp_return_type loc) (mk_return_type fty);
 
-          throw_labels := if !can_throw then [labels#fresh] else [];
+          let throw_label = labels#fresh in
+          throw_labels := if !can_throw then [throw_label] else [];
           return_label := labels#fresh;
           return_types := Isa_utils.tupleTypes fty.rty;
-          let return_vars = List.map (fun ty -> (locals#fresh, ty)) !return_types in
           indented fmt (fun _ ->
             if !type_checks then begin
                 List.iter (fun (v, t) ->
@@ -1902,16 +1902,48 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
             end;
             let term = block env fmt b in
             if not term then begin
-              assert (List.is_empty return_vars);
-              cf_br loc fmt !return_label []
+              if List.is_empty !return_types then begin
+                cf_br loc fmt !return_label []
+              end else begin
+                cf_halt fmt "missing return statement"
+              end
             end
           );
 
-          branch_label loc fmt !return_label return_vars;
-          indented fmt (fun _ ->
-            let rets = if !can_throw then mk_null_exception loc fmt !exception_fields :: return_vars else return_vars in
-            func_return loc fmt rets
-          );
+          if !can_throw then begin
+
+            let final_return_label = labels#fresh in
+            let final_return_vars = List.map (fun ty -> (locals#fresh, ty)) (exception_ty :: !return_types) in
+            let return_vars = List.map (fun ty -> (locals#fresh, ty)) !return_types in
+
+            let exc = (locals#fresh, exception_ty) in
+            branch_label loc fmt throw_label [exc];
+            indented fmt (fun _ ->
+              let null_returns = List.map (fun t -> (mk_uninitialized loc fmt t, t)) !return_types in
+              cf_br loc fmt final_return_label (exc :: null_returns)
+            );
+
+            branch_label loc fmt !return_label return_vars;
+            indented fmt (fun _ ->
+              let null_exc = mk_null_exception loc fmt !exception_fields in
+              cf_br loc fmt final_return_label (null_exc :: return_vars);
+            );
+
+            branch_label loc fmt final_return_label final_return_vars;
+            indented fmt (fun _ ->
+              func_return loc fmt final_return_vars
+            )
+
+          end else begin
+
+            let return_vars = List.map (fun ty -> (locals#fresh, ty)) !return_types in
+            branch_label loc fmt !return_label return_vars;
+            indented fmt (fun _ ->
+              func_return loc fmt return_vars
+            )
+
+          end;
+
           PP.fprintf fmt "@,}@,"
       | Decl_Var (v, Type_Array (Index_Int (Expr_Lit (VInt sz)), elty), loc) ->
           memref_global_array loc fmt v sz elty
