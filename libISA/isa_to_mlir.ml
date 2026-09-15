@@ -787,22 +787,22 @@ let memref_get_global_array (loc : Loc.t) (fmt : PP.formatter) (v : Ident.t) (sz
       (pp_type loc) ty
   )
 
-let memref_load_array (loc : Loc.t) (fmt : PP.formatter) (aref : Ident.t) (ix : Ident.t) (sz : Z.t) (ty : AST.ty) : Ident.t =
+let memref_load_array (loc : Loc.t) (fmt : PP.formatter) (aref : Ident.t) (ix : Ident.t) (sz : Z.t option) (ty : AST.ty) : Ident.t =
   with_fresh (fun t ->
     PP.fprintf fmt "%a = memref.load %a[%a] : memref<%s x %a>@,"
       varident t
       varident aref
       varident ix
-      (Z.to_string sz)
+      (Option.fold ~none:"?" ~some:Z.to_string sz)
       (pp_type loc) ty
   )
 
-let memref_store_array (loc : Loc.t) (fmt : PP.formatter) (aref : Ident.t) (ix : Ident.t) (x : Ident.t) (sz : Z.t) (ty : AST.ty) : unit =
+let memref_store_array (loc : Loc.t) (fmt : PP.formatter) (aref : Ident.t) (ix : Ident.t) (x : Ident.t) (sz : Z.t option) (ty : AST.ty) : unit =
   PP.fprintf fmt "memref.store %a, %a[%a] : memref<%s x %a>@,"
     varident x
     varident aref
     varident ix
-    (Z.to_string sz)
+    (Option.fold ~none:"?" ~some:Z.to_string sz)
     (pp_type loc) ty
 
 let tuple_pack (loc : Loc.t) (fmt : PP.formatter) (es : (Ident.t * AST.ty) list) : (Ident.t * AST.ty) =
@@ -934,8 +934,14 @@ let rec pattern (loc : Loc.t) (env : environment) (fmt : PP.formatter) (p : AST.
   | Pat_Lit (VInt v) ->
       let v' = bigint_constant fmt v in
       int_eq fmt v' (fst discriminant)
+  | Pat_Const v when Identset.Bindings.mem v !global_vartypes ->
+      (* todo: this should be a constant *)
+      let ty = Identset.Bindings.find v !global_vartypes in
+      let ref = memref_get_global_scalar loc fmt v ty in
+      let v' = (memref_load_scalar loc fmt ref ty, ty) in
+      mk_eq loc env fmt v' discriminant
   | Pat_Const e
-  | Pat_Lit (VEnum (e, _)) ->
+  | Pat_Lit (VEnum (e, _)) when Identset.Bindings.mem e !enum_constants ->
       let (tc, tag, width) = Identset.Bindings.find e !enum_constants in
       let v' = arith_constant fmt (Z.of_int tag) width in
       arith_int_cmp fmt "eq" width v' (fst discriminant)
@@ -956,7 +962,7 @@ let rec pattern (loc : Loc.t) (env : environment) (fmt : PP.formatter) (p : AST.
       let discriminants = tuple_unpack loc fmt (fst discriminant) ts in
       let cs = List.map2 (pattern loc env fmt) ps discriminants in
       List.fold_left (bool_and fmt) (bool_constant fmt true) cs
-  | Pat_Lit _ -> raise (InternalError (loc, "pattern", (fun fmt -> FMT.pattern fmt p), __LOC__))
+  | _ -> raise (InternalError (loc, "pattern", (fun fmt -> FMT.pattern fmt p), __LOC__))
   )
 
 and patterns (loc : Loc.t) (env : environment) (fmt : PP.formatter) (ps : AST.pattern list) (discriminant : (Ident.t * AST.ty)) : Ident.t =
@@ -1027,19 +1033,19 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       let (ix', _) = expr loc env fmt ix in
       let ix'' = to_index fmt ix' in
       let aref = memref_get_global_array loc fmt v sz elty in
-      (memref_load_array loc fmt aref ix'' sz elty, elty)
+      (memref_load_array loc fmt aref ix'' (Some sz) elty, elty)
 
   | Expr_Array(Expr_Var v, ix) when ScopeStack.mem env v ->
       let (aref, ty) = get_var loc env v in
-      let (sz, elty) = ( match ty with
-                       | Type_Array (Index_Int (Expr_Lit (VInt sz)), elty) -> (sz, elty)
-                       | _ -> let pp fmt = FMT.ty fmt ty in
-                              raise (Error.Unimplemented (loc, "Expr_Array local", pp))
-                       )
+      let elty = ( match ty with
+                 | Type_Array (_, elty) -> elty
+                 | _ -> let pp fmt = FMT.ty fmt ty in
+                        raise (Error.Unimplemented (loc, "Expr_Array local", pp))
+                 )
       in
       let (ix', _) = expr loc env fmt ix in
       let ix'' = to_index fmt ix' in
-      (memref_load_array loc fmt aref ix'' sz elty, elty)
+      (memref_load_array loc fmt aref ix'' None elty, elty)
 
   | Expr_Slices (Type_Integer _, e, [s]) ->
       let (lo, wd) = slice s in
@@ -1277,7 +1283,7 @@ and apply_change (loc : Loc.t) (env : environment) (fmt : PP.formatter) (rty : A
   ( match c with
   | Change_Field f ->
       let rtc = ( match rty with
-                | Type_Constructor (tc, []) -> tc
+                | Type_Constructor (tc, _) -> tc
                 | _ ->
                     let pp fmt = FMT.ty fmt rty in
                     raise (Error.Unimplemented (loc, "apply_change", pp))
@@ -1937,19 +1943,19 @@ and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lex
       let (ix', _) = expr loc env fmt ix in
       let ix'' = to_index fmt ix' in
       let aref = memref_get_global_array loc fmt v sz elty in
-      memref_store_array loc fmt aref ix'' (fst rhs) sz elty
+      memref_store_array loc fmt aref ix'' (fst rhs) (Some sz) elty
 
   | LExpr_Array (LExpr_Var v, ix) when ScopeStack.mem env v ->
       let (aref, ty) = get_var loc env v in
-      let (sz, elty) = ( match ty with
-                       | Type_Array (Index_Int (Expr_Lit (VInt sz)), elty) -> (sz, elty)
-                       | _ -> let pp fmt = FMT.ty fmt ty in
-                              raise (Error.Unimplemented (loc, "LExpr_Array local", pp))
-                       )
+      let elty = ( match ty with
+                 | Type_Array (_, elty) -> elty
+                 | _ -> let pp fmt = FMT.ty fmt ty in
+                        raise (Error.Unimplemented (loc, "LExpr_Array local", pp))
+                 )
       in
       let (ix', _) = expr loc env fmt ix in
       let ix'' = to_index fmt ix' in
-      memref_store_array loc fmt aref ix'' (fst rhs) sz elty
+      memref_store_array loc fmt aref ix'' (fst rhs) None elty
 
   | LExpr_Write (f, tes, args, throws) ->
       let fty = Identset.Bindings.find f !funtypes in
