@@ -84,6 +84,8 @@ func.func private @Std$Bits$Shift_Left_Logical_Restricted(%size : !Std$Integer, 
 
 func.func private @Std$Integer$Slice(%x : !Std$Integer, %ix : !Std$Integer, %size : !Std$Integer) -> !Std$Bits
 
+func.func private @Std$Bits$SetSlice(%x : !Std$Bits, %ix : !Std$Integer, %size : !Std$Integer, %y : !Std$Bits) -> !Std$Bits
+
 func.func private @Std$Bits$Slice(%x : !Std$Bits, %ix : !Std$Integer, %size : !Std$Integer) -> !Std$Bits {
   %0 = arith.extsi %size : !Std$Integer to !Std$Bits
   %1 = arith.shrui %x, %0 : !Std$Bits
