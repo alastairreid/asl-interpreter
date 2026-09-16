@@ -10,7 +10,7 @@ iii_opts+=" --check-exception-markers"
 iii_opts+=" --check-call-markers"
 
 echo Generating MLIR
-_build/install/default/bin/iii ${iii_opts} --exec=':to_mlir --typecheck --output-file t1.mlir' riscv/riscv.isa test2.isa
+_build/install/default/bin/iii ${iii_opts} --exec=':to_mlir --typecheck --debug-locations --output-file t1.mlir' riscv/riscv.isa test2.isa
 
 cat std.mlir t1.mlir > t2.mlir
 
@@ -20,6 +20,7 @@ mlir_opts=""
 # mlir_opts+=" --int-range-optimizations"
 mlir_opts+=" --canonicalize"
 mlir_opts+=" --allow-unregistered-dialect"
+mlir_opts+=" --mlir-print-debuginfo"
 
 echo Checking MLIR
 ../llvm-project/build/bin/mlir-opt ${mlir_opts} t2.mlir

@@ -29,6 +29,13 @@ open Format_utils
 open Utils
 
 (****************************************************************
+ * Control flags
+ ****************************************************************)
+
+let type_checks = ref false
+let debug_locations = ref false
+
+(****************************************************************
  * Utils (to move to utils module)
  ****************************************************************)
 
@@ -223,6 +230,66 @@ let unspecified_int = Ident.mk_ident "Internal$Unspecified$Integer"
 let unspecified_bits = Ident.mk_ident "Internal$Unspecified$Bits"
 
 (****************************************************************
+ * Debug locations
+ ****************************************************************)
+
+module Location = struct
+  type t = (string * int)
+
+  let compare (x : t) (y : t) : int =
+    Int.compare (snd x) (snd y)
+    <?> (String.compare, fst x, fst y)
+end
+
+module LocationMap = Map.Make (Location)
+
+let location_count : int ref = ref 0
+let location_map : int LocationMap.t ref = ref LocationMap.empty
+
+let add_location' (file : string) (line : int) : int =
+  let loc = (file, line) in
+  ( match LocationMap.find_opt loc !location_map with
+  | None ->
+      let i = !location_count + 1 in
+      location_map := LocationMap.add loc i !location_map;
+      location_count := i;
+      i
+  | Some i ->
+      i
+  )
+
+(* Add a location, return 0 if loc is unknown *)
+let add_location (loc : Loc.t) : int =
+  if !debug_locations then (
+    ( match loc with
+    | Range (p1, _) ->
+        if String.length p1.Lexing.pos_fname == 0 then
+          0
+        else
+          let file = p1.Lexing.pos_fname in
+          let line = p1.Lexing.pos_lnum in
+          add_location' file line
+    | _ ->
+        0
+    )
+  ) else (
+    0
+  )
+
+let loc_attr (fmt : PP.formatter) (loc : Loc.t) : unit =
+  ( match add_location loc with
+  | 0 -> ()
+  | i -> Format.fprintf fmt " loc(#loc%d)" i
+  )
+
+let dump_debug_locations (fmt : PP.formatter) : unit =
+  Format.fprintf fmt "@,@,";
+  LocationMap.iter (fun (file, line) i ->
+      Format.fprintf fmt "#loc%d = loc(\"%s:%d\")@," i file line
+    )
+    !location_map
+
+(****************************************************************
  * Types
  ****************************************************************)
 
@@ -283,7 +350,7 @@ let pp_environment (fmt : Format.formatter) (env : environment) : unit =
 let locals = new Isa_utils.nameSupply "%"
 let labels = new Isa_utils.nameSupply "^bb"
 
-let return_types = ref []
+let return_types : AST.ty list ref = ref []
 let return_label : Ident.t ref = ref labels#fresh
 let throw_labels : Ident.t list ref = ref []
 let can_throw : bool ref = ref false
@@ -370,6 +437,7 @@ let print_br_label (loc : Loc.t) (fmt : PP.formatter) (target : Ident.t) (args :
 let cf_br (loc : Loc.t) (fmt : PP.formatter) (target : Ident.t) (src_vars : var list) : unit =
   PP.fprintf fmt "cf.br ";
   print_br_label loc fmt target src_vars;
+  loc_attr fmt loc;
   PP.fprintf fmt "@,"
 
 (* Make an unconditional branch
@@ -396,31 +464,8 @@ let cf_cond_br (loc : Loc.t) (fmt : PP.formatter)
   print_br_label loc fmt target1 args1;
   PP.fprintf fmt ", ";
   print_br_label loc fmt target2 args2;
+  loc_attr fmt loc;
   PP.fprintf fmt "@,"
-
-let pp_yield_vars (fmt : PP.formatter) (rename : renaming) : unit =
-  if not (Utils.is_empty rename) then begin
-    let (vars, fresh_vars, types) = Utils.split3 rename in
-    PP.fprintf fmt "%a = "
-      (commasep varident) fresh_vars
-  end
-
-let pp_yield_type (loc : Loc.t) (fmt : PP.formatter) (rename : renaming) : unit =
-  if not (Utils.is_empty rename) then begin
-    let (vars, fresh_vars, types) = Utils.split3 rename in
-    PP.fprintf fmt "-> (%a) "
-      (commasep (pp_type loc)) types
-  end
-
-let pp_yield (loc : Loc.t) (env : environment) (fmt : PP.formatter) (keyword : string) (rename : renaming) : unit =
-  if not (Utils.is_empty rename) then begin
-    let (vars, fresh_vars, types) = Utils.split3 rename in
-    let vars' = List.map (get_mutbind loc env) vars in
-    PP.fprintf fmt "%s %a : %a@,"
-      keyword
-      (commasep varident) vars'
-      (commasep (pp_type loc)) types
-  end
 
 (****************************************************************
  * Functions
@@ -469,11 +514,12 @@ let with_fresh (f : Ident.t -> unit) : Ident.t =
   f v;
   v
 
-let to_index (fmt : PP.formatter) (x : Ident.t) : Ident.t =
+let to_index (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) : Ident.t =
   with_fresh (fun t ->
-    PP.fprintf fmt "%a = index.casts %a : !Std$Integer to index@,"
+    PP.fprintf fmt "%a = index.casts %a : !Std$Integer to index %a@,"
       varident t
       varident x
+      loc_attr loc
   )
 
 (****************************************************************
@@ -493,12 +539,13 @@ let func_header (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (args : (Ident.
 (* Special case of func_call that has only one return value *)
 let func_call1 (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (args : (Ident.t * AST.ty) list) (rty : AST.ty) : Ident.t =
   with_fresh (fun r ->
-    PP.fprintf fmt "%a = func.call @%a(%a) : (%a) -> %a@,"
+    PP.fprintf fmt "%a = func.call @%a(%a) : (%a) -> %a %a@,"
       varident r
       ident f
       (commasep (fun fmt (v, t) -> varident fmt v)) args
       (commasep (fun fmt (v, t) -> pp_type loc fmt t)) args
       (pp_type loc) rty
+      loc_attr loc
   )
 
 let func_call (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (args : (Ident.t * AST.ty) list) (rtys : AST.ty list) : (Ident.t * AST.ty) list =
@@ -507,11 +554,12 @@ let func_call (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (args : (Ident.t 
     PP.fprintf fmt "%a = "
       (commasep (fun fmt (v, t) -> varident fmt v)) rs
   end;
-  PP.fprintf fmt "func.call @%a(%a) : (%a) -> %a@,"
+  PP.fprintf fmt "func.call @%a(%a) : (%a) -> %a %a@,"
     ident f
     (commasep (fun fmt (v, t) -> varident fmt v)) args
     (commasep (fun fmt (v, t) -> pp_type loc fmt t)) args
-    (pp_return_type loc) rtys;
+    (pp_return_type loc) rtys
+    loc_attr loc;
   rs
 
 let mk_return_type (fty : AST.function_type) : AST.ty list =
@@ -521,71 +569,87 @@ let mk_return_type (fty : AST.function_type) : AST.ty list =
 
 let func_return (loc : Loc.t) (fmt : PP.formatter) (rs : (Ident.t * AST.ty) list) : unit =
   if List.is_empty rs then begin
-    PP.fprintf fmt "func.return@,"
+    PP.fprintf fmt "func.return %a@," loc_attr loc
   end else begin
-    PP.fprintf fmt "func.return %a : %a@,"
+    PP.fprintf fmt "func.return %a : %a %a@,"
       (commasep (fun fmt (v, t) -> varident fmt v)) rs
       (commasep (fun fmt (v, t) -> pp_type loc fmt t)) rs
+      loc_attr loc
   end
 
 (****************************************************************
  * Constants
  ****************************************************************)
 
-let arith_constant (fmt : PP.formatter) (x : Z.t) (width : int) : Ident.t =
+let arith_constant (loc : Loc.t) (fmt : PP.formatter) (x : Z.t) (width : int) : Ident.t =
   with_fresh (fun t ->
-    PP.fprintf fmt "%a = arith.constant %s : i%d@," varident t (Z.to_string x) width
+    PP.fprintf fmt "%a = arith.constant %s : i%d %a@,"
+      varident t
+      (Z.to_string x)
+      width
+      loc_attr loc
   )
 
-let bool_constant (fmt : PP.formatter) (x : bool) : Ident.t =
-  arith_constant fmt (if x then Z.one else Z.zero) 1
+let bool_constant (loc : Loc.t) (fmt : PP.formatter) (x : bool) : Ident.t =
+  arith_constant loc fmt (if x then Z.one else Z.zero) 1
 
-let bigint_constant (fmt : PP.formatter) (x : Z.t) : Ident.t =
+let bigint_constant (loc : Loc.t) (fmt : PP.formatter) (x : Z.t) : Ident.t =
   with_fresh (fun t ->
-    (* PP.fprintf fmt "%a = bigint.constant %s : !Std$Integer@," varident t (Z.to_string x) *)
-    PP.fprintf fmt "%a = arith.constant %s : !Std$Integer@," varident t (Z.to_string x)
+    (* PP.fprintf fmt "%a = bigint.constant %s : !Std$Integer %a@," varident t (Z.to_string x) loc_attr loc *)
+    PP.fprintf fmt "%a = arith.constant %s : !Std$Integer %a@,"
+      varident t
+      (Z.to_string x)
+      loc_attr loc
   )
 
-let bitvector_constant (fmt : PP.formatter) (x : Primops.bitvector) : Ident.t =
+let bitvector_constant (loc : Loc.t) (fmt : PP.formatter) (x : Primops.bitvector) : Ident.t =
   let sz = with_fresh (fun sz ->
-    PP.fprintf fmt "%a = arith.constant %d : !Std$Integer@," varident sz x.n
+    PP.fprintf fmt "%a = arith.constant %d : !Std$Integer %a@,"
+      varident sz
+      x.n
+      loc_attr loc
   ) in
   let c = with_fresh (fun c ->
-    PP.fprintf fmt "%a = arith.constant %s : i128@," varident c (Z.to_string x.v)
+    PP.fprintf fmt "%a = arith.constant %s : i128 %a@,"
+      varident c
+      (Z.to_string x.v)
+      loc_attr loc
   ) in
   with_fresh (fun r ->
-    PP.fprintf fmt "%a = func.call @Std$Bits$Constant(%a, %a) : (!Std$Integer, i128) -> !Std$Bits@,"
+    PP.fprintf fmt "%a = func.call @Std$Bits$Constant(%a, %a) : (!Std$Integer, i128) -> !Std$Bits %a@,"
       varident r
       varident sz
       varident c
+      loc_attr loc
   )
 
-let string_constant (fmt : PP.formatter) (x : string) : Ident.t =
+let string_constant (loc : Loc.t) (fmt : PP.formatter) (x : string) : Ident.t =
   (*
   with_fresh (fun t ->
-    PP.fprintf fmt "%a = string.constant \"%s\" : !Std$String@," varident t (String.escaped x)
+    PP.fprintf fmt "%a = string.constant \"%s\" : !Std$String %a@,"
+      varident t
+      (String.escaped x)
+      loc_attr loc
   )
   *)
-  bool_constant fmt false (* todo: do strings properly *)
+  bool_constant loc fmt false (* todo: do strings properly *)
 
 let valueLit (loc : Loc.t) (fmt : PP.formatter) (x : Value.value) : (Ident.t * AST.ty) =
   ( match x with
-  | VBool v   -> (bool_constant fmt v, type_bool)
-  | VInt v    -> (bigint_constant fmt v, type_integer)
-  | VBits v   -> (bitvector_constant fmt v, type_bits (mk_litint v.n))
+  | VBool v   -> (bool_constant loc fmt v, type_bool)
+  | VInt v    -> (bigint_constant loc fmt v, type_integer)
+  | VBits v   -> (bitvector_constant loc fmt v, type_bits (mk_litint v.n))
   | VEnum (e, _) ->
       let (tc, tag, width) = Identset.Bindings.find e !enum_constants in
       let ty = AST.Type_Constructor (tc, []) in
-      (arith_constant fmt (Z.of_int tag) width, ty)
-  | VString v -> (string_constant fmt v, type_string)
+      (arith_constant loc fmt (Z.of_int tag) width, ty)
+  | VString v -> (string_constant loc fmt v, type_string)
   | _ -> raise (InternalError (loc, "valueLit", (fun fmt -> Value.pp_value fmt x), __LOC__))
   )
 
 (****************************************************************
  * Useful operations
  ****************************************************************)
-
-let type_checks = ref false
 
 let cf_assume (fmt : PP.formatter) (x : Ident.t) (msg : string) : unit =
   (* todo: should be cf.assume *)
@@ -602,8 +666,8 @@ let cf_assert (fmt : PP.formatter) (x : Ident.t) (msg : string) : unit =
  * 'cf.assert false' comes close but it is not a terminator
  * so we add an infinite loop as a stopgap for now
  *)
-let cf_halt (fmt : PP.formatter) (msg : string) : unit =
-  let ff = bool_constant fmt false in
+let cf_halt (loc : Loc.t) (fmt : PP.formatter) (msg : string) : unit =
+  let ff = bool_constant loc fmt false in
   cf_assert fmt ff msg;
   let l_loop = labels#fresh in
   PP.fprintf fmt "cf.br %a@," label l_loop;
@@ -824,14 +888,14 @@ let tuple_unpack (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (ts : AST.ty l
     (commasep (pp_type loc)) ts;
   xs
 
-let rec concat (fmt : PP.formatter) (xs : (Ident.t * Ident.t * AST.expr) list) : (Ident.t * Ident.t * AST.expr) =
+let rec concat (loc : Loc.t) (fmt : PP.formatter) (xs : (Ident.t * Ident.t * AST.expr) list) : (Ident.t * Ident.t * AST.expr) =
   ( match xs with
   | [] ->
-     let zero' = bigint_constant fmt Z.zero in
-     (bitvector_constant fmt Primops.empty_bits, zero', zero)
+     let zero' = bigint_constant loc fmt Z.zero in
+     (bitvector_constant loc fmt Primops.empty_bits, zero', zero)
   | [(x, xw', xw)] -> (x, xw', xw)
   | ((y, yw', yw) :: ys) ->
-      let (ys', ysw', ysw) = concat fmt ys in
+      let (ys', ysw', ysw) = concat loc fmt ys in
       let w = mk_add_int yw ysw in
       let w' = int_add fmt yw' ysw' in
       let t = bv_append fmt yw' ysw' y ys' in
@@ -916,23 +980,23 @@ let mk_record_set (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs : (Iden
 let rec pattern (loc : Loc.t) (env : environment) (fmt : PP.formatter) (p : AST.pattern) (discriminant : (Ident.t * AST.ty)) : Ident.t =
   ( match p with
   | Pat_Wildcard ->
-      bool_constant fmt true
+      bool_constant loc fmt true
   | Pat_Lit (VBits v) ->
-      let v' = bitvector_constant fmt v in
-      let sz = bigint_constant fmt (Z.of_int v.n) in
+      let v' = bitvector_constant loc fmt v in
+      let sz = bigint_constant loc fmt (Z.of_int v.n) in
       bv_eq fmt sz v' (fst discriminant)
   | Pat_Lit (VBool v) ->
-      let v' = bool_constant fmt v in
+      let v' = bool_constant loc fmt v in
       bool_eq fmt v' (fst discriminant)
   | Pat_Lit (VMask mask) ->
       let (v, m) = Primops.prim_mask_to_bits mask in
-      let v' = bitvector_constant fmt v in
-      let m' = bitvector_constant fmt m in
-      let sz = bigint_constant fmt (Z.of_int v.n) in
+      let v' = bitvector_constant loc fmt v in
+      let m' = bitvector_constant loc fmt m in
+      let sz = bigint_constant loc fmt (Z.of_int v.n) in
       let masked' = bv_and fmt sz (fst discriminant) m' in
       bv_eq fmt sz masked' v'
   | Pat_Lit (VInt v) ->
-      let v' = bigint_constant fmt v in
+      let v' = bigint_constant loc fmt v in
       int_eq fmt v' (fst discriminant)
   | Pat_Const v when Identset.Bindings.mem v !global_vartypes ->
       (* todo: this should be a constant *)
@@ -943,7 +1007,7 @@ let rec pattern (loc : Loc.t) (env : environment) (fmt : PP.formatter) (p : AST.
   | Pat_Const e
   | Pat_Lit (VEnum (e, _)) when Identset.Bindings.mem e !enum_constants ->
       let (tc, tag, width) = Identset.Bindings.find e !enum_constants in
-      let v' = arith_constant fmt (Z.of_int tag) width in
+      let v' = arith_constant loc fmt (Z.of_int tag) width in
       arith_int_cmp fmt "eq" width v' (fst discriminant)
   | Pat_Range (lo, hi) ->
       let lo' = expr loc env fmt lo in
@@ -961,13 +1025,13 @@ let rec pattern (loc : Loc.t) (env : environment) (fmt : PP.formatter) (p : AST.
       assert (List.length ps = List.length ts);
       let discriminants = tuple_unpack loc fmt (fst discriminant) ts in
       let cs = List.map2 (pattern loc env fmt) ps discriminants in
-      List.fold_left (bool_and fmt) (bool_constant fmt true) cs
+      List.fold_left (bool_and fmt) (bool_constant loc fmt true) cs
   | _ -> raise (InternalError (loc, "pattern", (fun fmt -> FMT.pattern fmt p), __LOC__))
   )
 
 and patterns (loc : Loc.t) (env : environment) (fmt : PP.formatter) (ps : AST.pattern list) (discriminant : (Ident.t * AST.ty)) : Ident.t =
   ( match ps with
-  | [] -> bool_constant fmt false
+  | [] -> bool_constant loc fmt false
   | [p] -> pattern loc env fmt p discriminant
   | (q :: qs) ->
       let q' = pattern loc env fmt q discriminant in
@@ -1002,13 +1066,13 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
   | Expr_Lit v -> valueLit loc fmt v
 
   | Expr_Var v when Ident.equal v Builtins.true_ident ->
-      (bool_constant fmt true, type_bool)
+      (bool_constant loc fmt true, type_bool)
   | Expr_Var v when Ident.equal v Builtins.false_ident ->
-      (bool_constant fmt false, type_bool)
+      (bool_constant loc fmt false, type_bool)
   | Expr_Var v when Identset.Bindings.mem v !enum_constants ->
       let (tc, tag, width) = Identset.Bindings.find v !enum_constants in
       let ty = AST.Type_Constructor (tc, []) in
-      (arith_constant fmt (Z.of_int tag) width, ty)
+      (arith_constant loc fmt (Z.of_int tag) width, ty)
   | Expr_Var v when Identset.Bindings.mem v !global_vartypes ->
       let ty = Identset.Bindings.find v !global_vartypes in
       let ref = memref_get_global_scalar loc fmt v ty in
@@ -1031,7 +1095,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
                        )
       in
       let (ix', _) = expr loc env fmt ix in
-      let ix'' = to_index fmt ix' in
+      let ix'' = to_index loc fmt ix' in
       let aref = memref_get_global_array loc fmt v sz elty in
       (memref_load_array loc fmt aref ix'' (Some sz) elty, elty)
 
@@ -1044,7 +1108,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
                  )
       in
       let (ix', _) = expr loc env fmt ix in
-      let ix'' = to_index fmt ix' in
+      let ix'' = to_index loc fmt ix' in
       (memref_load_array loc fmt aref ix'' None elty, elty)
 
   | Expr_Slices (Type_Integer _, e, [s]) ->
@@ -1215,7 +1279,7 @@ and slices (loc : Loc.t) (env : environment) (fmt : PP.formatter) (b : Ident.t) 
               (bv_slice fmt b (fst lo') (fst wd'), fst wd', wd)
             ) xs
   in
-  let (r, wd', wd) = concat fmt xs' in
+  let (r, wd', wd) = concat loc fmt xs' in
   (r, type_bits wd)
 
 and slice (x : AST.slice) : (AST.expr * AST.expr) =
@@ -1366,14 +1430,14 @@ and mk_unspecified_expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (
 and mk_uninitialized (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.ty) : Ident.t =
   ( match x with
   | Type_Bits (e, _) -> bv_zero fmt (fst (expr loc env fmt e))
-  | Type_Constructor (tc, []) when Ident.equal tc Builtin_idents.boolean_ident -> bool_constant fmt false
-  | Type_Constructor (tc, []) when Ident.equal tc Builtin_idents.string_ident -> string_constant fmt ""
+  | Type_Constructor (tc, []) when Ident.equal tc Builtin_idents.boolean_ident -> bool_constant loc fmt false
+  | Type_Constructor (tc, []) when Ident.equal tc Builtin_idents.string_ident -> string_constant loc fmt ""
   | Type_Constructor (tc, []) when Identset.Bindings.mem tc !enum_types ->
       let (es, width) = Identset.Bindings.find tc !enum_types in
-      arith_constant fmt Z.zero width
-  | Type_Constructor (tc, []) when Ident.equal tc tag_tc -> arith_constant fmt Z.zero !exception_tag_width
+      arith_constant loc fmt Z.zero width
+  | Type_Constructor (tc, []) when Ident.equal tc tag_tc -> arith_constant loc fmt Z.zero !exception_tag_width
   | Type_Constructor (tc, []) -> func_call1 loc fmt (mk_uninit tc) [] x
-  | Type_Integer ocrs -> bigint_constant fmt Z.zero
+  | Type_Integer ocrs -> bigint_constant loc fmt Z.zero
   | _ ->
       let pp fmt = FMT.ty fmt x in
       raise (Error.Unimplemented (loc, "mk_uninitialized", pp))
@@ -1388,7 +1452,7 @@ and raw_exception_propagate (loc : Loc.t) (fmt : PP.formatter) (exc : (Ident.t *
 
   let tag = func_call1 loc fmt (record_field_get exception_tc tag_ident) [exc] tag_type in
   let tag_width = !exception_tag_width in
-  let zero_tag = arith_constant fmt Z.zero tag_width in
+  let zero_tag = arith_constant loc fmt Z.zero tag_width in
   let tag_match = arith_int_cmp fmt "eq" tag_width tag zero_tag in
 
   PP.fprintf fmt "cf.cond_br %a, %a, %a(%a)@,"
@@ -1437,7 +1501,7 @@ and mk_exception_constructor (loc : Loc.t) (fmt : PP.formatter)
   indented fmt (fun _ ->
     let tfs' = List.map (fun (f, t) ->
         if f = fst tag_field then
-          (arith_constant fmt (Z.of_int tag) tag_width, snd tag_field)
+          (arith_constant loc fmt (Z.of_int tag) tag_width, snd tag_field)
         else if List.mem_assoc f dfs then
           (f, t)
         else
@@ -1641,7 +1705,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       )
 
   | Stmt_Case (e, oty, [], None, loc) ->
-      cf_halt fmt "unmatched case";
+      cf_halt loc fmt "unmatched case";
       true
   | Stmt_Case (e, oty, [], Some (d, dloc), loc) ->
       block env fmt d
@@ -1652,7 +1716,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
 
       let e' = expr loc env fmt e in
       let c = patterns loc env fmt ps e' in
-      let guard = Option.fold ~none:(bool_constant fmt true, type_bool) ~some:(expr loc env fmt) oguard in
+      let guard = Option.fold ~none:(bool_constant loc fmt true, type_bool) ~some:(expr loc env fmt) oguard in
       let c' = bool_and fmt c (fst guard) in
 
       let mutables = get_mutables env in
@@ -1760,7 +1824,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       let (f', _) = expr loc env fmt f in
       let (t', _) = expr loc env fmt t in
       let step = if direction = Direction_Up then Z.one else Z.minus_one in
-      let step' = bigint_constant fmt step in
+      let step' = bigint_constant loc fmt step in
 
       let l_test = labels#fresh in
       let l_cont = labels#fresh in
@@ -1852,7 +1916,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
 
             let tag_constant = Identset.Bindings.find tc !exceptions in
             let tag_width = !exception_tag_width in
-            let tc_tag = arith_constant fmt (Z.of_int tag_constant) tag_width in
+            let tc_tag = arith_constant loc fmt (Z.of_int tag_constant) tag_width in
             let tag_match = arith_int_cmp fmt "eq" tag_width tag tc_tag in
             cf_cond_br loc fmt tag_match l_true c_vars2 l_false c_vars2;
 
@@ -1941,7 +2005,7 @@ and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lex
                        )
       in
       let (ix', _) = expr loc env fmt ix in
-      let ix'' = to_index fmt ix' in
+      let ix'' = to_index loc fmt ix' in
       let aref = memref_get_global_array loc fmt v sz elty in
       memref_store_array loc fmt aref ix'' (fst rhs) (Some sz) elty
 
@@ -1954,7 +2018,7 @@ and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lex
                  )
       in
       let (ix', _) = expr loc env fmt ix in
-      let ix'' = to_index fmt ix' in
+      let ix'' = to_index loc fmt ix' in
       memref_store_array loc fmt aref ix'' (fst rhs) None elty
 
   | LExpr_Write (f, tes, args, throws) ->
@@ -2059,7 +2123,7 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
               if List.is_empty !return_types then begin
                 cf_br loc fmt !return_label []
               end else begin
-                cf_halt fmt "missing return statement"
+                cf_halt loc fmt "missing return statement"
               end
             end
           );
@@ -2210,15 +2274,19 @@ let _ =
       in
       generate_sum_of_products fmt exception_tc exceptions;
 
-      declarations fmt decls
+      declarations fmt decls;
+
+      dump_debug_locations fmt;
     );
     true
   in
 
   let flags = Arg.align [
-        ("--typecheck",     Arg.Set type_checks,                 "              Insert dynamic typechecks");
-        ("--no-typecheck",  Arg.Clear type_checks,               "              Don't insert dynamic typechecks");
-        ("--output-file",   Arg.Set_string opt_filename,         "<filename>    Output MLIR file");
+        ("--typecheck",           Arg.Set type_checks,         "              Insert dynamic typechecks");
+        ("--no-typecheck",        Arg.Clear type_checks,       "              Don't insert dynamic typechecks");
+        ("--debug-locations",     Arg.Set debug_locations,     "              Insert debug locations");
+        ("--no-debug-locations",  Arg.Clear debug_locations,   "              Don't insert debug locations");
+        ("--output-file",         Arg.Set_string opt_filename, "<filename>    Output MLIR file");
       ]
   in
   Commands.registerCommand "to_mlir" flags [] [] "Convert to MLIR" cmd
