@@ -87,149 +87,6 @@ let label (fmt : PP.formatter) (x : Ident.t) : unit =
   Ident.pp fmt x
 
 (****************************************************************
- * Primop support
- ****************************************************************)
-
-let standard_functions = Identset.IdentSet.of_list [
-  Builtin_idents.eq_bool;
-  Builtin_idents.ne_bool;
-  Builtin_idents.not_bool;
-  Builtin_idents.strict_and_bool;
-  Builtin_idents.strict_or_bool;
-  Builtin_idents.lazy_and_bool;
-  Builtin_idents.lazy_or_bool;
-
-  (*
-  Builtin_idents.eq_int;
-  Builtin_idents.ne_int;
-  Builtin_idents.ge_int;
-  Builtin_idents.gt_int;
-  Builtin_idents.le_int;
-  Builtin_idents.lt_int;
-  Builtin_idents.neg_int;
-  Builtin_idents.add_int;
-  Builtin_idents.sub_int;
-  Builtin_idents.mul_int;
-  Builtin_idents.pow2_int;
-  *)
-  Builtin_idents.shl_int;
-  Builtin_idents.shr_int;
-  Builtin_idents.mod_pow2_int;
-  Builtin_idents.is_pow2_int;
-  Builtin_idents.align_int;
-  Builtin_idents.cdiv_int;
-  Builtin_idents.crem_int;
-  Builtin_idents.pdiv_int;
-  Builtin_idents.prem_int;
-  Builtin_idents.zdiv_int;
-  Builtin_idents.zrem_int;
-  (*
-  Builtin_idents.pow_int_int;
-  Builtin_idents.max;
-  Builtin_idents.min;
-  Builtin_idents.abs;
-  *)
-
-  Builtin_idents.eq_bits;
-  Builtin_idents.ne_bits;
-  Builtin_idents.not_bits;
-  Builtin_idents.and_bits;
-  Builtin_idents.or_bits;
-  Builtin_idents.xor_bits;
-  (*
-  Builtin_idents.add_bits;
-  Builtin_idents.sub_bits;
-  *)
-  Builtin_idents.mul_bits;
-  (*
-  Builtin_idents.add_bits_int;
-  Builtin_idents.sub_bits_int;
-  Builtin_idents.mul_bits_int;
-  *)
-  Builtin_idents.asr_bits;
-  (*
-  Builtin_idents.lsl_bits;
-  *)
-  Builtin_idents.lsr_bits;
-  Builtin_idents.append_bits;
-  Builtin_idents.replicate_bits;
-  Builtin_idents.zeros_bits;
-  Builtin_idents.ones_bits;
-  Builtin_idents.sign_extend_bits;
-  Builtin_idents.zero_extend_bits;
-  Builtin_idents.pow2_bits;
-  (*
-  Builtin_idents.cvt_bits_sint;
-  Builtin_idents.cvt_bits_uint;
-  *)
-  Builtin_idents.cvt_int_bits;
-  (*
-  Builtin_idents.is_ones;
-  Builtin_idents.is_zero;
-  Builtin_idents.length;
-  *)
-  (*
-  Builtin_idents.mask_int;
-  Builtin_idents.in_mask;
-  Builtin_idents.mk_mask;
-  Builtin_idents.notin_mask;
-  *)
-
-  Builtin_idents.ram_init;
-  Builtin_idents.ram_read;
-  Builtin_idents.ram_write;
-
-  Builtin_idents.asl_end_execution;
-
-  Builtin_idents.print_int_hex;
-  Builtin_idents.print_int_dec;
-  Builtin_idents.print_char;
-  Builtin_idents.print_str;
-  Builtin_idents.print_bits_hex
-]
-
-(****************************************************************
- * Global environment
- ****************************************************************)
-
-let global_vartypes : AST.ty Identset.Bindings.t ref = ref Identset.Bindings.empty
-let funtypes : AST.function_type Identset.Bindings.t ref = ref Identset.Bindings.empty
-let fieldtypes : ((Ident.t * AST.ty) list) Identset.Bindings.t ref = ref Identset.Bindings.empty
-
-let enum_types : (Ident.t list * int) Identset.Bindings.t ref = ref Identset.Bindings.empty
-let enum_constants : (Ident.t * int * int) Identset.Bindings.t ref = ref Identset.Bindings.empty
-
-let mk_enum_type (loc : Loc.t) (fmt : PP.formatter) (tc : Ident.t) (es : Ident.t list) : unit =
-  let width = Utils.ceil_log2 (List.length es) in
-  enum_types := Identset.Bindings.add tc (es, width) !enum_types;
-  PP.fprintf fmt "@,!%a = i%d@," ident tc width;
-  List.iteri (fun i e ->
-    enum_constants := Identset.Bindings.add e (tc, i, width) !enum_constants
-  ) es
-
-let exception_tag_width : int ref = ref 0
-let exceptions : int Identset.Bindings.t ref = ref Identset.Bindings.empty
-let exception_fields : AST.ty list ref = ref []
-
-let exception_tc = Ident.mk_ident "Internal$Exception"
-let exception_ty = AST.Type_Constructor (exception_tc, [])
-let tag_tc = Ident.mk_ident "Internal$Exception$Tag"
-let tag_type = AST.Type_Constructor (tag_tc, [])
-let tag_ident = Ident.mk_ident "tag"
-
-let mk_uninit (tc : Ident.t) : Ident.t =
-  let prefix = "Internal$Uninitialized$" in
-  Ident.mk_ident (prefix ^ Ident.name tc)
-
-
-let mk_unspecified (tc : Ident.t) : Ident.t =
-  let prefix = "Internal$Unspecified$" in
-  Ident.mk_ident (prefix ^ Ident.name tc)
-
-let unspecified_int = Ident.mk_ident "Internal$Unspecified$Integer"
-let unspecified_bits = Ident.mk_ident "Internal$Unspecified$Bits"
-
-(****************************************************************
  * Debug locations
  ****************************************************************)
 
@@ -290,6 +147,126 @@ let dump_debug_locations (fmt : PP.formatter) : unit =
     !location_map
 
 (****************************************************************
+ * Local variables and labels
+ ****************************************************************)
+
+let locals = new Isa_utils.nameSupply "%"
+let labels = new Isa_utils.nameSupply "^bb"
+
+let with_fresh (f : Ident.t -> unit) : Ident.t =
+  let v = locals#fresh in
+  f v;
+  v
+
+(****************************************************************
+ * MLIR operations
+ *
+ * (These are all independent of the mapping to MLIR)
+ ****************************************************************)
+
+let cf_assume (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (msg : string) : unit =
+  (* todo: should be cf.assume *)
+  PP.fprintf fmt "cf.assert %a, \"%s\" %a@,"
+    varident x
+    msg
+    loc_attr loc
+
+let cf_assert (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (msg : string) : unit =
+  PP.fprintf fmt "cf.assert %a, \"%s\" %a@,"
+    varident x
+    msg
+    loc_attr loc
+
+let arith_constant (loc : Loc.t) (fmt : PP.formatter) (x : Z.t) (width : int) : Ident.t =
+  with_fresh (fun t ->
+    PP.fprintf fmt "%a = arith.constant %s : i%d %a@,"
+      varident t
+      (Z.to_string x)
+      width
+      loc_attr loc
+  )
+
+let arith_int_cmp (loc : Loc.t) (fmt : PP.formatter) (cmp : string) (sz : int) (x : Ident.t) (y : Ident.t) : Ident.t =
+  with_fresh (fun r ->
+    PP.fprintf fmt "%a = arith.cmpi %s, %a, %a : i%d %a@,"
+      varident r
+      cmp
+      varident x
+      varident y
+      sz
+      loc_attr loc
+  )
+
+let bool_eq (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
+  with_fresh (fun t ->
+    PP.fprintf fmt "%a = arith.cmpi eq, %a, %a : i1 %a@,"
+      varident t
+      varident x
+      varident y
+      loc_attr loc
+  )
+
+let bool_or (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
+  with_fresh (fun t ->
+    PP.fprintf fmt "%a = arith.ori %a, %a : i1 %a@,"
+      varident t
+      varident x
+      varident y
+      loc_attr loc
+  )
+
+let bool_and (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
+  with_fresh (fun t ->
+    PP.fprintf fmt "%a = arith.andi %a, %a : i1 %a@,"
+      varident t
+      varident x
+      varident y
+      loc_attr loc
+  )
+
+(****************************************************************
+ * Global environment
+ ****************************************************************)
+
+type var = (Ident.t * AST.ty)
+
+let global_vartypes : AST.ty Identset.Bindings.t ref = ref Identset.Bindings.empty
+let funtypes : AST.function_type Identset.Bindings.t ref = ref Identset.Bindings.empty
+let fieldtypes : (var list) Identset.Bindings.t ref = ref Identset.Bindings.empty
+
+let enum_types : (Ident.t list * int) Identset.Bindings.t ref = ref Identset.Bindings.empty
+let enum_constants : (Ident.t * int * int) Identset.Bindings.t ref = ref Identset.Bindings.empty
+
+let mk_enum_type (loc : Loc.t) (fmt : PP.formatter) (tc : Ident.t) (es : Ident.t list) : unit =
+  let width = Utils.ceil_log2 (List.length es) in
+  enum_types := Identset.Bindings.add tc (es, width) !enum_types;
+  PP.fprintf fmt "@,!%a = i%d@," ident tc width;
+  List.iteri (fun i e ->
+    enum_constants := Identset.Bindings.add e (tc, i, width) !enum_constants
+  ) es
+
+let exception_tag_width : int ref = ref 0
+let exceptions : int Identset.Bindings.t ref = ref Identset.Bindings.empty
+let exception_fields : AST.ty list ref = ref []
+
+let exception_tc = Ident.mk_ident "Internal$Exception"
+let exception_ty = AST.Type_Constructor (exception_tc, [])
+let tag_tc = Ident.mk_ident "Internal$Exception$Tag"
+let tag_type = AST.Type_Constructor (tag_tc, [])
+let tag_ident = Ident.mk_ident "tag"
+
+let mk_uninit (tc : Ident.t) : Ident.t =
+  let prefix = "Internal$Uninitialized$" in
+  Ident.mk_ident (prefix ^ Ident.name tc)
+
+let mk_unspecified (tc : Ident.t) : Ident.t =
+  let prefix = "Internal$Unspecified$" in
+  Ident.mk_ident (prefix ^ Ident.name tc)
+
+let unspecified_int = Ident.mk_ident "Internal$Unspecified$Integer"
+let unspecified_bits = Ident.mk_ident "Internal$Unspecified$Bits"
+
+(****************************************************************
  * Types
  ****************************************************************)
 
@@ -347,9 +324,6 @@ type environment = env_entry ScopeStack.t
 let pp_environment (fmt : Format.formatter) (env : environment) : unit =
   PP.fprintf fmt "{ %a }" (ScopeStack.pp pp_env_entry) env
 
-let locals = new Isa_utils.nameSupply "%"
-let labels = new Isa_utils.nameSupply "^bb"
-
 let return_types : AST.ty list ref = ref []
 let return_label : Ident.t ref = ref labels#fresh
 let throw_labels : Ident.t list ref = ref []
@@ -367,11 +341,21 @@ let get_mutbind (loc : Loc.t) (env : environment) (v : Ident.t) : Ident.t =
   | _ -> raise (InternalError (loc, "get_mutbind", (fun fmt -> Ident.pp fmt v), __LOC__))
   )
 
-let get_var (loc : Loc.t) (env : environment) (v : Ident.t) : (Ident.t * AST.ty) =
+let get_var (loc : Loc.t) (env : environment) (v : Ident.t) : var =
   ( match ScopeStack.get env v with
   | Some (Some v', _, t) -> (v', t)
   | _ -> raise (InternalError (loc, "get_var", (fun fmt -> Ident.pp fmt v), __LOC__))
   )
+
+let varty (loc : Loc.t) (fmt : PP.formatter) (x : var) : unit =
+  let (v, t) = x in
+  PP.fprintf fmt "%a : %a"
+    varident v
+    (pp_type loc) t
+
+let with_fresh_typed (t : AST.ty) (f : Ident.t -> unit) : var =
+  let v = with_fresh f in
+  (v, t)
 
 (* Since ISA code tends to have few mutable vars, we use all mutable vars as
  * an approximation of the set of variables modified by this if.
@@ -388,14 +372,6 @@ let mk_renaming (env : environment) : renaming =
          Some (v, v', ty)
        )))
 
-type var = (Ident.t * AST.ty)
-
-let varty (loc : Loc.t) (fmt : PP.formatter) (x : (Ident.t * AST.ty)) : unit =
-  let (v, t) = x in
-  PP.fprintf fmt "%a : %a"
-    varident v
-    (pp_type loc) t
-
 let get_mutables (env : environment) : renaming =
   ScopeStack.bindings env
   |> List.concat_map (List.filter_map (fun (v, (b, is_constant, ty)) -> if not is_constant && Option.is_some b then Some (v, Option.get b, ty) else None))
@@ -410,6 +386,10 @@ let fresh_env (env : environment) (mutables : renaming) : environment =
   let env' = ScopeStack.clone env in
   update_environment env' mutables;
   env'
+
+(****************************************************************
+ * Branches and labels
+ ****************************************************************)
 
 let branch_label (loc : Loc.t) (fmt : PP.formatter) (target : Ident.t) (args : var list) : unit =
   if not (Utils.is_empty args) then begin
@@ -467,11 +447,12 @@ let cf_cond_br (loc : Loc.t) (fmt : PP.formatter)
   loc_attr fmt loc;
   PP.fprintf fmt "@,"
 
+
 (****************************************************************
  * Functions
  ****************************************************************)
 
-let formal_args (fty : AST.function_type) : (Ident.t * AST.ty) list =
+let formal_args (fty : AST.function_type) : var list =
   let tvs = List.map (fun (v, t) -> v) fty.parameters in
   let vtys = List.map (fun (v, t) -> (v, Option.get t)) fty.parameters
            @ (List.filter (fun (v, _) -> not (List.mem v tvs)) (List.map (fun (v, t, _) -> (v, t)) fty.args))
@@ -499,45 +480,18 @@ let mk_formal_env (fty : AST.function_type) (actuals : Ident.t list) : environme
     (formal_args fty) actuals;
   formal_env
 
-
-(****************************************************************
- * Expressions
- ****************************************************************)
-
-let with_fresh_typed (t : AST.ty) (f : Ident.t -> unit) : (Ident.t * AST.ty) =
-  let v = locals#fresh in
-  f v;
-  (v, t)
-
-let with_fresh (f : Ident.t -> unit) : Ident.t =
-  let v = locals#fresh in
-  f v;
-  v
-
-let to_index (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) : Ident.t =
-  with_fresh (fun t ->
-    PP.fprintf fmt "%a = index.casts %a : !Std$Integer to index %a@,"
-      varident t
-      varident x
-      loc_attr loc
-  )
-
-(****************************************************************
- * Functions
- ****************************************************************)
-
 (* Note: unlike most MLIR-generating functions, this one does not add
  * a newline at the end. This allows it to be used both for function headers
  * and for function definitions
  *)
-let func_header (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (args : (Ident.t * AST.ty) list) (rtys : AST.ty list) : unit =
+let func_header (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (args : var list) (rtys : AST.ty list) : unit =
   PP.fprintf fmt "@,func.func private @%a(%a) -> %a"
     ident f
     (commasep (varty loc)) args
     (commasep (pp_type loc)) rtys
 
 (* Special case of func_call that has only one return value *)
-let func_call1 (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (args : (Ident.t * AST.ty) list) (rty : AST.ty) : Ident.t =
+let func_call1 (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (args : var list) (rty : AST.ty) : Ident.t =
   with_fresh (fun r ->
     PP.fprintf fmt "%a = func.call @%a(%a) : (%a) -> %a %a@,"
       varident r
@@ -548,7 +502,7 @@ let func_call1 (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (args : (Ident.t
       loc_attr loc
   )
 
-let func_call (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (args : (Ident.t * AST.ty) list) (rtys : AST.ty list) : (Ident.t * AST.ty) list =
+let func_call (loc : Loc.t) (fmt : PP.formatter) (f : Ident.t) (args : var list) (rtys : AST.ty list) : var list =
   let rs = List.map (fun t -> (locals#fresh, t)) rtys in
   if not (List.is_empty rs) then begin
     PP.fprintf fmt "%a = "
@@ -567,7 +521,7 @@ let mk_return_type (fty : AST.function_type) : AST.ty list =
   if fty.throws = NoThrow then rtys else (exception_ty :: rtys)
 
 
-let func_return (loc : Loc.t) (fmt : PP.formatter) (rs : (Ident.t * AST.ty) list) : unit =
+let func_return (loc : Loc.t) (fmt : PP.formatter) (rs : var list) : unit =
   if List.is_empty rs then begin
     PP.fprintf fmt "func.return %a@," loc_attr loc
   end else begin
@@ -580,15 +534,6 @@ let func_return (loc : Loc.t) (fmt : PP.formatter) (rs : (Ident.t * AST.ty) list
 (****************************************************************
  * Constants
  ****************************************************************)
-
-let arith_constant (loc : Loc.t) (fmt : PP.formatter) (x : Z.t) (width : int) : Ident.t =
-  with_fresh (fun t ->
-    PP.fprintf fmt "%a = arith.constant %s : i%d %a@,"
-      varident t
-      (Z.to_string x)
-      width
-      loc_attr loc
-  )
 
 let bool_constant (loc : Loc.t) (fmt : PP.formatter) (x : bool) : Ident.t =
   arith_constant loc fmt (if x then Z.one else Z.zero) 1
@@ -634,7 +579,7 @@ let string_constant (loc : Loc.t) (fmt : PP.formatter) (x : string) : Ident.t =
   *)
   bool_constant loc fmt false (* todo: do strings properly *)
 
-let valueLit (loc : Loc.t) (fmt : PP.formatter) (x : Value.value) : (Ident.t * AST.ty) =
+let valueLit (loc : Loc.t) (fmt : PP.formatter) (x : Value.value) : var =
   ( match x with
   | VBool v   -> (bool_constant loc fmt v, type_bool)
   | VInt v    -> (bigint_constant loc fmt v, type_integer)
@@ -649,20 +594,9 @@ let valueLit (loc : Loc.t) (fmt : PP.formatter) (x : Value.value) : (Ident.t * A
 
 (****************************************************************
  * Useful operations
+ *
+ * (These encode part of how we are representing things in MLIR)
  ****************************************************************)
-
-let cf_assume (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (msg : string) : unit =
-  (* todo: should be cf.assume *)
-  PP.fprintf fmt "cf.assert %a, \"%s\" %a@,"
-    varident x
-    msg
-    loc_attr loc
-
-let cf_assert (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (msg : string) : unit =
-  PP.fprintf fmt "cf.assert %a, \"%s\" %a@,"
-    varident x
-    msg
-    loc_attr loc
 
 (* todo: we need a way to model termination of the system.
  * 'cf.assert false' comes close but it is not a terminator
@@ -686,17 +620,6 @@ let type_assert (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) : unit =
     cf_assert loc fmt x "type assertion"
   end
 
-let arith_int_cmp (loc : Loc.t) (fmt : PP.formatter) (cmp : string) (sz : int) (x : Ident.t) (y : Ident.t) : Ident.t =
-  with_fresh (fun r ->
-    PP.fprintf fmt "%a = arith.cmpi %s, %a, %a : i%d %a@,"
-      varident r
-      cmp
-      varident x
-      varident y
-      sz
-      loc_attr loc
-  )
-
 let int_add (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
   func_call1 loc fmt Builtins.add_int [(x, type_integer); (y, type_integer)] type_integer
 
@@ -719,6 +642,14 @@ let int_slice (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (i : Ident.t) (w 
       varident x
       varident i
       varident w
+      loc_attr loc
+  )
+
+let int_to_index (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) : Ident.t =
+  with_fresh (fun t ->
+    PP.fprintf fmt "%a = index.casts %a : !Std$Integer to index %a@,"
+      varident t
+      varident x
       loc_attr loc
   )
 
@@ -755,33 +686,6 @@ let bv_length (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) : Ident.t =
     PP.fprintf fmt "%a = func.call @Std$Bits$MyLength(%a) : (!Std$Bits) -> !Std$Integer %a@,"
       varident r
       varident x
-      loc_attr loc
-  )
-
-let bool_eq (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
-  with_fresh (fun t ->
-    PP.fprintf fmt "%a = arith.cmpi eq, %a, %a : i1 %a@,"
-      varident t
-      varident x
-      varident y
-      loc_attr loc
-  )
-
-let bool_or (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
-  with_fresh (fun t ->
-    PP.fprintf fmt "%a = arith.ori %a, %a : i1 %a@,"
-      varident t
-      varident x
-      varident y
-      loc_attr loc
-  )
-
-let bool_and (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
-  with_fresh (fun t ->
-    PP.fprintf fmt "%a = arith.andi %a, %a : i1 %a@,"
-      varident t
-      varident x
-      varident y
       loc_attr loc
   )
 
@@ -822,6 +726,20 @@ let bv_setslice (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (i : Ident.t) (
       varident w
       varident r
       loc_attr loc
+  )
+
+let rec bv_concat (loc : Loc.t) (fmt : PP.formatter) (xs : (Ident.t * Ident.t * AST.expr) list) : (Ident.t * Ident.t * AST.expr) =
+  ( match xs with
+  | [] ->
+     let zero' = bigint_constant loc fmt Z.zero in
+     (bitvector_constant loc fmt Primops.empty_bits, zero', zero)
+  | [(x, xw', xw)] -> (x, xw', xw)
+  | ((y, yw', yw) :: ys) ->
+      let (ys', ysw', ysw) = bv_concat loc fmt ys in
+      let w = mk_add_int yw ysw in
+      let w' = int_add loc fmt yw' ysw' in
+      let t = bv_append loc fmt yw' ysw' y ys' in
+      (t, w', w)
   )
 
 let memref_global_scalar (loc : Loc.t) (fmt : PP.formatter) (v : Ident.t) (ty : AST.ty) : unit =
@@ -901,7 +819,7 @@ let memref_store_array (loc : Loc.t) (fmt : PP.formatter) (aref : Ident.t) (ix :
     (pp_type loc) ty
     loc_attr loc
 
-let tuple_pack (loc : Loc.t) (fmt : PP.formatter) (es : (Ident.t * AST.ty) list) : (Ident.t * AST.ty) =
+let tuple_pack (loc : Loc.t) (fmt : PP.formatter) (es : var list) : var =
   let ts = List.map (fun (f, t) -> t) es in
   with_fresh_typed (Type_Tuple ts) (fun t ->
     PP.fprintf fmt "%a = \"handshake.pack\"(%a) : (%a) -> tuple<%a> %a@,"
@@ -912,7 +830,7 @@ let tuple_pack (loc : Loc.t) (fmt : PP.formatter) (es : (Ident.t * AST.ty) list)
       loc_attr loc
   )
 
-let tuple_unpack (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (ts : AST.ty list) : (Ident.t * AST.ty) list =
+let tuple_unpack (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (ts : AST.ty list) : var list =
   let xs = List.map (fun t -> (locals#fresh, t)) ts in
   PP.fprintf fmt "%a = \"handshake.unpack\"(%a) : (tuple<%a>) -> (%a) %a@,"
     (commasep (fun fmt (v, t) -> varident fmt v)) xs
@@ -921,20 +839,6 @@ let tuple_unpack (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (ts : AST.ty l
     (commasep (pp_type loc)) ts
     loc_attr loc;
   xs
-
-let rec concat (loc : Loc.t) (fmt : PP.formatter) (xs : (Ident.t * Ident.t * AST.expr) list) : (Ident.t * Ident.t * AST.expr) =
-  ( match xs with
-  | [] ->
-     let zero' = bigint_constant loc fmt Z.zero in
-     (bitvector_constant loc fmt Primops.empty_bits, zero', zero)
-  | [(x, xw', xw)] -> (x, xw', xw)
-  | ((y, yw', yw) :: ys) ->
-      let (ys', ysw', ysw) = concat loc fmt ys in
-      let w = mk_add_int yw ysw in
-      let w' = int_add loc fmt yw' ysw' in
-      let t = bv_append loc fmt yw' ysw' y ys' in
-      (t, w', w)
-  )
 
 (****************************************************************
  * Record support
@@ -955,12 +859,12 @@ let record_field_set (r : Ident.t) (f : Ident.t) : Ident.t =
   let prefix = "Internal$SetField$" in
   Ident.mk_ident (prefix ^ Ident.name r ^ "$" ^ Ident.name f)
 
-let mk_record_type (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs : (Ident.t * AST.ty) list) : unit =
+let mk_record_type (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs : var list) : unit =
   PP.fprintf fmt "@,!%a = tuple<%a>@,"
     ident rtc
-    (commasep (pp_type loc)) (List.map (fun (f, t) -> t) fs)
+    (commasep (pp_type loc)) (List.map snd fs)
 
-let mk_record_constructor (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs : (Ident.t * AST.ty) list) : unit =
+let mk_record_constructor (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs : var list) : unit =
   locals#reset;
   PP.fprintf fmt "func.func private @%a(%a) -> !%a {@,"
     ident (record_constructor rtc)
@@ -972,7 +876,7 @@ let mk_record_constructor (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs
   );
   PP.fprintf fmt "@,} %a@,@," loc_attr loc
 
-let mk_record_get (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs : (Ident.t * AST.ty) list) (f : Ident.t) (ft : AST.ty) : unit =
+let mk_record_get (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs : var list) (f : Ident.t) (ft : AST.ty) : unit =
   let rty = AST.Type_Constructor (rtc, []) in
   locals#reset;
   let r = locals#fresh in
@@ -988,7 +892,7 @@ let mk_record_get (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs : (Iden
   );
   PP.fprintf fmt "@,} %a@," loc_attr loc
 
-let mk_record_set (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs : (Ident.t * AST.ty) list) (f : Ident.t) (ft : AST.ty) : unit =
+let mk_record_set (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs : var list) (f : Ident.t) (ft : AST.ty) : unit =
   let rty = AST.Type_Constructor (rtc, []) in
   locals#reset;
   let r = locals#fresh in
@@ -1008,10 +912,220 @@ let mk_record_set (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs : (Iden
   PP.fprintf fmt "@,} %a@," loc_attr loc
 
 (****************************************************************
+ * Exception support
+ *
+ * Exception support mostly consists of supporting 'sum-of-products'.
+ *
+ * Exceptions are hard because, in their full generality, they require
+ * algebraic data types (aka sum-of-products, aka union-of-structs).
+ * It is not obvious what existing MLIR dialect we can use to represent
+ * that.
+ *
+ * However, in the actual specifications written in .isa, there are
+ * just 1-3 exception constructors and only one of these has any fields.
+ *
+ * So we can approximately represent the exception type as a struct of structs
+ * plus a tag and the result is not too terrible (i.e., doesn't create
+ * a ridiculously large tuple.
+ *
+ * More concretely, our representation is the following
+ *
+ *     !Internal$Exception$Tag = i8 // distinguish the different exceptions
+ *     // #Internal$Exception$Tag_None = 0 // these definitions are not actually used
+ *     // #Internal$Exception$Tag_E1   = 1
+ *     // #Internal$Exception$Tag_E2   = 2
+ *     // #Internal$Exception$Tag_E3   = 3
+ *     !Internal$Exception = tuple<!Tag, T1, ..., Tn>
+ *
+ *     func.func private @Internal$Make$E1() -> !Internal$Exception {
+ *         %tag = arith.constant 1 : !Exception_Tag // Tag_E1
+ *         %f1  = func.call @T1$UNDEFINED() : () -> !T1
+ *         ...
+ *         %fn  = func.call @Tn$UNDEFINED() : () -> !Tn
+ *         %r = "handshake.pack"(%tag, %f1, ..., %fn) : (!Exception_Tag, !T1, ... !Tn) -> !Internal$Exception
+ *         func.return %r : !Internal$Exception
+ *     }
+ *
+ * where T1, ..., Tn are the types of the fields of the constructor that has fields.
+ *
+ * (More generally, the fields of the tuple are all the fields of all of the exception
+ * constructors. In the special case that only one constructor has fields, the tuple
+ * generated will be the same.)
+ ****************************************************************)
+
+let exception_throw (loc : Loc.t) (fmt : PP.formatter) (e : var) : unit =
+  cf_br loc fmt (List.hd !throw_labels) [e]
+
+let raw_exception_propagate (loc : Loc.t) (fmt : PP.formatter) (exc : var) : unit =
+  let l_no_exception = labels#fresh in
+  let l_exception = List.hd !throw_labels in
+
+  let tag = func_call1 loc fmt (record_field_get exception_tc tag_ident) [exc] tag_type in
+  let tag_width = !exception_tag_width in
+  let zero_tag = arith_constant loc fmt Z.zero tag_width in
+  let tag_match = arith_int_cmp loc fmt "eq" tag_width tag zero_tag in
+
+  PP.fprintf fmt "cf.cond_br %a, %a, %a(%a) %a@,"
+    varident tag_match
+    label l_no_exception
+    label l_exception
+    (varty loc) exc
+    loc_attr loc;
+  PP.fprintf fmt "%a:@," label l_no_exception
+
+let exception_propagate (loc : Loc.t) (fmt : PP.formatter) (throws : AST.can_throw) (rets : var list) : (bool * var list) =
+  ( match throws with
+  | NoThrow ->
+      (false, rets)
+  | MayThrow ->
+      ( match rets with
+      | (exc :: rets') ->
+          raw_exception_propagate loc fmt exc;
+          (false, rets')
+      | _ ->
+          let pp fmt = commasep (varty loc) fmt rets in
+          raise (Error.Unimplemented (loc, "exception_propagate1", pp))
+      )
+  | AlwaysThrow ->
+      ( match rets with
+      | [exc] ->
+          exception_throw loc fmt exc;
+          (true, [])
+      | _ ->
+          let pp fmt = commasep (varty loc) fmt rets in
+          raise (Error.Unimplemented (loc, "exception_propagate2", pp))
+      )
+  )
+
+let mk_exception_get (loc : Loc.t) (fmt : PP.formatter)
+    (tc : Ident.t) (tfs : var list)
+    (dc : Ident.t)
+    (f : Ident.t) (ft : AST.ty)
+  : unit
+  =
+  locals#reset;
+  let ety = AST.Type_Constructor (tc, []) in
+  let e = locals#fresh in
+  func_header loc fmt (record_field_get dc f) [(e, ety)] [ft];
+  PP.fprintf fmt " {@,";
+  indented fmt (fun _ ->
+    let rs = tuple_unpack loc fmt e (List.map snd tfs) in
+    let env =
+        List.map2 (fun (x, _) (y, t) -> (x, (y, t))) tfs rs
+        |> Identset.mk_bindings
+    in
+    func_return loc fmt [Identset.Bindings.find f env]
+  );
+  PP.fprintf fmt "@,} %a@," loc_attr loc
+
+let rec mk_exception_constructor (loc : Loc.t) (fmt : PP.formatter)
+    (tc : Ident.t) (tfs : var list)
+    (tag_field : var)
+    (tag : int) (tag_width : int)
+    (dc : Ident.t) (dfs : var list)
+  : unit
+  =
+  locals#reset;
+  PP.fprintf fmt "func.func private @%a(%a) -> !%a {@,"
+    ident (record_constructor dc)
+    (commasep (varty loc)) dfs
+    ident tc;
+  indented fmt (fun _ ->
+    let tfs' = List.map (fun (f, t) ->
+        if f = fst tag_field then
+          (arith_constant loc fmt (Z.of_int tag) tag_width, snd tag_field)
+        else if List.mem_assoc f dfs then
+          (f, t)
+        else
+          (mk_uninitialized loc (ScopeStack.empty ()) fmt t, t)
+      )
+      tfs
+    in
+    let t = tuple_pack loc fmt tfs' in
+    func_return loc fmt [t]
+  );
+  PP.fprintf fmt "@,} %a@,@," loc_attr loc
+
+(* Note: this depends on the tag being zero which is the default uninitialized value *)
+and mk_null_exception (loc : Loc.t) (env : environment) (fmt : Format.formatter) (ts : AST.ty list) : var =
+  let tfs' = List.map (fun t -> (mk_uninitialized loc env fmt t, t)) ts in
+  tuple_pack loc fmt tfs'
+
+and generate_sum_of_products (loc : Loc.t) (fmt : Format.formatter)
+      (tc : Ident.t)
+      (entries : (Ident.t * var list * Loc.t) list)
+  : unit
+  =
+  (* todo: the following assumes that field names are unique between exception constructors
+   * but this is not guaranteed by the frontend
+   *)
+  let fields = List.flatten (List.map (fun (dc, fs, loc) -> fs) entries) in
+  let tag_width = Utils.ceil_log2 (1 + List.length entries) in
+  exception_tag_width := tag_width;
+  let tag_field = (tag_ident, tag_type) in
+  let fields' = tag_field :: fields in
+  exception_fields := List.map snd fields';
+  Format.fprintf fmt "%a = i%d@,"
+    (pp_type loc) tag_type
+    tag_width;
+  mk_record_type loc fmt tc fields';
+  mk_record_constructor loc fmt tc fields';
+  mk_record_get loc fmt tc fields' (fst tag_field) (snd tag_field);
+  List.iteri (fun i (dc, dfs, loc) ->
+    fieldtypes := Identset.Bindings.add dc fields' !fieldtypes;
+    Format.fprintf fmt "!%a = !%a@," ident dc ident tc;
+    let tag_value = i+1 in
+    exceptions := Identset.Bindings.add dc tag_value !exceptions;
+    mk_exception_constructor loc fmt tc fields' tag_field tag_value tag_width dc dfs;
+    List.iter (fun (f, ft) ->
+        mk_exception_get loc fmt tc fields' dc f ft;
+      )
+      dfs;
+    PP.fprintf fmt "@,"
+  ) entries
+
+(****************************************************************
+ * Uninitialized / Unspecified values and functions
+ ****************************************************************)
+
+and mk_uninitialized (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.ty) : Ident.t =
+  ( match x with
+  | Type_Bits (e, _) -> bv_zero loc fmt (fst (expr loc env fmt e))
+  | Type_Constructor (tc, []) when Ident.equal tc Builtin_idents.boolean_ident -> bool_constant loc fmt false
+  | Type_Constructor (tc, []) when Ident.equal tc Builtin_idents.string_ident -> string_constant loc fmt ""
+  | Type_Constructor (tc, []) when Identset.Bindings.mem tc !enum_types ->
+      let (es, width) = Identset.Bindings.find tc !enum_types in
+      arith_constant loc fmt Z.zero width
+  | Type_Constructor (tc, []) when Ident.equal tc tag_tc -> arith_constant loc fmt Z.zero !exception_tag_width
+  | Type_Constructor (tc, []) -> func_call1 loc fmt (mk_uninit tc) [] x
+  | Type_Integer ocrs -> bigint_constant loc fmt Z.zero
+  | _ ->
+      let pp fmt = FMT.ty fmt x in
+      raise (Error.Unimplemented (loc, "mk_uninitialized", pp))
+  )
+
+and mk_uninitialized_function (loc : Loc.t) (fmt : PP.formatter) (tc : Ident.t) (t : AST.ty) : unit =
+  let rty = AST.Type_Constructor (tc, []) in
+  locals#reset;
+  func_header loc fmt (mk_uninit tc) [] [rty];
+  PP.fprintf fmt " {@,";
+  indented fmt (fun _ ->
+    let env = ScopeStack.empty () in
+    let r = (mk_uninitialized loc env fmt t, t) in
+    func_return loc fmt [r]
+  );
+  PP.fprintf fmt "@,} %a@," loc_attr loc
+
+and mk_unspecified_function (loc : Loc.t) (fmt : PP.formatter) (tc : Ident.t) (t : AST.ty) : unit =
+  let rty = AST.Type_Constructor (tc, []) in
+  func_header loc fmt (mk_unspecified tc) [] [rty];
+  PP.fprintf fmt " %a@," loc_attr loc
+
+(****************************************************************
  * Patterns
  ****************************************************************)
 
-let rec pattern (loc : Loc.t) (env : environment) (fmt : PP.formatter) (p : AST.pattern) (discriminant : (Ident.t * AST.ty)) : Ident.t =
+and pattern (loc : Loc.t) (env : environment) (fmt : PP.formatter) (p : AST.pattern) (discriminant : var) : Ident.t =
   ( match p with
   | Pat_Wildcard ->
       bool_constant loc fmt true
@@ -1063,7 +1177,7 @@ let rec pattern (loc : Loc.t) (env : environment) (fmt : PP.formatter) (p : AST.
   | _ -> raise (InternalError (loc, "pattern", (fun fmt -> FMT.pattern fmt p), __LOC__))
   )
 
-and patterns (loc : Loc.t) (env : environment) (fmt : PP.formatter) (ps : AST.pattern list) (discriminant : (Ident.t * AST.ty)) : Ident.t =
+and patterns (loc : Loc.t) (env : environment) (fmt : PP.formatter) (ps : AST.pattern list) (discriminant : var) : Ident.t =
   ( match ps with
   | [] -> bool_constant loc fmt false
   | [p] -> pattern loc env fmt p discriminant
@@ -1078,7 +1192,7 @@ and patterns (loc : Loc.t) (env : environment) (fmt : PP.formatter) (ps : AST.pa
       )
   )
 
-and mk_eq (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : (Ident.t * AST.ty)) (y : (Ident.t * AST.ty)) : Ident.t =
+and mk_eq (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : var) (y : var) : Ident.t =
   ( match snd x with
   | Type_Bits (sz, _) -> bv_eq loc fmt (fst (expr loc env fmt sz)) (fst x) (fst y)
   | Type_Integer _ -> int_eq loc fmt (fst x) (fst y)
@@ -1090,12 +1204,11 @@ and mk_eq (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : (Ident.t *
       raise (Error.Unimplemented (loc, "mk_eq", pp))
   )
 
-
 (****************************************************************
  * Expressions
  ****************************************************************)
 
-and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) : (Ident.t * AST.ty) =
+and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) : var =
   ( match x with
   | Expr_Lit v -> valueLit loc fmt v
 
@@ -1129,7 +1242,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
                        )
       in
       let (ix', _) = expr loc env fmt ix in
-      let ix'' = to_index loc fmt ix' in
+      let ix'' = int_to_index loc fmt ix' in
       let aref = memref_get_global_array loc fmt v sz elty in
       (memref_load_array loc fmt aref ix'' (Some sz) elty, elty)
 
@@ -1142,7 +1255,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
                  )
       in
       let (ix', _) = expr loc env fmt ix in
-      let ix'' = to_index loc fmt ix' in
+      let ix'' = int_to_index loc fmt ix' in
       (memref_load_array loc fmt aref ix'' None elty, elty)
 
   | Expr_Slices (Type_Integer _, e, [s]) ->
@@ -1299,7 +1412,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       raise (Error.Unimplemented (loc, "expression", pp))
   )
 
-and slices (loc : Loc.t) (env : environment) (fmt : PP.formatter) (b : Ident.t) (xs : AST.slice list) : (Ident.t * AST.ty) =
+and slices (loc : Loc.t) (env : environment) (fmt : PP.formatter) (b : Ident.t) (xs : AST.slice list) : var =
   let xs' = List.map (fun s ->
               let (lo, wd) = slice s in
               let lo' = expr loc env fmt lo in
@@ -1307,7 +1420,7 @@ and slices (loc : Loc.t) (env : environment) (fmt : PP.formatter) (b : Ident.t) 
               (bv_slice loc fmt b (fst lo') (fst wd'), fst wd', wd)
             ) xs
   in
-  let (r, wd', wd) = concat loc fmt xs' in
+  let (r, wd', wd) = bv_concat loc fmt xs' in
   (r, type_bits wd)
 
 and slice (x : AST.slice) : (AST.expr * AST.expr) =
@@ -1412,212 +1525,6 @@ and mk_unspecified_expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (
       let pp fmt = FMT.ty fmt x in
       raise (Error.Unimplemented (loc, "mk_unspecified", pp))
   )
-
-(****************************************************************
- * Exception support
- *
- * Exception support mostly consists of supporting 'sum-of-products'.
- *
- * Exceptions are hard because, in their full generality, they require
- * algebraic data types (aka sum-of-products, aka union-of-structs).
- * It is not obvious what existing MLIR dialect we can use to represent
- * that.
- *
- * However, in the actual specifications written in .isa, there are
- * just 1-3 exception constructors and only one of these has any fields.
- *
- * So we can approximately represent the exception type as a struct of structs
- * plus a tag and the result is not too terrible (i.e., doesn't create
- * a ridiculously large tuple.
- *
- * More concretely, our representation is the following
- *
- *     !Internal$Exception$Tag = i8 // distinguish the different exceptions
- *     // #Internal$Exception$Tag_None = 0 // these definitions are not actually used
- *     // #Internal$Exception$Tag_E1   = 1
- *     // #Internal$Exception$Tag_E2   = 2
- *     // #Internal$Exception$Tag_E3   = 3
- *     !Internal$Exception = tuple<!Tag, T1, ..., Tn>
- *
- *     func.func private @Internal$Make$E1() -> !Internal$Exception {
- *         %tag = arith.constant 1 : !Exception_Tag // Tag_E1
- *         %f1  = func.call @T1$UNDEFINED() : () -> !T1
- *         ...
- *         %fn  = func.call @Tn$UNDEFINED() : () -> !Tn
- *         %r = "handshake.pack"(%tag, %f1, ..., %fn) : (!Exception_Tag, !T1, ... !Tn) -> !Internal$Exception
- *         func.return %r : !Internal$Exception
- *     }
- *
- * where T1, ..., Tn are the types of the fields of the constructor that has fields.
- *
- * (More generally, the fields of the tuple are all the fields of all of the exception
- * constructors. In the special case that only one constructor has fields, the tuple
- * generated will be the same.)
- ****************************************************************)
-
-and mk_uninitialized (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.ty) : Ident.t =
-  ( match x with
-  | Type_Bits (e, _) -> bv_zero loc fmt (fst (expr loc env fmt e))
-  | Type_Constructor (tc, []) when Ident.equal tc Builtin_idents.boolean_ident -> bool_constant loc fmt false
-  | Type_Constructor (tc, []) when Ident.equal tc Builtin_idents.string_ident -> string_constant loc fmt ""
-  | Type_Constructor (tc, []) when Identset.Bindings.mem tc !enum_types ->
-      let (es, width) = Identset.Bindings.find tc !enum_types in
-      arith_constant loc fmt Z.zero width
-  | Type_Constructor (tc, []) when Ident.equal tc tag_tc -> arith_constant loc fmt Z.zero !exception_tag_width
-  | Type_Constructor (tc, []) -> func_call1 loc fmt (mk_uninit tc) [] x
-  | Type_Integer ocrs -> bigint_constant loc fmt Z.zero
-  | _ ->
-      let pp fmt = FMT.ty fmt x in
-      raise (Error.Unimplemented (loc, "mk_uninitialized", pp))
-  )
-
-and exception_throw (loc : Loc.t) (fmt : PP.formatter) (e : (Ident.t * AST.ty)) : unit =
-  cf_br loc fmt (List.hd !throw_labels) [e]
-
-and raw_exception_propagate (loc : Loc.t) (fmt : PP.formatter) (exc : (Ident.t * AST.ty)) : unit =
-  let l_no_exception = labels#fresh in
-  let l_exception = List.hd !throw_labels in
-
-  let tag = func_call1 loc fmt (record_field_get exception_tc tag_ident) [exc] tag_type in
-  let tag_width = !exception_tag_width in
-  let zero_tag = arith_constant loc fmt Z.zero tag_width in
-  let tag_match = arith_int_cmp loc fmt "eq" tag_width tag zero_tag in
-
-  PP.fprintf fmt "cf.cond_br %a, %a, %a(%a) %a@,"
-    varident tag_match
-    label l_no_exception
-    label l_exception
-    (varty loc) exc
-    loc_attr loc;
-  PP.fprintf fmt "%a:@," label l_no_exception
-
-and exception_propagate (loc : Loc.t) (fmt : PP.formatter) (throws : AST.can_throw) (rets : (Ident.t * AST.ty) list) : (bool * (Ident.t * AST.ty) list) =
-  ( match throws with
-  | NoThrow ->
-      (false, rets)
-  | MayThrow ->
-      ( match rets with
-      | (exc :: rets') ->
-          raw_exception_propagate loc fmt exc;
-          (false, rets')
-      | _ ->
-          let pp fmt = commasep (varty loc) fmt rets in
-          raise (Error.Unimplemented (loc, "exception_propagate1", pp))
-      )
-  | AlwaysThrow ->
-      ( match rets with
-      | [exc] ->
-          exception_throw loc fmt exc;
-          (true, [])
-      | _ ->
-          let pp fmt = commasep (varty loc) fmt rets in
-          raise (Error.Unimplemented (loc, "exception_propagate2", pp))
-      )
-  )
-
-and mk_exception_constructor (loc : Loc.t) (fmt : PP.formatter)
-    (tc : Ident.t) (tfs : (Ident.t * AST.ty) list)
-    (tag_field : (Ident.t * AST.ty))
-    (tag : int) (tag_width : int)
-    (dc : Ident.t) (dfs : (Ident.t * AST.ty) list)
-  : unit
-  =
-  locals#reset;
-  PP.fprintf fmt "func.func private @%a(%a) -> !%a {@,"
-    ident (record_constructor dc)
-    (commasep (varty loc)) dfs
-    ident tc;
-  indented fmt (fun _ ->
-    let tfs' = List.map (fun (f, t) ->
-        if f = fst tag_field then
-          (arith_constant loc fmt (Z.of_int tag) tag_width, snd tag_field)
-        else if List.mem_assoc f dfs then
-          (f, t)
-        else
-          (mk_uninitialized loc (ScopeStack.empty ()) fmt t, t)
-      )
-      tfs
-    in
-    let t = tuple_pack loc fmt tfs' in
-    func_return loc fmt [t]
-  );
-  PP.fprintf fmt "@,} %a@,@," loc_attr loc
-
-(* Note: this depends on the tag being zero which is the default uninitialized value *)
-and mk_null_exception (loc : Loc.t) (env : environment) (fmt : Format.formatter) (ts : AST.ty list) : (Ident.t * AST.ty) =
-  let tfs' = List.map (fun t -> (mk_uninitialized loc env fmt t, t)) ts in
-  tuple_pack loc fmt tfs'
-
-let mk_exception_get (loc : Loc.t) (fmt : PP.formatter)
-    (tc : Ident.t) (tfs : (Ident.t * AST.ty) list)
-    (dc : Ident.t)
-    (f : Ident.t) (ft : AST.ty)
-  : unit
-  =
-  locals#reset;
-  let ety = AST.Type_Constructor (tc, []) in
-  let e = locals#fresh in
-  func_header loc fmt (record_field_get dc f) [(e, ety)] [ft];
-  PP.fprintf fmt " {@,";
-  indented fmt (fun _ ->
-    let rs = tuple_unpack loc fmt e (List.map snd tfs) in
-    let env =
-        List.map2 (fun (x, _) (y, t) -> (x, (y, t))) tfs rs
-        |> Identset.mk_bindings
-    in
-    func_return loc fmt [Identset.Bindings.find f env]
-  );
-  PP.fprintf fmt "@,} %a@," loc_attr loc
-
-let generate_sum_of_products (loc : Loc.t) (fmt : Format.formatter)
-      (tc : Ident.t)
-      (entries : (Ident.t * (Ident.t * AST.ty) list * Loc.t) list)
-  : unit
-  =
-  (* todo: the following assumes that field names are unique between exception constructors
-   * but this is not guaranteed by the frontend
-   *)
-  let fields = List.flatten (List.map (fun (dc, fs, loc) -> fs) entries) in
-  let tag_width = Utils.ceil_log2 (1 + List.length entries) in
-  exception_tag_width := tag_width;
-  let tag_field = (tag_ident, tag_type) in
-  let fields' = tag_field :: fields in
-  exception_fields := List.map snd fields';
-  Format.fprintf fmt "%a = i%d@,"
-    (pp_type loc) tag_type
-    tag_width;
-  mk_record_type loc fmt tc fields';
-  mk_record_constructor loc fmt tc fields';
-  mk_record_get loc fmt tc fields' (fst tag_field) (snd tag_field);
-  List.iteri (fun i (dc, dfs, loc) ->
-    fieldtypes := Identset.Bindings.add dc fields' !fieldtypes;
-    Format.fprintf fmt "!%a = !%a@," ident dc ident tc;
-    let tag_value = i+1 in
-    exceptions := Identset.Bindings.add dc tag_value !exceptions;
-    mk_exception_constructor loc fmt tc fields' tag_field tag_value tag_width dc dfs;
-    List.iter (fun (f, ft) ->
-        mk_exception_get loc fmt tc fields' dc f ft;
-      )
-      dfs;
-    PP.fprintf fmt "@,"
-  ) entries
-
-let mk_uninitialized_function (loc : Loc.t) (fmt : PP.formatter) (tc : Ident.t) (t : AST.ty) : unit =
-  let rty = AST.Type_Constructor (tc, []) in
-  locals#reset;
-  func_header loc fmt (mk_uninit tc) [] [rty];
-  PP.fprintf fmt " {@,";
-  indented fmt (fun _ ->
-    let env = ScopeStack.empty () in
-    let r = (mk_uninitialized loc env fmt t, t) in
-    func_return loc fmt [r]
-  );
-  PP.fprintf fmt "@,} %a@," loc_attr loc
-
-let mk_unspecified_function (loc : Loc.t) (fmt : PP.formatter) (tc : Ident.t) (t : AST.ty) : unit =
-  let rty = AST.Type_Constructor (tc, []) in
-  func_header loc fmt (mk_unspecified tc) [] [rty];
-  PP.fprintf fmt " %a@," loc_attr loc
 
 (****************************************************************
  * Statements
@@ -1974,7 +1881,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       raise (Error.Unimplemented (Loc.Unknown, "statement", pp))
   )
 
-and decl_item (loc : Loc.t) (env : environment) (fmt : PP.formatter) (is_constant : bool) (x : AST.decl_item) (i : (Ident.t * AST.ty)) : unit =
+and decl_item (loc : Loc.t) (env : environment) (fmt : PP.formatter) (is_constant : bool) (x : AST.decl_item) (i : var) : unit =
   ( match (x, i) with
   | (DeclItem_Wildcard _, _) ->
       ()
@@ -1989,7 +1896,7 @@ and decl_item (loc : Loc.t) (env : environment) (fmt : PP.formatter) (is_constan
   )
 
 
-and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lexpr) (rhs : (Ident.t * AST.ty)) : unit =
+and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lexpr) (rhs : var) : unit =
   ( match lhs with
   | LExpr_Wildcard ->
       ()
@@ -2032,7 +1939,7 @@ and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lex
                        )
       in
       let (ix', _) = expr loc env fmt ix in
-      let ix'' = to_index loc fmt ix' in
+      let ix'' = int_to_index loc fmt ix' in
       let aref = memref_get_global_array loc fmt v sz elty in
       memref_store_array loc fmt aref ix'' (fst rhs) (Some sz) elty
 
@@ -2045,7 +1952,7 @@ and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lex
                  )
       in
       let (ix', _) = expr loc env fmt ix in
-      let ix'' = to_index loc fmt ix' in
+      let ix'' = int_to_index loc fmt ix' in
       memref_store_array loc fmt aref ix'' (fst rhs) None elty
 
   | LExpr_Write (f, tes, args, throws) ->
@@ -2244,6 +2151,107 @@ let declarations (fmt : PP.formatter) (xs : AST.declaration list) : unit =
 (****************************************************************
  * Command: :to_mlir
  ****************************************************************)
+
+(* We generate function headers for all of the following *)
+let standard_functions = Identset.IdentSet.of_list [
+  Builtin_idents.eq_bool;
+  Builtin_idents.ne_bool;
+  Builtin_idents.not_bool;
+  Builtin_idents.strict_and_bool;
+  Builtin_idents.strict_or_bool;
+  (*
+  Builtin_idents.lazy_and_bool;
+  Builtin_idents.lazy_or_bool;
+  *)
+
+  (*
+  Builtin_idents.eq_int;
+  Builtin_idents.ne_int;
+  Builtin_idents.ge_int;
+  Builtin_idents.gt_int;
+  Builtin_idents.le_int;
+  Builtin_idents.lt_int;
+  Builtin_idents.neg_int;
+  Builtin_idents.add_int;
+  Builtin_idents.sub_int;
+  Builtin_idents.mul_int;
+  Builtin_idents.pow2_int;
+  *)
+  Builtin_idents.shl_int;
+  Builtin_idents.shr_int;
+  Builtin_idents.mod_pow2_int;
+  Builtin_idents.is_pow2_int;
+  Builtin_idents.align_int;
+  Builtin_idents.cdiv_int;
+  Builtin_idents.crem_int;
+  Builtin_idents.pdiv_int;
+  Builtin_idents.prem_int;
+  Builtin_idents.zdiv_int;
+  Builtin_idents.zrem_int;
+  (*
+  Builtin_idents.pow_int_int;
+  Builtin_idents.max;
+  Builtin_idents.min;
+  Builtin_idents.abs;
+  *)
+
+  Builtin_idents.eq_bits;
+  Builtin_idents.ne_bits;
+  Builtin_idents.not_bits;
+  Builtin_idents.and_bits;
+  Builtin_idents.or_bits;
+  Builtin_idents.xor_bits;
+  (*
+  Builtin_idents.add_bits;
+  Builtin_idents.sub_bits;
+  *)
+  Builtin_idents.mul_bits;
+  (*
+  Builtin_idents.add_bits_int;
+  Builtin_idents.sub_bits_int;
+  Builtin_idents.mul_bits_int;
+  *)
+  Builtin_idents.asr_bits;
+  (*
+  Builtin_idents.lsl_bits;
+  *)
+  Builtin_idents.lsr_bits;
+  Builtin_idents.append_bits;
+  Builtin_idents.replicate_bits;
+  Builtin_idents.zeros_bits;
+  Builtin_idents.ones_bits;
+  Builtin_idents.sign_extend_bits;
+  Builtin_idents.zero_extend_bits;
+  Builtin_idents.pow2_bits;
+  (*
+  Builtin_idents.cvt_bits_sint;
+  Builtin_idents.cvt_bits_uint;
+  *)
+  Builtin_idents.cvt_int_bits;
+  (*
+  Builtin_idents.is_ones;
+  Builtin_idents.is_zero;
+  Builtin_idents.length;
+  *)
+  (*
+  Builtin_idents.mask_int;
+  Builtin_idents.in_mask;
+  Builtin_idents.mk_mask;
+  Builtin_idents.notin_mask;
+  *)
+
+  Builtin_idents.ram_init;
+  Builtin_idents.ram_read;
+  Builtin_idents.ram_write;
+
+  Builtin_idents.asl_end_execution;
+
+  Builtin_idents.print_int_hex;
+  Builtin_idents.print_int_dec;
+  Builtin_idents.print_char;
+  Builtin_idents.print_str;
+  Builtin_idents.print_bits_hex
+]
 
 let _ =
   let opt_filename = ref "" in
