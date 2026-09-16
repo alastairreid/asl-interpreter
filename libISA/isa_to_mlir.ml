@@ -651,16 +651,18 @@ let valueLit (loc : Loc.t) (fmt : PP.formatter) (x : Value.value) : (Ident.t * A
  * Useful operations
  ****************************************************************)
 
-let cf_assume (fmt : PP.formatter) (x : Ident.t) (msg : string) : unit =
+let cf_assume (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (msg : string) : unit =
   (* todo: should be cf.assume *)
-  PP.fprintf fmt "cf.assert %a, \"%s\"@,"
+  PP.fprintf fmt "cf.assert %a, \"%s\" %a@,"
     varident x
     msg
+    loc_attr loc
 
-let cf_assert (fmt : PP.formatter) (x : Ident.t) (msg : string) : unit =
-  PP.fprintf fmt "cf.assert %a, \"%s\"@,"
+let cf_assert (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (msg : string) : unit =
+  PP.fprintf fmt "cf.assert %a, \"%s\" %a@,"
     varident x
     msg
+    loc_attr loc
 
 (* todo: we need a way to model termination of the system.
  * 'cf.assert false' comes close but it is not a terminator
@@ -668,224 +670,246 @@ let cf_assert (fmt : PP.formatter) (x : Ident.t) (msg : string) : unit =
  *)
 let cf_halt (loc : Loc.t) (fmt : PP.formatter) (msg : string) : unit =
   let ff = bool_constant loc fmt false in
-  cf_assert fmt ff msg;
+  cf_assert loc fmt ff msg;
   let l_loop = labels#fresh in
-  PP.fprintf fmt "cf.br %a@," label l_loop;
+  PP.fprintf fmt "cf.br %a %a@," label l_loop loc_attr loc;
   PP.fprintf fmt "%a: // deliberate infinite loop@," label l_loop;
-  PP.fprintf fmt "cf.br %a@," label l_loop
+  PP.fprintf fmt "cf.br %a %a@," label l_loop loc_attr loc
 
-let type_assume (fmt : PP.formatter) (x : Ident.t) : unit =
+let type_assume (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) : unit =
   if !type_checks then begin
-    cf_assume fmt x "type assumption"
+    cf_assume loc fmt x "type assumption"
   end
 
-let type_assert (fmt : PP.formatter) (x : Ident.t) : unit =
+let type_assert (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) : unit =
   if !type_checks then begin
-    cf_assert fmt x "type assertion"
+    cf_assert loc fmt x "type assertion"
   end
 
-let arith_int_cmp (fmt : PP.formatter) (cmp : string) (sz : int) (x : Ident.t) (y : Ident.t) : Ident.t =
+let arith_int_cmp (loc : Loc.t) (fmt : PP.formatter) (cmp : string) (sz : int) (x : Ident.t) (y : Ident.t) : Ident.t =
   with_fresh (fun r ->
-    PP.fprintf fmt "%a = arith.cmpi %s, %a, %a : i%d@,"
+    PP.fprintf fmt "%a = arith.cmpi %s, %a, %a : i%d %a@,"
       varident r
       cmp
       varident x
       varident y
       sz
+      loc_attr loc
   )
 
-let int_add (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
-  func_call1 Loc.Unknown fmt Builtins.add_int [(x, type_integer); (y, type_integer)] type_integer
+let int_add (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
+  func_call1 loc fmt Builtins.add_int [(x, type_integer); (y, type_integer)] type_integer
 
-let int_sub (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
-  func_call1 Loc.Unknown fmt Builtins.sub_int [(x, type_integer); (y, type_integer)] type_integer
+let int_sub (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
+  func_call1 loc fmt Builtins.sub_int [(x, type_integer); (y, type_integer)] type_integer
 
-let int_eq (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
-  func_call1 Loc.Unknown fmt Builtins.eq_int [(x, type_integer); (y, type_integer)] type_bool
+let int_eq (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
+  func_call1 loc fmt Builtins.eq_int [(x, type_integer); (y, type_integer)] type_bool
 
-let int_le (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
-  func_call1 Loc.Unknown fmt Builtins.le_int [(x, type_integer); (y, type_integer)] type_bool
+let int_le (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
+  func_call1 loc fmt Builtins.le_int [(x, type_integer); (y, type_integer)] type_bool
 
-let int_lt (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
-  func_call1 Loc.Unknown fmt Builtins.lt_int [(x, type_integer); (y, type_integer)] type_bool
+let int_lt (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
+  func_call1 loc fmt Builtins.lt_int [(x, type_integer); (y, type_integer)] type_bool
 
-let bv_eq (fmt : PP.formatter) (sz : Ident.t) (x : Ident.t) (y : Ident.t) : Ident.t =
+let bv_eq (loc : Loc.t) (fmt : PP.formatter) (sz : Ident.t) (x : Ident.t) (y : Ident.t) : Ident.t =
   with_fresh (fun r ->
-    PP.fprintf fmt "%a = func.call @Std$Bits$Eq(%a, %a, %a) : (!Std$Integer, !Std$Bits, !Std$Bits) -> i1@,"
+    PP.fprintf fmt "%a = func.call @Std$Bits$Eq(%a, %a, %a) : (!Std$Integer, !Std$Bits, !Std$Bits) -> i1 %a@,"
       varident r
       varident sz
       varident x
       varident y
+      loc_attr loc
   )
 
-let bv_zero (fmt : PP.formatter) (sz : Ident.t) : Ident.t =
+let bv_zero (loc : Loc.t) (fmt : PP.formatter) (sz : Ident.t) : Ident.t =
   with_fresh (fun r ->
-    PP.fprintf fmt "%a = func.call @Std$Bits$Zero(%a) : (!Std$Integer) -> !Std$Bits@,"
+    PP.fprintf fmt "%a = func.call @Std$Bits$Zero(%a) : (!Std$Integer) -> !Std$Bits %a@,"
       varident r
       varident sz
+      loc_attr loc
   )
 
-let bv_and (fmt : PP.formatter) (sz : Ident.t) (x : Ident.t) (y : Ident.t) : Ident.t =
+let bv_and (loc : Loc.t) (fmt : PP.formatter) (sz : Ident.t) (x : Ident.t) (y : Ident.t) : Ident.t =
   with_fresh (fun r ->
-    PP.fprintf fmt "%a = func.call @Std$Bits$And(%a, %a, %a) : (!Std$Integer, !Std$Bits, !Std$Bits) -> !Std$Bits@,"
+    PP.fprintf fmt "%a = func.call @Std$Bits$And(%a, %a, %a) : (!Std$Integer, !Std$Bits, !Std$Bits) -> !Std$Bits %a@,"
       varident r
       varident sz
       varident x
       varident y
+      loc_attr loc
   )
 
-let bv_length (fmt : PP.formatter) (x : Ident.t) : Ident.t =
+let bv_length (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) : Ident.t =
   with_fresh (fun r ->
-    PP.fprintf fmt "%a = func.call @Std$Bits$MyLength(%a) : (!Std$Bits) -> !Std$Integer@,"
+    PP.fprintf fmt "%a = func.call @Std$Bits$MyLength(%a) : (!Std$Bits) -> !Std$Integer %a@,"
       varident r
       varident x
+      loc_attr loc
   )
 
-let bool_eq (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
+let bool_eq (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
   with_fresh (fun t ->
-    PP.fprintf fmt "%a = arith.cmpi eq, %a, %a : i1@,"
+    PP.fprintf fmt "%a = arith.cmpi eq, %a, %a : i1 %a@,"
       varident t
       varident x
       varident y
+      loc_attr loc
   )
 
-let bool_or (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
+let bool_or (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
   with_fresh (fun t ->
-    PP.fprintf fmt "%a = arith.ori %a, %a : i1@,"
+    PP.fprintf fmt "%a = arith.ori %a, %a : i1 %a@,"
       varident t
       varident x
       varident y
+      loc_attr loc
   )
 
-let bool_and (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
+let bool_and (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
   with_fresh (fun t ->
-    PP.fprintf fmt "%a = arith.andi %a, %a : i1@,"
+    PP.fprintf fmt "%a = arith.andi %a, %a : i1 %a@,"
       varident t
       varident x
       varident y
+      loc_attr loc
   )
 
-let rec or_reduce (fmt : PP.formatter) (cs : Ident.t option list) : Ident.t option =
+let rec or_reduce (loc : Loc.t) (fmt : PP.formatter) (cs : Ident.t option list) : Ident.t option =
   ( match cs with
   | [] -> None
   | [c] -> c
-  | c::cs' -> option_blend (bool_or fmt) c (or_reduce fmt cs')
+  | c::cs' -> option_blend (bool_or loc fmt) c (or_reduce loc fmt cs')
   )
 
-let bv_append (fmt : PP.formatter) (wx : Ident.t) (wy : Ident.t) (x : Ident.t) (y : Ident.t) : Ident.t =
+let bv_append (loc : Loc.t) (fmt : PP.formatter) (wx : Ident.t) (wy : Ident.t) (x : Ident.t) (y : Ident.t) : Ident.t =
   with_fresh (fun t ->
-    PP.fprintf fmt "%a = func.call @Std$Bits$Append(%a, %a, %a, %a) : (!Std$Integer, !Std$Integer, !Std$Bits, !Std$Bits) -> !Std$Bits@,"
+    PP.fprintf fmt "%a = func.call @Std$Bits$Append(%a, %a, %a, %a) : (!Std$Integer, !Std$Integer, !Std$Bits, !Std$Bits) -> !Std$Bits %a@,"
       varident t
       varident wx
       varident wy
       varident x
       varident y
+      loc_attr loc
   )
 
-let bv_slice (fmt : PP.formatter) (x : Ident.t) (i : Ident.t) (w : Ident.t) : Ident.t =
+let bv_slice (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (i : Ident.t) (w : Ident.t) : Ident.t =
   with_fresh (fun t ->
-    PP.fprintf fmt "%a = func.call @Std$Bits$Slice(%a, %a, %a) : (!Std$Bits, !Std$Integer, !Std$Integer) -> !Std$Bits@,"
+    PP.fprintf fmt "%a = func.call @Std$Bits$Slice(%a, %a, %a) : (!Std$Bits, !Std$Integer, !Std$Integer) -> !Std$Bits %a@,"
       varident t
       varident x
       varident i
       varident w
+      loc_attr loc
   )
 
-let bv_setslice (fmt : PP.formatter) (x : Ident.t) (i : Ident.t) (w : Ident.t) (r : Ident.t) : Ident.t =
+let bv_setslice (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (i : Ident.t) (w : Ident.t) (r : Ident.t) : Ident.t =
   with_fresh (fun t ->
-    PP.fprintf fmt "%a = func.call @Std$Bits$SetSlice(%a, %a, %a, %a) : (!Std$Bits, !Std$Integer, !Std$Integer, !Std$Bits) -> !Std$Bits@,"
+    PP.fprintf fmt "%a = func.call @Std$Bits$SetSlice(%a, %a, %a, %a) : (!Std$Bits, !Std$Integer, !Std$Integer, !Std$Bits) -> !Std$Bits %a@,"
       varident t
       varident x
       varident i
       varident w
       varident r
+      loc_attr loc
   )
 
 let memref_global_scalar (loc : Loc.t) (fmt : PP.formatter) (v : Ident.t) (ty : AST.ty) : unit =
-  PP.fprintf fmt "memref.global @%a : memref<%a>@,@,"
+  PP.fprintf fmt "memref.global @%a : memref<%a> %a@,@,"
     ident v
     (pp_type loc) ty
+    loc_attr loc
 
 let memref_get_global_scalar (loc : Loc.t) (fmt : PP.formatter) (v : Ident.t) (ty : AST.ty) : Ident.t =
   with_fresh (fun t ->
-    PP.fprintf fmt "%a = memref.get_global @@%a : memref<%a>@,"
+    PP.fprintf fmt "%a = memref.get_global @@%a : memref<%a> %a@,"
       varident t
       ident v
       (pp_type loc) ty
+      loc_attr loc
   )
 
 let memref_load_scalar (loc : Loc.t) (fmt : PP.formatter) (ref : Ident.t) (ty : AST.ty) : Ident.t =
   with_fresh (fun t ->
-    PP.fprintf fmt "%a = memref.load %a[] : memref<%a>@,"
+    PP.fprintf fmt "%a = memref.load %a[] : memref<%a> %a@,"
       varident t
       varident ref
       (pp_type loc) ty
+      loc_attr loc
   )
 
 let memref_store_scalar (loc : Loc.t) (fmt : PP.formatter) (ref : Ident.t) (x : Ident.t) (ty : AST.ty) : unit =
-  PP.fprintf fmt "memref.store %a, %a[] : memref<%a>@,"
+  PP.fprintf fmt "memref.store %a, %a[] : memref<%a> %a@,"
     varident x
     varident ref
     (pp_type loc) ty
+    loc_attr loc
 
 let memref_alloc_array (loc : Loc.t) (fmt : PP.formatter) (sz : Ident.t) (ty : AST.ty) : Ident.t =
   with_fresh (fun v ->
-    PP.fprintf fmt "%a = memref.alloc(%a) : memref<? x %a>@,"
+    PP.fprintf fmt "%a = memref.alloc(%a) : memref<? x %a> %a@,"
       varident v
       varident sz
       (pp_type loc) ty
+      loc_attr loc
   )
 
 let memref_global_array (loc : Loc.t) (fmt : PP.formatter) (v : Ident.t) (sz : Z.t) (ty : AST.ty) : unit =
-  PP.fprintf fmt "memref.global @%a : memref<%s x %a>@,@,"
+  PP.fprintf fmt "memref.global @%a : memref<%s x %a> %a@,@,"
     ident v
     (Z.to_string sz)
     (pp_type loc) ty
+    loc_attr loc
 
 let memref_get_global_array (loc : Loc.t) (fmt : PP.formatter) (v : Ident.t) (sz : Z.t) (ty : AST.ty) : Ident.t =
   with_fresh (fun t ->
-    PP.fprintf fmt "%a = memref.get_global @@%a : memref<%s x %a>@,"
+    PP.fprintf fmt "%a = memref.get_global @@%a : memref<%s x %a> %a@,"
       varident t
       ident v
       (Z.to_string sz)
       (pp_type loc) ty
+      loc_attr loc
   )
 
 let memref_load_array (loc : Loc.t) (fmt : PP.formatter) (aref : Ident.t) (ix : Ident.t) (sz : Z.t option) (ty : AST.ty) : Ident.t =
   with_fresh (fun t ->
-    PP.fprintf fmt "%a = memref.load %a[%a] : memref<%s x %a>@,"
+    PP.fprintf fmt "%a = memref.load %a[%a] : memref<%s x %a> %a@,"
       varident t
       varident aref
       varident ix
       (Option.fold ~none:"?" ~some:Z.to_string sz)
       (pp_type loc) ty
+      loc_attr loc
   )
 
 let memref_store_array (loc : Loc.t) (fmt : PP.formatter) (aref : Ident.t) (ix : Ident.t) (x : Ident.t) (sz : Z.t option) (ty : AST.ty) : unit =
-  PP.fprintf fmt "memref.store %a, %a[%a] : memref<%s x %a>@,"
+  PP.fprintf fmt "memref.store %a, %a[%a] : memref<%s x %a> %a@,"
     varident x
     varident aref
     varident ix
     (Option.fold ~none:"?" ~some:Z.to_string sz)
     (pp_type loc) ty
+    loc_attr loc
 
 let tuple_pack (loc : Loc.t) (fmt : PP.formatter) (es : (Ident.t * AST.ty) list) : (Ident.t * AST.ty) =
   let ts = List.map (fun (f, t) -> t) es in
   with_fresh_typed (Type_Tuple ts) (fun t ->
-    PP.fprintf fmt "%a = \"handshake.pack\"(%a) : (%a) -> tuple<%a>@,"
+    PP.fprintf fmt "%a = \"handshake.pack\"(%a) : (%a) -> tuple<%a> %a@,"
       varident t
       (commasep (fun fmt (v, t) -> varident fmt v)) es
       (commasep (pp_type loc)) ts
       (commasep (pp_type loc)) ts
+      loc_attr loc
   )
 
 let tuple_unpack (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (ts : AST.ty list) : (Ident.t * AST.ty) list =
   let xs = List.map (fun t -> (locals#fresh, t)) ts in
-  PP.fprintf fmt "%a = \"handshake.unpack\"(%a) : (tuple<%a>) -> (%a)@,"
+  PP.fprintf fmt "%a = \"handshake.unpack\"(%a) : (tuple<%a>) -> (%a) %a@,"
     (commasep (fun fmt (v, t) -> varident fmt v)) xs
     varident x
     (commasep (pp_type loc)) ts
-    (commasep (pp_type loc)) ts;
+    (commasep (pp_type loc)) ts
+    loc_attr loc;
   xs
 
 let rec concat (loc : Loc.t) (fmt : PP.formatter) (xs : (Ident.t * Ident.t * AST.expr) list) : (Ident.t * Ident.t * AST.expr) =
@@ -897,8 +921,8 @@ let rec concat (loc : Loc.t) (fmt : PP.formatter) (xs : (Ident.t * Ident.t * AST
   | ((y, yw', yw) :: ys) ->
       let (ys', ysw', ysw) = concat loc fmt ys in
       let w = mk_add_int yw ysw in
-      let w' = int_add fmt yw' ysw' in
-      let t = bv_append fmt yw' ysw' y ys' in
+      let w' = int_add loc fmt yw' ysw' in
+      let t = bv_append loc fmt yw' ysw' y ys' in
       (t, w', w)
   )
 
@@ -984,20 +1008,20 @@ let rec pattern (loc : Loc.t) (env : environment) (fmt : PP.formatter) (p : AST.
   | Pat_Lit (VBits v) ->
       let v' = bitvector_constant loc fmt v in
       let sz = bigint_constant loc fmt (Z.of_int v.n) in
-      bv_eq fmt sz v' (fst discriminant)
+      bv_eq loc fmt sz v' (fst discriminant)
   | Pat_Lit (VBool v) ->
       let v' = bool_constant loc fmt v in
-      bool_eq fmt v' (fst discriminant)
+      bool_eq loc fmt v' (fst discriminant)
   | Pat_Lit (VMask mask) ->
       let (v, m) = Primops.prim_mask_to_bits mask in
       let v' = bitvector_constant loc fmt v in
       let m' = bitvector_constant loc fmt m in
       let sz = bigint_constant loc fmt (Z.of_int v.n) in
-      let masked' = bv_and fmt sz (fst discriminant) m' in
-      bv_eq fmt sz masked' v'
+      let masked' = bv_and loc fmt sz (fst discriminant) m' in
+      bv_eq loc fmt sz masked' v'
   | Pat_Lit (VInt v) ->
       let v' = bigint_constant loc fmt v in
-      int_eq fmt v' (fst discriminant)
+      int_eq loc fmt v' (fst discriminant)
   | Pat_Const v when Identset.Bindings.mem v !global_vartypes ->
       (* todo: this should be a constant *)
       let ty = Identset.Bindings.find v !global_vartypes in
@@ -1008,13 +1032,13 @@ let rec pattern (loc : Loc.t) (env : environment) (fmt : PP.formatter) (p : AST.
   | Pat_Lit (VEnum (e, _)) when Identset.Bindings.mem e !enum_constants ->
       let (tc, tag, width) = Identset.Bindings.find e !enum_constants in
       let v' = arith_constant loc fmt (Z.of_int tag) width in
-      arith_int_cmp fmt "eq" width v' (fst discriminant)
+      arith_int_cmp loc fmt "eq" width v' (fst discriminant)
   | Pat_Range (lo, hi) ->
       let lo' = expr loc env fmt lo in
       let hi' = expr loc env fmt hi in
-      let c1 = int_le fmt (fst lo') (fst discriminant) in
-      let c2 = int_le fmt (fst discriminant) (fst hi') in
-      bool_or fmt c1 c2
+      let c1 = int_le loc fmt (fst lo') (fst discriminant) in
+      let c2 = int_le loc fmt (fst discriminant) (fst hi') in
+      bool_or loc fmt c1 c2
   | Pat_Single e ->
       let e' = expr loc env fmt e in
       mk_eq loc env fmt e' discriminant
@@ -1025,7 +1049,7 @@ let rec pattern (loc : Loc.t) (env : environment) (fmt : PP.formatter) (p : AST.
       assert (List.length ps = List.length ts);
       let discriminants = tuple_unpack loc fmt (fst discriminant) ts in
       let cs = List.map2 (pattern loc env fmt) ps discriminants in
-      List.fold_left (bool_and fmt) (bool_constant loc fmt true) cs
+      List.fold_left (bool_and loc fmt) (bool_constant loc fmt true) cs
   | _ -> raise (InternalError (loc, "pattern", (fun fmt -> FMT.pattern fmt p), __LOC__))
   )
 
@@ -1046,11 +1070,11 @@ and patterns (loc : Loc.t) (env : environment) (fmt : PP.formatter) (ps : AST.pa
 
 and mk_eq (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : (Ident.t * AST.ty)) (y : (Ident.t * AST.ty)) : Ident.t =
   ( match snd x with
-  | Type_Bits (sz, _) -> bv_eq fmt (fst (expr loc env fmt sz)) (fst x) (fst y)
-  | Type_Integer _ -> int_eq fmt (fst x) (fst y)
+  | Type_Bits (sz, _) -> bv_eq loc fmt (fst (expr loc env fmt sz)) (fst x) (fst y)
+  | Type_Integer _ -> int_eq loc fmt (fst x) (fst y)
   | Type_Constructor (tc, []) when Identset.Bindings.mem tc !enum_types ->
       let (_, width) = Identset.Bindings.find tc !enum_types in
-      arith_int_cmp fmt "eq" width (fst x) (fst y)
+      arith_int_cmp loc fmt "eq" width (fst x) (fst y)
   | _ ->
       let pp fmt = FMT.ty fmt (snd x) in
       raise (Error.Unimplemented (loc, "mk_eq", pp))
@@ -1139,7 +1163,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
                )
       in
       let (_, width) = Identset.Bindings.find tc !enum_types in
-      (arith_int_cmp fmt "eq" width x' y', type_bool)
+      (arith_int_cmp loc fmt "eq" width x' y', type_bool)
 
   | Expr_TApply (f, [], [x; y], NoThrow) when Ident.equal f Builtins.ne_enum || Ident.root_equal f ~root:Builtins.ne_enum ->
       let (x', xty) = expr loc env fmt x in
@@ -1151,7 +1175,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
                )
       in
       let (_, width) = Identset.Bindings.find tc !enum_types in
-      (arith_int_cmp fmt "ne" width x' y', type_bool)
+      (arith_int_cmp loc fmt "ne" width x' y', type_bool)
 
   | Expr_TApply (f, tes, es, _) ->
       let fty = Identset.Bindings.find f !funtypes in
@@ -1164,7 +1188,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       if !type_checks then begin
         List.iter (fun (r, t) ->
           let oc = check_type loc formal_env fmt r t in
-          Option.iter (type_assume fmt) oc
+          Option.iter (type_assume loc fmt) oc
         ) rets'
       end;
       ( match rets' with
@@ -1276,7 +1300,7 @@ and slices (loc : Loc.t) (env : environment) (fmt : PP.formatter) (b : Ident.t) 
               let (lo, wd) = slice s in
               let lo' = expr loc env fmt lo in
               let wd' = expr loc env fmt wd in
-              (bv_slice fmt b (fst lo') (fst wd'), fst wd', wd)
+              (bv_slice loc fmt b (fst lo') (fst wd'), fst wd', wd)
             ) xs
   in
   let (r, wd', wd) = concat loc fmt xs' in
@@ -1302,23 +1326,23 @@ and slice (x : AST.slice) : (AST.expr * AST.expr) =
 
 and check_set_range (loc : Loc.t) (env : environment) (fmt : PP.formatter) (v : Ident.t) (x : AST.set_range) : Ident.t option =
   ( match x with
-  | Set_Single e -> Some (int_eq fmt v (fst (expr loc env fmt e)))
+  | Set_Single e -> Some (int_eq loc fmt v (fst (expr loc env fmt e)))
   | Set_Range (lo, hi) ->
-      let c_lo = lift (Fun.flip (int_le fmt)) v (Option.map (Fun.compose fst (expr loc env fmt)) lo) in
-      let c_hi = lift (int_le fmt) v (Option.map (Fun.compose fst (expr loc env fmt)) hi) in
-      option_blend (bool_and fmt) c_lo c_hi
+      let c_lo = lift (Fun.flip (int_le loc fmt)) v (Option.map (Fun.compose fst (expr loc env fmt)) lo) in
+      let c_hi = lift (int_le loc fmt) v (Option.map (Fun.compose fst (expr loc env fmt)) hi) in
+      option_blend (bool_and loc fmt) c_lo c_hi
   )
 
 and check_type (loc : Loc.t) (env : environment) (fmt : PP.formatter) (v : Ident.t) (x : AST.ty) : Ident.t option =
   ( match x with
   | Type_Bits (e, _) ->
-      let t = bv_length fmt v in
+      let t = bv_length loc fmt v in
       let (e', _) = expr loc env fmt e in
-      Some (int_eq fmt t e')
+      Some (int_eq loc fmt t e')
   | Type_Integer None -> None
   | Type_Integer (Some srs) ->
       let cs = List.map (check_set_range loc env fmt v) srs in
-      or_reduce fmt cs
+      or_reduce loc fmt cs
   | Type_Constructor (tc, ps) -> None
   | Type_Array _ -> None
   | Type_Tuple [] -> None
@@ -1331,7 +1355,7 @@ and check_actuals (loc : Loc.t) (fmt : Format.formatter) (env : environment) (ft
   if !type_checks then begin
     List.iter2 (fun (formal, t) actual ->
       let requires = check_type loc env fmt actual t in
-      Option.iter (type_assert fmt) requires
+      Option.iter (type_assert loc fmt) requires
       )
       (formal_args fty)
       actuals
@@ -1373,7 +1397,7 @@ and set_slice (loc : Loc.t) (env : environment) (fmt : PP.formatter) (rty : AST.
   let (lo, wd) = slice s in
   let lo' = expr loc env fmt lo in
   let wd' = expr loc env fmt wd in
-  bv_setslice fmt v (fst lo') (fst wd') r
+  bv_setslice loc fmt v (fst lo') (fst wd') r
 
 and mk_unspecified_expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.ty) : Ident.t =
   ( match x with
@@ -1429,7 +1453,7 @@ and mk_unspecified_expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (
 
 and mk_uninitialized (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.ty) : Ident.t =
   ( match x with
-  | Type_Bits (e, _) -> bv_zero fmt (fst (expr loc env fmt e))
+  | Type_Bits (e, _) -> bv_zero loc fmt (fst (expr loc env fmt e))
   | Type_Constructor (tc, []) when Ident.equal tc Builtin_idents.boolean_ident -> bool_constant loc fmt false
   | Type_Constructor (tc, []) when Ident.equal tc Builtin_idents.string_ident -> string_constant loc fmt ""
   | Type_Constructor (tc, []) when Identset.Bindings.mem tc !enum_types ->
@@ -1453,13 +1477,14 @@ and raw_exception_propagate (loc : Loc.t) (fmt : PP.formatter) (exc : (Ident.t *
   let tag = func_call1 loc fmt (record_field_get exception_tc tag_ident) [exc] tag_type in
   let tag_width = !exception_tag_width in
   let zero_tag = arith_constant loc fmt Z.zero tag_width in
-  let tag_match = arith_int_cmp fmt "eq" tag_width tag zero_tag in
+  let tag_match = arith_int_cmp loc fmt "eq" tag_width tag zero_tag in
 
-  PP.fprintf fmt "cf.cond_br %a, %a, %a(%a)@,"
+  PP.fprintf fmt "cf.cond_br %a, %a, %a(%a) %a@,"
     varident tag_match
     label l_no_exception
     label l_exception
-    (varty loc) exc;
+    (varty loc) exc
+    loc_attr loc;
   PP.fprintf fmt "%a:@," label l_no_exception
 
 and exception_propagate (loc : Loc.t) (fmt : PP.formatter) (throws : AST.can_throw) (rets : (Ident.t * AST.ty) list) : (bool * (Ident.t * AST.ty) list) =
@@ -1613,7 +1638,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       let e' = expr loc env fmt e in
       if !type_checks then begin
         let ensures = check_types loc env fmt (fst e') !return_types in
-        Option.iter (type_assert fmt) ensures
+        Option.iter (type_assert loc fmt) ensures
       end;
       cf_br loc fmt !return_label [e'];
       true
@@ -1717,7 +1742,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       let e' = expr loc env fmt e in
       let c = patterns loc env fmt ps e' in
       let guard = Option.fold ~none:(bool_constant loc fmt true, type_bool) ~some:(expr loc env fmt) oguard in
-      let c' = bool_and fmt c (fst guard) in
+      let c' = bool_and loc fmt c (fst guard) in
 
       let mutables = get_mutables env in
       let renames = List.map (fun (v, init, t) -> (v, init, locals#fresh, locals#fresh, t)) mutables in
@@ -1849,8 +1874,8 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
 
       branch_label loc fmt l_test test_vars;
       let continue = ( match direction with
-                     | Direction_Up -> int_le fmt ix' t'
-                     | Direction_Down -> int_le fmt t' ix'
+                     | Direction_Up -> int_le loc fmt ix' t'
+                     | Direction_Down -> int_le loc fmt t' ix'
                      )
       in
       cf_cond_br loc fmt continue l_cont test_vars l_fini test_vars;
@@ -1859,7 +1884,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       let term = block env_cont fmt b in
 
       if not term then begin
-        let next = int_add fmt ix'' step' in
+        let next = int_add loc fmt ix'' step' in
         ignore (ScopeStack.set env_cont ix (Some next, false, ty));
         make_backward_branch loc fmt env_cont ((ix, next, ty)::mutables) l_test
       end;
@@ -1917,7 +1942,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
             let tag_constant = Identset.Bindings.find tc !exceptions in
             let tag_width = !exception_tag_width in
             let tc_tag = arith_constant loc fmt (Z.of_int tag_constant) tag_width in
-            let tag_match = arith_int_cmp fmt "eq" tag_width tag tc_tag in
+            let tag_match = arith_int_cmp loc fmt "eq" tag_width tag tc_tag in
             cf_cond_br loc fmt tag_match l_true c_vars2 l_false c_vars2;
 
             branch_label loc fmt l_true c_vars2;
@@ -2114,7 +2139,7 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
             if !type_checks then begin
                 List.iter (fun (v, t) ->
                   let requires = check_type loc body_env fmt v t in
-                  Option.iter (type_assume fmt) requires
+                  Option.iter (type_assume loc fmt) requires
                   )
                   (formal_args fty)
             end;
