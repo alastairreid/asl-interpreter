@@ -473,10 +473,10 @@ let formal_arg_types (loc : Loc.t) (fmt : PP.formatter) (fty : AST.function_type
   let vtys = formal_args fty in
   commasep (fun fmt (v, t) -> pp_type loc fmt t) fmt vtys
 
-let mk_formal_env (fty : AST.function_type) (actuals : Ident.t list) : environment =
+let mk_formal_env (fty : AST.function_type) (actuals : var list) : environment =
   let formal_env = ScopeStack.empty () in
   List.iter2
-    (fun (formal, t) actual -> ScopeStack.add formal_env formal (Some actual, false, t))
+    (fun (formal, t) (actual, t') -> ScopeStack.add formal_env formal (Some actual, false, t))
     (formal_args fty) actuals;
   formal_env
 
@@ -1298,8 +1298,8 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       let fty = Identset.Bindings.find f !funtypes in
       let actuals = actual_args fty tes es in
       let actuals' = List.map (expr loc env fmt) actuals in
-      let formal_env = mk_formal_env fty (List.map fst actuals') in
-      check_actuals loc fmt formal_env fty (List.map fst actuals');
+      let formal_env = mk_formal_env fty actuals' in
+      check_actuals loc fmt formal_env fty actuals';
       let rets = func_call loc fmt f actuals' (mk_return_type fty) in
       let (_, rets') = exception_propagate loc fmt fty.throws rets in
       if !type_checks then begin
@@ -1468,9 +1468,9 @@ and check_type (loc : Loc.t) (env : environment) (fmt : PP.formatter) (v : Ident
       raise (Error.Unimplemented (loc, "check_type", pp))
   )
 
-and check_actuals (loc : Loc.t) (fmt : Format.formatter) (env : environment) (fty : AST.function_type) (actuals : Ident.t list) : unit =
+and check_actuals (loc : Loc.t) (fmt : Format.formatter) (env : environment) (fty : AST.function_type) (actuals : var list) : unit =
   if !type_checks then begin
-    List.iter2 (fun (formal, t) actual ->
+    List.iter2 (fun (formal, t) (actual, t') ->
       let requires = check_type loc env fmt actual t in
       Option.iter (type_assert loc fmt) requires
       )
@@ -1579,9 +1579,8 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       let fty = Identset.Bindings.find f !funtypes in
       let actuals = actual_args fty tes args in
       let actuals' = List.map (expr loc env fmt) actuals in
-      let actuals'' = List.map fst actuals' in
-      let formal_env = mk_formal_env fty actuals'' in
-      check_actuals loc fmt formal_env fty actuals'';
+      let formal_env = mk_formal_env fty actuals' in
+      check_actuals loc fmt formal_env fty actuals';
       let rets = func_call loc fmt f actuals' (mk_return_type fty) in
       let (term, rets') = exception_propagate loc fmt fty.throws rets in
       assert (List.is_empty rets');
@@ -1959,9 +1958,8 @@ and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lex
       let fty = Identset.Bindings.find f !funtypes in
       let actuals = actual_args fty tes args in
       let actuals' = List.map (expr loc env fmt) actuals @ [rhs] in
-      let actuals'' = List.map fst actuals' in
-      let formal_env = mk_formal_env fty actuals'' in
-      check_actuals loc fmt formal_env fty actuals'';
+      let formal_env = mk_formal_env fty actuals' in
+      check_actuals loc fmt formal_env fty actuals';
       let rets = func_call loc fmt f actuals' (mk_return_type fty) in
       let (term, rets') = exception_propagate loc fmt fty.throws rets in
       assert (not term);
@@ -1972,9 +1970,8 @@ and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lex
       assert (wr_ty.throws = NoThrow);
       let wr_actuals = actual_args wr_ty tes args in
       let wr_actuals' = List.map (expr loc env fmt) wr_actuals @ [rhs] in
-      let wr_actuals'' = List.map fst wr_actuals' in
-      let wr_formal_env = mk_formal_env wr_ty wr_actuals'' in
-      check_actuals loc fmt wr_formal_env wr_ty wr_actuals'';
+      let wr_formal_env = mk_formal_env wr_ty wr_actuals' in
+      check_actuals loc fmt wr_formal_env wr_ty wr_actuals';
       let wr_rets = func_call loc fmt wr wr_actuals' (mk_return_type wr_ty) in
       assert (List.is_empty wr_rets)
 
