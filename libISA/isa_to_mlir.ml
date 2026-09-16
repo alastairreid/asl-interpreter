@@ -712,6 +712,16 @@ let int_le (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Iden
 let int_lt (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (y : Ident.t) : Ident.t =
   func_call1 loc fmt Builtins.lt_int [(x, type_integer); (y, type_integer)] type_bool
 
+let int_slice (loc : Loc.t) (fmt : PP.formatter) (x : Ident.t) (i : Ident.t) (w : Ident.t) : Ident.t =
+  with_fresh (fun t ->
+    PP.fprintf fmt "%a = func.call @Std$Integer$Slice(%a, %a, %a) : (!Std$Integer, !Std$Integer, !Std$Integer) -> !Std$Bits %a@,"
+      varident t
+      varident x
+      varident i
+      varident w
+      loc_attr loc
+  )
+
 let bv_eq (loc : Loc.t) (fmt : PP.formatter) (sz : Ident.t) (x : Ident.t) (y : Ident.t) : Ident.t =
   with_fresh (fun r ->
     PP.fprintf fmt "%a = func.call @Std$Bits$Eq(%a, %a, %a) : (!Std$Integer, !Std$Bits, !Std$Bits) -> i1 %a@,"
@@ -960,7 +970,7 @@ let mk_record_constructor (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs
     let t = tuple_pack loc fmt fs in
     func_return loc fmt [t]
   );
-  PP.fprintf fmt "@,}@,@,"
+  PP.fprintf fmt "@,} %a@,@," loc_attr loc
 
 let mk_record_get (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs : (Ident.t * AST.ty) list) (f : Ident.t) (ft : AST.ty) : unit =
   let rty = AST.Type_Constructor (rtc, []) in
@@ -976,7 +986,7 @@ let mk_record_get (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs : (Iden
     in
     func_return loc fmt [Identset.Bindings.find f env]
   );
-  PP.fprintf fmt "@,}@,"
+  PP.fprintf fmt "@,} %a@," loc_attr loc
 
 let mk_record_set (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs : (Ident.t * AST.ty) list) (f : Ident.t) (ft : AST.ty) : unit =
   let rty = AST.Type_Constructor (rtc, []) in
@@ -995,7 +1005,7 @@ let mk_record_set (loc : Loc.t) (fmt : PP.formatter) (rtc : Ident.t) (fs : (Iden
     let result = tuple_pack loc fmt rs' in
     func_return loc fmt [result]
   );
-  PP.fprintf fmt "@,}@,"
+  PP.fprintf fmt "@,} %a@," loc_attr loc
 
 (****************************************************************
  * Patterns
@@ -1140,13 +1150,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       let (e', _) = expr loc env fmt e in
       let (lo', _) = expr loc env fmt lo in
       let (wd', _) = expr loc env fmt wd in
-      with_fresh_typed (type_bits wd) (fun t ->
-        PP.fprintf fmt "%a = func.call @Std$Integer$Slice(%a, %a, %a) : (!Std$Integer, !Std$Integer, !Std$Integer) -> !Std$Bits@,"
-          varident t
-          varident e'
-          varident lo'
-          varident wd'
-      )
+      (int_slice loc fmt e' lo' wd', type_bits wd)
 
   | Expr_Slices (Type_Constructor _, e, ss)
   | Expr_Slices (Type_Bits _, e, ss) ->
@@ -1243,7 +1247,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       let rtc = ( match snd e' with
                 | Type_Constructor (rtc, _) -> rtc
                 | _ ->
-                    raise (InternalError (Loc.Unknown, "isa_to_mlir.expr_field", (fun fmt -> FMT.ty fmt (snd e')), __LOC__))
+                    raise (InternalError (loc, "isa_to_mlir.expr_field", (fun fmt -> FMT.ty fmt (snd e')), __LOC__))
                 )
       in
       let field_tys = Identset.Bindings.find rtc !fieldtypes in
@@ -1537,7 +1541,7 @@ and mk_exception_constructor (loc : Loc.t) (fmt : PP.formatter)
     let t = tuple_pack loc fmt tfs' in
     func_return loc fmt [t]
   );
-  PP.fprintf fmt "@,}@,@,"
+  PP.fprintf fmt "@,} %a@,@," loc_attr loc
 
 (* Note: this depends on the tag being zero which is the default uninitialized value *)
 and mk_null_exception (loc : Loc.t) (env : environment) (fmt : Format.formatter) (ts : AST.ty list) : (Ident.t * AST.ty) =
@@ -1563,9 +1567,9 @@ let mk_exception_get (loc : Loc.t) (fmt : PP.formatter)
     in
     func_return loc fmt [Identset.Bindings.find f env]
   );
-  PP.fprintf fmt "@,}@,"
+  PP.fprintf fmt "@,} %a@," loc_attr loc
 
-let generate_sum_of_products (fmt : Format.formatter)
+let generate_sum_of_products (loc : Loc.t) (fmt : Format.formatter)
       (tc : Ident.t)
       (entries : (Ident.t * (Ident.t * AST.ty) list * Loc.t) list)
   : unit
@@ -1580,11 +1584,11 @@ let generate_sum_of_products (fmt : Format.formatter)
   let fields' = tag_field :: fields in
   exception_fields := List.map snd fields';
   Format.fprintf fmt "%a = i%d@,"
-    (pp_type Loc.Unknown) tag_type
+    (pp_type loc) tag_type
     tag_width;
-  mk_record_type Loc.Unknown fmt tc fields';
-  mk_record_constructor Loc.Unknown fmt tc fields';
-  mk_record_get Loc.Unknown fmt tc fields' (fst tag_field) (snd tag_field);
+  mk_record_type loc fmt tc fields';
+  mk_record_constructor loc fmt tc fields';
+  mk_record_get loc fmt tc fields' (fst tag_field) (snd tag_field);
   List.iteri (fun i (dc, dfs, loc) ->
     fieldtypes := Identset.Bindings.add dc fields' !fieldtypes;
     Format.fprintf fmt "!%a = !%a@," ident dc ident tc;
@@ -1608,12 +1612,12 @@ let mk_uninitialized_function (loc : Loc.t) (fmt : PP.formatter) (tc : Ident.t) 
     let r = (mk_uninitialized loc env fmt t, t) in
     func_return loc fmt [r]
   );
-  PP.fprintf fmt "@,}@,"
+  PP.fprintf fmt "@,} %a@," loc_attr loc
 
 let mk_unspecified_function (loc : Loc.t) (fmt : PP.formatter) (tc : Ident.t) (t : AST.ty) : unit =
   let rty = AST.Type_Constructor (tc, []) in
   func_header loc fmt (mk_unspecified tc) [] [rty];
-  PP.fprintf fmt "@,"
+  PP.fprintf fmt " %a@," loc_attr loc
 
 (****************************************************************
  * Statements
@@ -1624,9 +1628,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
   ( match x with
   | Stmt_Assert (e, loc) ->
       let (e', _) = expr loc env fmt e in
-      PP.fprintf fmt "cf.assert %a, \"%a\""
-        varident e'
-        FMT.expr e;
+      cf_assert loc fmt e' (Utils.to_string2 (fun fmt -> FMT.expr fmt e));
       false
 
   | Stmt_Return (Expr_Tuple es, loc) ->
@@ -1983,7 +1985,7 @@ and decl_item (loc : Loc.t) (env : environment) (fmt : PP.formatter) (is_constan
       List.iter2 (fun di i -> decl_item loc env fmt is_constant di i) dis is
   | _ ->
       let pp fmt = FMT.decl_item fmt x in
-      raise (Error.Unimplemented (Loc.Unknown, "decl_item", pp))
+      raise (Error.Unimplemented (loc, "decl_item", pp))
   )
 
 
@@ -2007,7 +2009,7 @@ and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lex
       let rtc = ( match rty with
                 | Type_Constructor (rtc, _) -> rtc
                 | _ ->
-                  raise (InternalError (Loc.Unknown, "isa_to_mlir.lexpr_field", (fun fmt -> FMT.ty fmt rty), __LOC__))
+                  raise (InternalError (loc, "isa_to_mlir.lexpr_field", (fun fmt -> FMT.ty fmt rty), __LOC__))
                 )
       in
       let new' = func_call1 loc fmt (record_field_set rtc f) [(old', rty); rhs] rty in
@@ -2077,7 +2079,7 @@ and assign (loc : Loc.t) (env : environment) (fmt : PP.formatter) (lhs : AST.lex
 
   | _ ->
       let pp fmt = FMT.lexpr fmt lhs in
-      raise (Error.Unimplemented (Loc.Unknown, "assign", pp))
+      raise (Error.Unimplemented (loc, "assign", pp))
   )
 
 
@@ -2187,7 +2189,7 @@ let declaration (fmt : PP.formatter) ?(is_extern : bool option) (x : AST.declara
 
           end;
 
-          PP.fprintf fmt "@,}@,"
+          PP.fprintf fmt "@,} %a@," loc_attr loc
       | Decl_Var (v, Type_Array (Index_Int (Expr_Lit (VInt sz)), elty), loc) ->
           memref_global_array loc fmt v sz elty
       | Decl_Var (v, ty, loc) ->
@@ -2297,7 +2299,7 @@ let _ =
         )
         decls
       in
-      generate_sum_of_products fmt exception_tc exceptions;
+      generate_sum_of_products Loc.Unknown fmt exception_tc exceptions;
 
       declarations fmt decls;
 
