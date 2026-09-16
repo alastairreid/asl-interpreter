@@ -329,6 +329,9 @@ let return_label : Ident.t ref = ref labels#fresh
 let throw_labels : Ident.t list ref = ref []
 let can_throw : bool ref = ref false
 
+let bind (env : environment) (is_constant : bool) (v : Ident.t) (x : var) : unit =
+  ScopeStack.add env v (Some (fst x), is_constant, snd x)
+
 let rebind (loc : Loc.t) (env : environment) (v : Ident.t) (v' : Ident.t) : unit =
   ( match ScopeStack.get env v with
   | Some (_, is_constant, ty) -> ignore (ScopeStack.set env v (Some v', is_constant, ty))
@@ -476,7 +479,7 @@ let formal_arg_types (loc : Loc.t) (fmt : PP.formatter) (fty : AST.function_type
 let mk_formal_env (fty : AST.function_type) (actuals : var list) : environment =
   let formal_env = ScopeStack.empty () in
   List.iter2
-    (fun (formal, t) (actual, t') -> ScopeStack.add formal_env formal (Some actual, false, t))
+    (fun (formal, t) actual -> bind formal_env true formal actual)
     (formal_args fty) actuals;
   formal_env
 
@@ -1339,9 +1342,7 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
 
   | Expr_Assert (c, e, loc) ->
       let (c', _) = expr loc env fmt c in
-      PP.fprintf fmt "cf.assert %a, \"%a\""
-        varident c'
-        FMT.expr x;
+      cf_assert loc fmt c' (Utils.to_string2 (fun fmt -> FMT.expr fmt c));
       expr loc env fmt e
 
   | Expr_In (e, p) ->
@@ -1349,9 +1350,9 @@ and expr (loc : Loc.t) (env : environment) (fmt : PP.formatter) (x : AST.expr) :
       (pattern loc env fmt p e', type_bool)
 
   | Expr_Let (v, t, e1, e2) ->
-      let (e1', _) = expr loc env fmt e1 in
+      let e1' = expr loc env fmt e1 in
       ScopeStack.nest env (fun env' ->
-        ScopeStack.add env v (Some e1', true, t);
+        bind env true v e1';
         expr loc env fmt e2
       )
 
@@ -1478,10 +1479,10 @@ and check_actuals (loc : Loc.t) (fmt : Format.formatter) (env : environment) (ft
       actuals
   end
 
-and check_types (loc : Loc.t) (env : environment) (fmt : PP.formatter) (v : Ident.t) (xs : AST.ty list) : Ident.t option =
+and check_types (loc : Loc.t) (env : environment) (fmt : PP.formatter) (v : var) (xs : AST.ty list) : Ident.t option =
   ( match xs with
-  | [t] -> check_type loc env fmt v t
-  | _ -> check_type loc env fmt v (Type_Tuple xs)
+  | [t] -> check_type loc env fmt (fst v) t
+  | _ -> check_type loc env fmt (fst v) (Type_Tuple xs)
   )
 
 and apply_change (loc : Loc.t) (env : environment) (fmt : PP.formatter) (rty : AST.ty) (vty : AST.ty) (c : AST.change) (v : Ident.t) (r : Ident.t) : Ident.t =
@@ -1546,7 +1547,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
   | Stmt_Return (e, loc) ->
       let e' = expr loc env fmt e in
       if !type_checks then begin
-        let ensures = check_types loc env fmt (fst e') !return_types in
+        let ensures = check_types loc env fmt e' !return_types in
         Option.iter (type_assert loc fmt) ensures
       end;
       cf_br loc fmt !return_label [e'];
@@ -1556,7 +1557,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       let sz' = expr loc env fmt sz in
       List.iter (fun v ->
           let i' = memref_alloc_array loc fmt (fst sz') elty in
-          ScopeStack.add env v (Some i', false, t)
+          bind env false v (i', t)
         )
         vs;
       false
@@ -1776,7 +1777,7 @@ let rec stmt (env : environment) (fmt : PP.formatter) (x : AST.stmt) : bool =
       let fini_vars = (ix''', ty) :: List.map (fun (v, init, test, body, fini, t) -> (fini, t)) renames in
       let fini_bind = List.map (fun (v, init, test, body, fini, t) -> (v, fini, t)) renames in
       let env_cont  = fresh_env env (List.map (fun (v, init, test, body, fini, t) -> (v, body, t)) renames) in
-      ScopeStack.add env_cont ix (Some ix', false, ty);
+      bind env_cont false ix (ix', ty);
 
       cf_br loc fmt l_test init_vars;
 
@@ -1884,8 +1885,8 @@ and decl_item (loc : Loc.t) (env : environment) (fmt : PP.formatter) (is_constan
   ( match (x, i) with
   | (DeclItem_Wildcard _, _) ->
       ()
-  | (DeclItem_Var (v, _), (i', t)) ->
-      ScopeStack.add env v (Some i', is_constant, t)
+  | (DeclItem_Var (v, _), i') ->
+      bind env is_constant v i'
   | (DeclItem_Tuple dis, (i', Type_Tuple ts)) ->
       let is = tuple_unpack loc fmt i' ts in
       List.iter2 (fun di i -> decl_item loc env fmt is_constant di i) dis is
